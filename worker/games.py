@@ -17,10 +17,10 @@ import tempfile
 import threading
 import time
 import traceback
-from base64 import b64decode
 from zipfile import ZipFile
 
 import requests
+from base64 import b64decode
 
 try:
     from Queue import Empty, Queue
