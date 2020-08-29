@@ -1,7 +1,7 @@
 from __future__ import absolute_import, print_function
 
-import copy
 import datetime
+import copy
 import glob
 import hashlib
 import json
