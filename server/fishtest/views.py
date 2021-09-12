@@ -1107,6 +1107,7 @@ def validate_form(request):
         sprt_batch_size_games = 2 * max(
             1, int(0.5 + 16 / get_tc_ratio(data["tc"], data["threads"]))
         )
+        sprt_batch_size_games = 8
         assert sprt_batch_size_games % 2 == 0
         elo_model = request.POST["elo_model"]
         if elo_model not in ["BayesElo", "logistic", "normalized"]:

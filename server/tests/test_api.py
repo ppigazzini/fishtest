@@ -244,13 +244,18 @@ class TestApi(unittest.TestCase):
         response = WorkerApi(request).request_task()
         self.assertTrue(run["tasks"][0]["active"])
 
+        # Task sizing is time-based and may differ from `self.chunk_size`.
+        # Use the actual task size assigned by the server.
+        run = self.rundb.get_run(run_id)
+        task_size = run["tasks"][0]["num_games"]
+
         # Request fails if username/password is invalid
         with self.assertRaises(HTTPUnauthorized):
             response = WorkerApi(self.invalid_password_request()).update_task()
             self.assertTrue("error" in response)
             print(response["error"])
 
-        # Task is active after calling /api/update_task with the first set of results
+        # Task liveness depends on whether the update completes the task.
         request = self.correct_password_request(
             {
                 "run_id": run_id,
@@ -266,11 +271,20 @@ class TestApi(unittest.TestCase):
             }
         )
         response = WorkerApi(cleanup(request)).update_task()
-        self.assertTrue(response["task_alive"])
+        self.assertEqual(response["task_alive"], 2 < task_size)
+
+        # If tasks are very small, the first update may already complete them.
+        if task_size < 8:
+            return
 
         # Task is still active
-        cs = self.chunk_size
-        w, d = cs // 2 - 10, cs // 2
+        cs = task_size
+        # Leave headroom for the later +2 update so the task stays alive.
+        target_total = cs - 4
+        w = target_total // 2
+        if w % 2 != 0:
+            w -= 1
+        d = target_total - w
 
         request = self.correct_password_request(
             {
@@ -584,18 +598,18 @@ class TestRunFinished(unittest.TestCase):
     def test_auto_purge_runs(self):
         stop_all_runs(self)
         run_id = new_run(self)
-        run = self.rundb.get_run(run_id)
-        num_games = 1200
-        run["args"]["num_games"] = num_games
-        self.rundb.buffer(run, priority=Prio.SAVE_NOW)
-
-        # Request task 1 of 2
+        # Request task 1 of 2 (size is time-based; use the actual assigned size).
         request = self.correct_password_request()
         response = WorkerApi(request).request_task()
+        run = self.rundb.get_run(run_id)
         self.assertEqual(response["run"]["_id"], str(run["_id"]))
         self.assertEqual(response["task_id"], 0)
         task1 = self.rundb.get_run(run_id)["tasks"][0]
         task_size1 = task1["num_games"]
+
+        # Force this run to take exactly two tasks.
+        run["args"]["num_games"] = 2 * task_size1
+        self.rundb.buffer(run, priority=Prio.SAVE_NOW)
 
         # Finish task 1 of 2
         n_wins = task_size1 // 5
