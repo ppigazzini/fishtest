@@ -8,6 +8,7 @@ import threading
 import time
 import urllib
 
+from fishtest.dev_util import profileit
 import fishtest.stats.stat_util
 import requests
 from fishtest.util import (
@@ -1160,7 +1161,7 @@ def tests_stats(request):
     return {"run": run, "page_title": get_page_title(run)}
 
 
-@view_config(route_name="tests_view", renderer="tests_view.mak")
+@view_config(route_name="tests_view", renderer="tests_view.mak", decorator=profileit)
 def tests_view(request):
     run = request.rundb.get_run(request.matchdict["id"])
     if "follow" in request.params:
@@ -1428,7 +1429,6 @@ last_time = 0
 
 # Guard against parallel builds of main page
 building = threading.Semaphore()
-
 
 @view_config(route_name="tests", renderer="tests.mak")
 def tests(request):
