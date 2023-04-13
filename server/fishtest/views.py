@@ -8,6 +8,7 @@ import threading
 import time
 import urllib
 
+from fishtest.dev_util import profileit
 import fishtest.stats.stat_util
 import requests
 from fishtest.util import (
@@ -1412,8 +1413,7 @@ last_time = 0
 # Guard against parallel builds of main page
 building = threading.Semaphore()
 
-
-@view_config(route_name="tests", renderer="tests.mak")
+@view_config(route_name="tests", renderer="tests.mak", decorator=profileit)
 def tests(request):
     request.response.headerlist.extend(
         (
