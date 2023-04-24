@@ -15,6 +15,8 @@ from pyramid.httpexceptions import (
 from pyramid.response import Response
 from pyramid.view import exception_view_config, view_config, view_defaults
 
+from fishtest.dev_util import profileit
+
 """
 Important note
 ==============
@@ -71,7 +73,7 @@ def validate_request(request):
     }
     return validate(schema, request, "request")
 
-
+@profileit
 def strip_run(run):
     run = copy.deepcopy(run)
     if "tasks" in run:
