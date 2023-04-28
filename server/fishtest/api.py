@@ -15,6 +15,8 @@ from pyramid.httpexceptions import (
 from pyramid.response import Response
 from pyramid.view import exception_view_config, view_config, view_defaults
 
+from fishtest.dev_util import profileit
+
 """
 Important note
 ==============
@@ -369,7 +371,7 @@ class ApiView(object):
         result["run"] = min_run
         return self.add_time(result)
 
-    @view_config(route_name="api_update_task")
+    @view_config(route_name="api_update_task", decorator=profileit)
     def update_task(self):
         self.validate_request("/api/update_task")
         result = self.request.rundb.update_task(
