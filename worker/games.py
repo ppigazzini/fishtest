@@ -1605,6 +1605,7 @@ def run_games(
         # Update frequency for NumGames/SPSA test:
         # every 4 games at LTC, or a similar time interval at shorter TCs
         batch_size = games_concurrency * 4 * max(1, round(tc_limit_ltc / tc_limit))
+        batch_size = games_concurrency * 4
 
         if spsa_tuning:
             games_to_play = min(batch_size, games_remaining)
