@@ -530,13 +530,16 @@ def users_monthly(request):
 
 
 def get_master_info():
-    bench_search = re.compile(r"(^|\s)[Bb]ench[ :]+([1-9]\d{5,9})(?!\d)")
-    commits = requests.get(
-        "https://api.github.com/repos/official-stockfish/Stockfish/commits"
-    ).json()
-    for idx, commit in enumerate(commits):
-        if "commit" not in commit:
-            return None
+    try:
+        commits = requests.get(
+            "https://api.github.com/repos/official-stockfish/Stockfish/commits"
+        )
+        commits.raise_for_status()
+    except Exception as e:
+        print(f"Error getting commits:\n{e}")
+        return None
+    bench_search = re.compile(r"(^|\s)[Bb]ench[ :]+([1-9]\d{5,7})(?!\d)")
+    for idx, commit in enumerate(commits.json()):
         message_lines = commit["commit"]["message"].strip().split("\n")
         bench = bench_search.search(message_lines[-1].strip())
         if idx == 0:
