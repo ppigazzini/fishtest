@@ -1633,7 +1633,7 @@ def worker():
     # Start the main loop.
     delay = INITIAL_RETRY_TIME
     fish_exit = False
-    clear_binaries = True
+    clear_binaries = False
     while current_state["alive"]:
         if (worker_dir / "fish.exit").is_file():
             current_state["alive"] = False
