@@ -127,10 +127,18 @@ class ApiView(object):
         self.validate_username_password(api)
 
         # Is the request syntactically correct?
-        try:
-            validate_request(self.request_body)
-        except ValidationError as e:
-            self.handle_error(str(e))
+        whitelisted_users = (
+            "user00",
+            "vdv",
+        )
+        username = self.request_body["worker_info"]["username"]
+        if username not in whitelisted_users:
+            try:
+                validate_request(self.request_body)
+            except ValidationError as e:
+                self.handle_error(str(e))
+        # else:
+        #    print("Whitelisted user:", username, flush=True)
 
         # is a supplied run_id correct?
         if "run_id" in self.request_body:
