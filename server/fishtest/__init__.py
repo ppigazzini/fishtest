@@ -203,4 +203,4 @@ def read_pyramid_test():
 pyramid_app = create_pyramid_app({})
 
 # Mount the Pyramid app using WSGIMiddleware
-app.mount("/", WSGIMiddleware(pyramid_app))
+app.mount("/pyramid", WSGIMiddleware(pyramid_app))
