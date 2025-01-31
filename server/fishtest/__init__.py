@@ -190,12 +190,12 @@ def create_pyramid_app(global_config, **settings):
 app = FastAPI()
 
 # Add a simple FastAPI route to verify FastAPI is working
-@app.get("/test")
+@app.get("/v2")
 def read_test():
     return {"message": "FastAPI is working"}
 
 # Create the Pyramid app
 pyramid_app = create_pyramid_app({})
 
-# Mount the Pyramid app using WSGIMiddleware
-app.mount("/", WSGIMiddleware(pyramid_app))
+# Mount the Pyramid app under "/pyramid"
+app.mount("/v1", WSGIMiddleware(pyramid_app))
