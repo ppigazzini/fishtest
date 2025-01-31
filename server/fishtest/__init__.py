@@ -16,6 +16,8 @@ from pyramid.security import forget
 from pyramid.session import SignedCookieSessionFactory
 
 from fishtest import helpers
+from fastapi import FastAPI
+from fastapi.middleware.wsgi import WSGIMiddleware
 
 
 def thread_stack_dump(sig, frame):
@@ -27,7 +29,7 @@ def thread_stack_dump(sig, frame):
             print("Failed to print traceback, the thread is probably gone", flush=True)
 
 
-def main(global_config, **settings):
+def create_pyramid_app(global_config, **settings):
     """This function returns a Pyramid WSGI application."""
 
     # Register handler, will list the stack traces of all active threads
@@ -182,3 +184,13 @@ def main(global_config, **settings):
 
     config.scan()
     return config.make_wsgi_app()
+
+
+# Create the FastAPI app
+app = FastAPI()
+
+# Create the Pyramid app
+pyramid_app = create_pyramid_app({})
+
+# Mount the Pyramid app using WSGIMiddleware
+app.mount("/", WSGIMiddleware(pyramid_app))
