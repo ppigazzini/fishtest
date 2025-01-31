@@ -6,6 +6,8 @@ import threading
 import traceback
 from pathlib import Path
 
+import configparser
+
 from fishtest.rundb import RunDb
 from pyramid.authentication import AuthTktAuthenticationPolicy
 from pyramid.authorization import ACLAuthorizationPolicy
@@ -194,8 +196,16 @@ app = FastAPI()
 def read_test():
     return {"message": "FastAPI is working"}
 
+
 # Create the Pyramid app
-pyramid_app = create_pyramid_app({})
+def load_settings():
+    ini_path = Path(__file__).parent.parent / "production.ini"
+    parser = configparser.ConfigParser()
+    parser.read(ini_path)
+    return dict(parser["app:main"])
+
+pyramid_settings = load_settings()
+pyramid_app = create_pyramid_app({}, **pyramid_settings)
 
 # Mount the Pyramid app under "/pyramid"
 app.mount("/v1", WSGIMiddleware(pyramid_app))
