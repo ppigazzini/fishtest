@@ -194,3 +194,13 @@ pyramid_app = create_pyramid_app({})
 
 # Mount the Pyramid app using WSGIMiddleware
 app.mount("/", WSGIMiddleware(pyramid_app))
+
+# Add a simple FastAPI route to verify FastAPI is working
+@app.get("/test")
+def read_test():
+    return {"message": "FastAPI is working"}
+
+# Add a simple Pyramid route to verify Pyramid is working
+@app.get("/pyramid_test")
+def read_pyramid_test():
+    return {"message": "Pyramid is working"}

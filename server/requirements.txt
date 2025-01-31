@@ -4,7 +4,7 @@ orjson
 pydantic
 python-multipart
 uvicorn[standard]
-    
+gunicorn
 pyramid
 pyramid_debugtoolbar
 pyramid_mako
