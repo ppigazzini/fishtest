@@ -1550,7 +1550,7 @@ def worker():
 
     # Make sure we have a working fastchess
     if not setup_fastchess(
-        worker_dir, compiler, options.concurrency, options.global_cache, tests=True
+        worker_dir, compiler, options.concurrency, options.global_cache, tests=False
     ):
         return 1
 
