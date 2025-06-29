@@ -155,6 +155,8 @@ class SPSAHandler:
         # SPSA-AMSGRAD
         beta1 = spsa.get("beta1", 0.9)
         beta2 = spsa.get("beta2", 0.999)
+        # Use a constant step-size for Adam/AMSGrad, not the SPSA a_k schedule
+        alpha = spsa.get("alpha_amsgrad", 0.05)
         # Bias correction
         spsa["iter_corr"] = spsa.get("iter_corr", 0) + 1
         iter_corr = spsa["iter_corr"]
@@ -168,11 +170,10 @@ class SPSAHandler:
                 param["v"] = 0.0
                 param["v_hat_max"] = 0.0
 
-            R = w_params[idx]["R"]
             c = w_params[idx]["c"]
             flip = w_params[idx]["flip"]
-            # Gradient estimate, g
-            g = result * flip
+            # Scaled SPSA gradient estimate, g
+            g = result * flip / c
             # Update biased first and second moment estimates
             param["m"] = beta1 * param["m"] + (1 - beta1) * g
             param["v"] = beta2 * param["v"] + (1 - beta2) * g**2
@@ -182,7 +183,7 @@ class SPSAHandler:
             # Update maximum of past second moment estimates
             param["v_hat_max"] = max(param["v_hat_max"], v_hat)
             # Update theta
-            update = R * c * m_hat / (np.sqrt(param["v_hat_max"]) + 1e-8)
+            update = alpha * m_hat / (np.sqrt(param["v_hat_max"]) + 1e-8)
             param["theta"] = _param_clip(param, update)
 
         _add_to_history(spsa, run["args"]["num_games"], w_params)
