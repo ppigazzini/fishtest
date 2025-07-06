@@ -843,6 +843,8 @@ def parse_spsa_params(spsa):
         param["a_end"] = param["r_end"] * param["c_end"] ** 2
         param["a"] = param["a_end"] * (spsa["A"] + spsa["num_iter"]) ** spsa["alpha"]
         param["theta"] = param["start"]
+        param["m"] = 0.0
+        param["v"] = 0.0
         params.append(param)
     return params
 
