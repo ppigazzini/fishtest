@@ -843,6 +843,8 @@ def parse_spsa_params(spsa):
         param["a_end"] = param["r_end"] * param["c_end"] ** 2
         param["a"] = param["a_end"] * (spsa["A"] + spsa["num_iter"]) ** spsa["alpha"]
         param["theta"] = param["start"]
+        param["z"] = param["start"]
+        param["v"] = 0.0
         params.append(param)
     return params
 
@@ -1130,6 +1132,11 @@ def validate_form(request):
             "raw_params": request.POST["spsa_raw_params"],
             "iter": 0,
             "num_iter": int(data["num_games"] / 2),
+            "sf_lr": float(request.POST.get("sf_lr", "0.0025")),
+            "sf_beta1": float(request.POST.get("sf_beta1", "0.9")),
+            "sf_beta2": float(request.POST.get("sf_beta2", "0.999")),
+            "sf_eps": float(request.POST.get("sf_eps", "1e-8")),
+            "sf_weight_sum": 0.0,
         }
         data["spsa"]["params"] = parse_spsa_params(data["spsa"])
         if len(data["spsa"]["params"]) == 0:
