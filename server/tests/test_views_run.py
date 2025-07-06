@@ -5,10 +5,13 @@ from datetime import UTC, datetime, timedelta
 from unittest import mock
 
 import test_support
+from bson.objectid import ObjectId
 from starlette.responses import RedirectResponse
 from ui_user_test_case import UiUserTestCase
+from vtjson import validate
 
 from fishtest.run_cache import Prio
+from fishtest.schemas import RUN_VERSION, runs_schema
 from fishtest.views_run import (
     _RUN_MODIFY_MAX_AGE_DAYS,
     can_modify_run,
@@ -30,7 +33,8 @@ BASE_REPO = "https://github.com/official-stockfish/Stockfish"
 BASE_SIGNATURE = "123456"
 BASE_SHA = "a" * 40
 NEW_SHA = "b" * 40
-SPSA_FIELD_COUNT = 6
+SPSA_SF_SGD_FIELD_COUNT = 5
+SPSA_CLASSIC_FIELD_COUNT = 6
 
 
 class _SessionStub:
@@ -114,6 +118,48 @@ def _valid_post_data() -> dict[str, str]:
     }
 
 
+def _minimal_results() -> dict[str, object]:
+    return {
+        "wins": 0,
+        "losses": 0,
+        "draws": 0,
+        "crashes": 0,
+        "time_losses": 0,
+        "pentanomial": [0, 0, 0, 0, 0],
+    }
+
+
+def _build_minimal_run(args: dict[str, object]) -> dict[str, object]:
+    run_args = dict(args)
+    run_args.setdefault("itp", 100)
+
+    return {
+        "_id": ObjectId(),
+        "version": RUN_VERSION,
+        "start_time": BASE_TIME,
+        "last_updated": BASE_TIME,
+        "tc_base": 10.0,
+        "approved": False,
+        "approver": "",
+        "finished": False,
+        "deleted": False,
+        "failed": False,
+        "failures": 0,
+        "is_green": False,
+        "is_yellow": False,
+        "workers": 0,
+        "cores": 0,
+        "committed_games": 0,
+        "total_games": 0,
+        "results": _minimal_results(),
+        "nps": 0.0,
+        "games_per_minute": 0.0,
+        "args": run_args,
+        "tasks": [],
+        "bad_tasks": [],
+    }
+
+
 class SpsaParsingTests(unittest.TestCase):
     def test_parse_spsa_params_returns_structured_params(self):
         spsa = {
@@ -129,17 +175,42 @@ class SpsaParsingTests(unittest.TestCase):
         self.assertEqual(len(params), 1)
         self.assertEqual(params[0]["name"], "Tempo")
         self.assertEqual(params[0]["start"], 1.0)
+        self.assertEqual(params[0]["theta"], 1.0)
+        self.assertEqual(params[0]["c_end"], 0.5)
+        self.assertEqual(params[0]["r_end"], 0.1)
+        self.assertEqual(params[0]["z"], 1.0)
+        self.assertEqual(params[0]["v"], 0.0)
+
+    def test_parse_spsa_params_supports_sf_sgd_field_count(self):
+        spsa = {
+            "raw_params": "Tempo,1,0,2,0.5",
+            "num_iter": 100,
+        }
+
+        params = parse_spsa_params(spsa)
+
+        self.assertEqual(len(params), 1)
+        self.assertEqual(params[0]["name"], "Tempo")
+        self.assertEqual(params[0]["theta"], 1.0)
+        self.assertEqual(params[0]["c"], 0.5)
+        self.assertEqual(params[0]["c_end"], 0.5)
+        self.assertEqual(params[0]["r_end"], 0.0)
+        self.assertEqual(params[0]["z"], 1.0)
+        self.assertEqual(params[0]["v"], 0.0)
 
     def test_parse_spsa_params_rejects_wrong_field_count(self):
         spsa = {
-            "raw_params": "Tempo,1,0,2,0.5",
+            "raw_params": "Tempo,1,0,2",
             "num_iter": 100,
             "gamma": 0.101,
             "A": 25,
             "alpha": 0.602,
         }
 
-        with self.assertRaisesRegex(ValueError, str(SPSA_FIELD_COUNT)):
+        with self.assertRaisesRegex(
+            ValueError,
+            f"{SPSA_SF_SGD_FIELD_COUNT} or {SPSA_CLASSIC_FIELD_COUNT}",
+        ):
             parse_spsa_params(spsa)
 
 
@@ -231,6 +302,51 @@ class ValidateFormTests(unittest.TestCase):
         self.assertEqual(data["tests_repo"], BASE_REPO)
         self.assertEqual(request.userdb.saved_users[-1]["tests_repo"], BASE_REPO)
 
+    def test_validate_form_spsa_path_builds_sf_sgd_state(self):
+        post_data = _valid_post_data()
+        post_data.update(
+            {
+                "stop_rule": "spsa",
+                "spsa_sf_lr": "0.005",
+                "spsa_sf_beta": "0.9",
+                "spsa_raw_params": "Tempo,1,0,2,0.5",
+            },
+        )
+        request = _RequestStub(post_data=post_data)
+
+        with (
+            mock.patch(
+                "fishtest.views_run.gh.normalize_repo", side_effect=lambda repo: repo
+            ),
+            mock.patch(
+                "fishtest.views_run.gh.parse_repo",
+                return_value=("official-stockfish", "Stockfish"),
+            ),
+            mock.patch("fishtest.views_run.gh.get_master_repo", return_value=BASE_REPO),
+            mock.patch(
+                "fishtest.views_run.get_sha",
+                side_effect=[(BASE_SHA, "base"), (NEW_SHA, "new")],
+            ),
+            mock.patch("fishtest.views_run.get_nets", return_value=[]),
+        ):
+            data = validate_form(request)
+
+        self.assertEqual(data["num_games"], int(BASE_NUM_GAMES))
+        self.assertEqual(data["spsa"]["sf_lr"], 0.005)
+        self.assertEqual(data["spsa"]["sf_beta"], 0.9)
+        self.assertEqual(data["spsa"]["sf_weight_sum"], 0.0)
+        self.assertEqual(data["spsa"]["num_iter"], int(BASE_NUM_GAMES) // 2)
+        self.assertNotIn("A", data["spsa"])
+        self.assertNotIn("alpha", data["spsa"])
+        self.assertNotIn("gamma", data["spsa"])
+        self.assertEqual(data["spsa"]["params"][0]["c"], 0.5)
+        self.assertEqual(data["spsa"]["params"][0]["c_end"], 0.5)
+        self.assertEqual(data["spsa"]["params"][0]["r_end"], 0.0)
+        self.assertEqual(data["spsa"]["params"][0]["z"], 1.0)
+        self.assertEqual(data["spsa"]["params"][0]["v"], 0.0)
+
+        validate(runs_schema, _build_minimal_run(data), "run")
+
     def test_validate_form_rejects_invalid_arch_regex(self):
         post_data = _valid_post_data()
         post_data["checkbox-arch-filter"] = "on"
@@ -281,6 +397,29 @@ class RunPermissionTests(unittest.TestCase):
 
 class TestRunActionViews(UiUserTestCase):
     username = "TestRunActionsUser"
+
+    def test_tests_run_rerun_defaults_classic_spsa_to_sf_sgd_fields(self):
+        self._login_user()
+        run_id = self._create_run()
+        run = self.rundb.get_run(run_id)
+        run["args"]["spsa"] = {
+            "iter": 1,
+            "num_iter": 10,
+            "A": 4,
+            "alpha": 0.602,
+            "gamma": 0.101,
+            "raw_params": "Tempo,1,0,2,0.5,0.1",
+            "params": [],
+        }
+        self.rundb.buffer(run, priority=Prio.SAVE_NOW)
+
+        with mock.patch("fishtest.views.gh.update_official_master_sha"):
+            response = self.client.get(f"/tests/run?id={run_id}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertRegex(response.text, r'id="spsa_sf_lr"[^>]*value="0\.005"')
+        self.assertRegex(response.text, r'id="spsa_sf_beta"[^>]*value="0\.9"')
+        self.assertNotIn('id="spsa_gamma"', response.text)
 
     def test_tests_stop_hx_detail_redirects_home(self):
         self._login_user()

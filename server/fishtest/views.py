@@ -2420,10 +2420,13 @@ def tests_run(request: _ViewContext) -> dict[str, Any] | RedirectResponse:
             raise StarletteHTTPException(status_code=404)
         run_args = copy.deepcopy(run["args"])
         if "spsa" in run_args:
-            # needs deepcopy
-            run_args["spsa"]["A"] = (
-                round(1000 * 2 * run_args["spsa"]["A"] / run_args["num_games"]) / 1000
-            )
+            spsa = run_args["spsa"]
+            if "sf_lr" not in spsa:
+                spsa["sf_lr"] = 0.005
+                spsa["sf_beta"] = 0.9
+                spsa.pop("A", None)
+                spsa.pop("alpha", None)
+                spsa.pop("gamma", None)
 
     username = request.authenticated_userid
     u = request.userdb.get_user(username)
@@ -3193,14 +3196,39 @@ def _format_tests_view_spsa_value(
     value: dict[str, Any],
 ) -> list[str | _SpsaTableRow]:
     iter_local = value["iter"] + 1  # start from 1 to avoid division by zero
+    params = value["params"]
+    if "sf_lr" in value:
+        sf_lr = value.get("sf_lr", 0.005)
+        sf_beta = value.get("sf_beta", 0.9)
+        spsa_value: list[str | _SpsaTableRow] = [
+            f"iter: {iter_local:d}, lr: {sf_lr:0.5f}, beta: {sf_beta:0.3f}",
+            ["param", "value", "start", "min", "max", "c"],
+        ]
+        spsa_value.extend(
+            [
+                [
+                    p["name"],
+                    "{:.2f}".format(p["theta"]),
+                    str(int(p["start"])),
+                    str(int(p["min"])),
+                    str(int(p["max"])),
+                    "{:.3f}".format(p["c"]),
+                ]
+                for p in params
+            ],
+        )
+        return spsa_value
+
     A = value["A"]  # noqa: N806
     alpha = value["alpha"]
     gamma = value["gamma"]
     summary = (
         f"iter: {iter_local:d}, A: {A:d}, alpha: {alpha:0.3f}, gamma: {gamma:0.3f}"
     )
-    params = value["params"]
-    spsa_value: list[str | _SpsaTableRow] = [summary]
+    spsa_value = [
+        summary,
+        ["param", "value", "start", "min", "max", "c", "c_end", "r", "r_end"],
+    ]
     for p in params:
         try:
             c_iter = p["c"] / (iter_local**gamma)

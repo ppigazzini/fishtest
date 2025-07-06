@@ -148,6 +148,37 @@ class TestTestsViewDetail(unittest.TestCase):
         self.rundb.buffer(run, priority=Prio.SAVE_NOW)
         return run_id
 
+    def _create_sf_sgd_spsa_run(self) -> str:
+        run_id = self._create_run()
+        run = self.rundb.get_run(run_id)
+        run["workers"] = 1
+        run["args"]["spsa"] = {
+            "iter": 2,
+            "num_iter": 10,
+            "sf_lr": 0.005,
+            "sf_beta": 0.9,
+            "sf_weight_sum": 0.0,
+            "params": [
+                {
+                    "name": "ParamA",
+                    "theta": 12.5,
+                    "start": 10,
+                    "min": 0,
+                    "max": 20,
+                    "c": 1.5,
+                    "c_end": 1.5,
+                    "a": 0.0,
+                    "a_end": 0.0,
+                    "r_end": 0.0,
+                    "z": 12.0,
+                    "v": 0.0,
+                },
+            ],
+            "param_history": [[{"theta": 11.5, "c": 1.5, "z": 11.0, "v": 0.0}]],
+        }
+        self.rundb.buffer(run, priority=Prio.SAVE_NOW)
+        return run_id
+
     def test_tests_view_page_renders_detail_poller_and_spsa_container(self):
         run_id = self._create_spsa_run()
 
@@ -460,6 +491,26 @@ class TestTestsViewDetail(unittest.TestCase):
         )
         self.assertIn("ParamA", response.text)
         self.assertIn("iter: 3, A: 4", response.text)
+        self.assertNotIn("<title>", response.text)
+
+    def test_tests_view_detail_hx_active_returns_sf_sgd_spsa_oob_fragments(self):
+        run_id = self._create_sf_sgd_spsa_run()
+
+        response = self.client.get(
+            f"/tests/view/{run_id}/detail?expected=active",
+            headers={"HX-Request": "true"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            f'id="spsa-data-{run_id}" type="application/json" hx-swap-oob="innerHTML"',
+            response.text,
+        )
+        self.assertIn("ParamA", response.text)
+        self.assertIn("iter: 3, lr: 0.00500, beta: 0.900", response.text)
+        self.assertIn("<th>c</th>", response.text)
+        self.assertNotIn("<th>c_end</th>", response.text)
+        self.assertNotIn("<th>r_end</th>", response.text)
         self.assertNotIn("<title>", response.text)
 
     def test_spsa_script_skips_noop_redraws_without_hover_gating(self):

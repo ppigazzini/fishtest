@@ -33,21 +33,21 @@ def _generate_data(spsa, iter=None):
     if iter is None:
         iter = spsa["iter"]
 
-    # Generate a set of tuning parameters
     iter_local = iter + 1  # start from 1 to avoid division by zero
+    is_classic = all(key in spsa for key in ("A", "alpha", "gamma"))
+
     for param in spsa["params"]:
-        c = param["c"] / iter_local ** spsa["gamma"]
+        c = param["c"] / iter_local ** spsa["gamma"] if is_classic else param["c"]
         flip = random.choice((-1, 1))
-        result["w_params"].append(
-            {
-                "name": param["name"],
-                "value": _param_clip(param, c * flip),
-                "R": param["a"] / (spsa["A"] + iter_local) ** spsa["alpha"] / c**2,
-                "c": c,
-                "flip": flip,
-            }
-        )
-        # These are only used by the worker
+        w_param = {
+            "name": param["name"],
+            "value": _param_clip(param, c * flip),
+            "c": c,
+            "flip": flip,
+        }
+        if is_classic:
+            w_param["R"] = param["a"] / (spsa["A"] + iter_local) ** spsa["alpha"] / c**2
+        result["w_params"].append(w_param)
         result["b_params"].append(
             {
                 "name": param["name"],
@@ -58,23 +58,117 @@ def _generate_data(spsa, iter=None):
     return result
 
 
-def _add_to_history(spsa, num_games, w_params):
-    # Compute the update frequency so that the required storage does not depend
-    # on the the number of parameters. We have to recompute this every time since
-    # the user may have modified the run.
+def _add_to_history(spsa, num_games, w_params, show_vals):
     n_params = len(spsa["params"])
     samples = 100 if n_params < 100 else 10000 / n_params if n_params < 1000 else 1
     period = num_games / 2 / samples
 
-    # Now update if the time has come...
     if "param_history" not in spsa:
         spsa["param_history"] = []
+
     if len(spsa["param_history"]) + 1 <= spsa["iter"] / period:
-        summary = [
-            {"theta": spsa_param["theta"], "R": w_param["R"], "c": w_param["c"]}
-            for w_param, spsa_param in zip(w_params, spsa["params"])
-        ]
+        summary = []
+        for param, w_param, show_val in zip(spsa["params"], w_params, show_vals):
+            row = {"theta": show_val, "c": w_param["c"]}
+            if "R" in w_param:
+                row["R"] = w_param["R"]
+            if "z" in param:
+                row["z"] = param["z"]
+            if "v" in param:
+                row["v"] = param["v"]
+            summary.append(row)
         spsa["param_history"].append(summary)
+
+
+def _classic_param_update(param, w_param, result):
+    param["theta"] = _param_clip(param, w_param["R"] * w_param["c"] * result * w_param["flip"])
+    return param["theta"]
+
+
+def _sf_weighting(spsa, N, lr):
+    report_weight = lr * N
+    weight_sum_prev = spsa["sf_weight_sum"]
+    weight_sum_curr = weight_sum_prev + report_weight
+    spsa["sf_weight_sum"] = weight_sum_curr
+    return weight_sum_prev, weight_sum_curr
+
+
+def _reconstruct_x_prev_clamped(theta_prev, z_prev, beta, pmin, pmax):
+    if beta == 0.0:
+        return None
+    x_prev = (theta_prev - (1.0 - beta) * z_prev) / beta
+    return min(max(x_prev, pmin), pmax)
+
+
+def _blend_theta_clamped(z_new, x_new, beta, pmin, pmax):
+    theta_unclamped = z_new if beta == 0.0 else (1.0 - beta) * z_new + beta * x_new
+    return min(max(theta_unclamped, pmin), pmax)
+
+
+def _history_show_val(beta, x_new, theta_new):
+    return x_new if beta > 0.0 else theta_new
+
+
+def _sgd_delta_total_step(lr, c, result, flip):
+    return lr * c * result * flip
+
+
+def _sgd_x_new(
+    weight_sum_prev,
+    weight_sum_curr,
+    x_prev,
+    z_prev,
+    delta_total_step,
+    report_weight,
+    lr,
+    N,
+):
+    tri_factor = (N + 1) / 2.0
+    return (
+        weight_sum_prev * x_prev
+        + report_weight * z_prev
+        + lr * delta_total_step * tri_factor
+    ) / weight_sum_curr
+
+
+def _schedule_free_sgd_param_update(
+    param, w_param, result, N, lr, beta, weight_sum_prev, weight_sum_curr
+):
+    c = w_param["c"]
+    flip = w_param["flip"]
+    z_prev = param["z"]
+
+    x_prev = _reconstruct_x_prev_clamped(
+        param["theta"], z_prev, beta, param["min"], param["max"]
+    )
+    delta_total_step = _sgd_delta_total_step(lr, c, result, flip)
+    z_new = z_prev + delta_total_step
+    report_weight = lr * N
+
+    if beta == 0.0:
+        theta_new = _blend_theta_clamped(z_new, z_new, beta, param["min"], param["max"])
+        param["theta"] = theta_new
+        param["z"] = z_new
+        param.setdefault("v", 0.0)
+        return _history_show_val(beta, None, theta_new)
+
+    x_new = _sgd_x_new(
+        weight_sum_prev,
+        weight_sum_curr,
+        x_prev,
+        z_prev,
+        delta_total_step,
+        report_weight,
+        lr,
+        N,
+    )
+    x_new = min(max(x_new, param["min"]), param["max"])
+    theta_new = _blend_theta_clamped(z_new, x_new, beta, param["min"], param["max"])
+
+    param["theta"] = theta_new
+    param["z"] = z_new
+    param.setdefault("v", 0.0)
+    return _history_show_val(beta, x_new, theta_new)
 
 
 class SPSAHandler:
@@ -93,7 +187,6 @@ class SPSAHandler:
         task = run["tasks"][task_id]
         spsa = run["args"]["spsa"]
 
-        # Check if the worker is still working on this task.
         if not task["active"]:
             info = "request_spsa_data: task {}/{} is not active".format(run_id, task_id)
             print(info, flush=True)
@@ -101,11 +194,8 @@ class SPSAHandler:
 
         result = _generate_data(spsa)
         packed_flips = _pack_flips([w_param["flip"] for w_param in result["w_params"]])
-        task["spsa_params"] = {}
-        task["spsa_params"]["iter"] = spsa["iter"]
-        task["spsa_params"]["packed_flips"] = packed_flips
+        task["spsa_params"] = {"iter": spsa["iter"], "packed_flips": packed_flips}
         self.buffer(run)
-        # The signature defends against server crashes and worker bugs
         sig = zlib.crc32(packed_flips)
         result["sig"] = sig
         result["task_alive"] = True
@@ -120,7 +210,6 @@ class SPSAHandler:
         task = run["tasks"][task_id]
         spsa = run["args"]["spsa"]
 
-        # Catch some issues which may occur after a server crash
         if "spsa_params" not in task:
             print(
                 f"update_spsa_data: spsa_params not found for {run_id}/{task_id}. Skipping update...",
@@ -128,38 +217,57 @@ class SPSAHandler:
             )
             return
         task_spsa_params = task["spsa_params"]
-        # Make sure we cannot call update_spsa_data again with these data
         del task["spsa_params"]
 
         sig = spsa_results.get("sig", 0)
         if sig != zlib.crc32(task_spsa_params["packed_flips"]):
             print(
-                f"update_spsa_data: spsa_params for {run_id}/{task_id}",
-                "do not match the signature sent by the worker.",
-                "Skipping update...",
+                f"update_spsa_data: spsa_params for {run_id}/{task_id} do not match signature. Skipping update...",
                 flush=True,
             )
             return
 
-        # Reconstruct spsa data from the task data
         w_params = _generate_data(spsa, iter=task_spsa_params["iter"])["w_params"]
         flips = _unpack_flips(task_spsa_params["packed_flips"], length=len(w_params))
         for idx, w_param in enumerate(w_params):
             w_param["flip"] = flips[idx]
-            del w_param["value"]  # for safety!
+            del w_param["value"]
 
-        # Update the current theta based on the results from the worker
         result = spsa_results["wins"] - spsa_results["losses"]
-        spsa["iter"] += spsa_results["num_games"] // 2
+        N = spsa_results["num_games"] // 2
+        if N <= 0:
+            print(f"update_spsa_data: N=0 for {run_id}/{task_id}, skipping.", flush=True)
+            return
 
-        for idx, param in enumerate(spsa["params"]):
-            R = w_params[idx]["R"]
-            c = w_params[idx]["c"]
-            flip = w_params[idx]["flip"]
-            param["theta"] = _param_clip(param, R * c * result * flip)
+        spsa["iter"] += N
 
-        _add_to_history(spsa, run["args"]["num_games"], w_params)
+        if "sf_lr" in spsa:
+            lr = spsa["sf_lr"]
+            beta = spsa["sf_beta"]
+            weight_sum_prev, weight_sum_curr = _sf_weighting(spsa, N, lr)
+            show_vals = []
+            for param, w_param in zip(spsa["params"], w_params):
+                if "z" not in param:
+                    param["z"] = param["theta"]
+                    param["v"] = 0.0
+                show_vals.append(
+                    _schedule_free_sgd_param_update(
+                        param,
+                        w_param,
+                        result,
+                        N,
+                        lr,
+                        beta,
+                        weight_sum_prev,
+                        weight_sum_curr,
+                    )
+                )
+        else:
+            show_vals = []
+            for param, w_param in zip(spsa["params"], w_params):
+                show_vals.append(_classic_param_update(param, w_param, result))
 
+        _add_to_history(spsa, run["args"]["num_games"], w_params, show_vals)
         self.buffer(run)
 
     def get_spsa_data(self, run_id):
