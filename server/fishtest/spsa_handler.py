@@ -70,10 +70,21 @@ def _add_to_history(spsa, num_games, w_params):
     if "param_history" not in spsa:
         spsa["param_history"] = []
     if len(spsa["param_history"]) + 1 <= spsa["iter"] / period:
-        summary = [
-            {"theta": spsa_param["theta"], "R": w_param["R"], "c": w_param["c"]}
-            for w_param, spsa_param in zip(w_params, spsa["params"])
-        ]
+        # For schedule-free runs we want to display the averaged iterate x, not the evaluation theta.
+        # Reconstruct x on the fly (do not store it): theta = (1-beta) * z + beta * x => x = (theta - (1-beta) * z)/beta
+        # Use the beta provided at run creation (views.py) if present; fallback keeps backward compatibility.
+        beta = spsa.get("sf_beta", 0.9)
+        summary = []
+        for w_param, spsa_param in zip(w_params, spsa["params"]):
+            if "z" in spsa_param and beta > 0:
+                # Reconstruct averaged iterate x for schedule-free params
+                x_val = (spsa_param["theta"] - (1 - beta) * spsa_param["z"]) / beta
+                theta_for_history = x_val
+            else:
+                theta_for_history = spsa_param["theta"]
+            summary.append(
+                {"theta": theta_for_history, "R": w_param["R"], "c": w_param["c"]}
+            )
         spsa["param_history"].append(summary)
 
 
@@ -150,16 +161,55 @@ class SPSAHandler:
 
         # Update the current theta based on the results from the worker
         result = spsa_results["wins"] - spsa_results["losses"]
-        spsa["iter"] += spsa_results["num_games"] // 2
+        # Number of pairs in this report
+        N = spsa_results["num_games"] // 2
+        # Advance global counter
+        spsa["iter"] += N
+
+        # Averaging weight for schedule-free variant (N-weighted Polyak):
+        # Use cum_pairs_before + N in the denominator; since we've just incremented,
+        # cum_pairs_after = spsa["iter"] = cum_pairs_before + N, so w = N / cum_pairs_after.
+        w = N / spsa["iter"]
+        # Schedule-free SGD hyperparameters (set at run creation time in views.py).
+        # Fallback to legacy constants if fields are missing (old runs).
+        lr = spsa.get("sf_lr", 0.0025)
+        beta = spsa.get("sf_beta", 0.9)
 
         for idx, param in enumerate(spsa["params"]):
             R = w_params[idx]["R"]
             c = w_params[idx]["c"]
             flip = w_params[idx]["flip"]
-            param["theta"] = _param_clip(param, R * c * result * flip)
+
+            if "z" not in param:
+                # Legacy classic SPSA update (kept for backward compatibility with very old runs)
+                update = R * c * result * flip
+                param["theta"] = _param_clip(param, update)
+                continue
+
+            # Schedule-free path
+            # Reconstruct previous x from current (clipped) theta and z:
+            # x_prev = (theta - (1 - beta) * z) / beta, requiring beta > 0
+            if beta > 0:
+                x_prev = (param["theta"] - (1 - beta) * param["z"]) / beta
+            else:
+                # Degenerate case: no averaging; theta follows z
+                x_prev = param["z"]
+
+            # Update fast iterate z
+            z_new = param["z"] + lr * c * result * flip
+
+            # Update running average x with weight w
+            if beta > 0:
+                x_new = (1 - w) * x_prev + w * z_new
+                theta_new = (1 - beta) * z_new + beta * x_new
+            else:
+                theta_new = z_new
+
+            # Clip and store
+            param["theta"] = min(max(theta_new, param["min"]), param["max"])
+            param["z"] = z_new
 
         _add_to_history(spsa, run["args"]["num_games"], w_params)
-
         self.buffer(run)
 
     def get_spsa_data(self, run_id):

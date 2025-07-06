@@ -843,6 +843,7 @@ def parse_spsa_params(spsa):
         param["a_end"] = param["r_end"] * param["c_end"] ** 2
         param["a"] = param["a_end"] * (spsa["A"] + spsa["num_iter"]) ** spsa["alpha"]
         param["theta"] = param["start"]
+        param["z"] = param["start"]
         params.append(param)
     return params
 
@@ -1130,6 +1131,11 @@ def validate_form(request):
             "raw_params": request.POST["spsa_raw_params"],
             "iter": 0,
             "num_iter": int(data["num_games"] / 2),
+            # Schedule-free SPSA hyperparameters (learning rate and averaging weight)
+            # Must be explicitly set at creation time (no implicit defaults injected later).
+            # Form field names follow existing convention (spsa_*) to avoid collisions.
+            "sf_lr": float(request.POST.get("spsa_sf_lr", "0.0025")),
+            "sf_beta": float(request.POST.get("spsa_sf_beta", "0.9")),
         }
         data["spsa"]["params"] = parse_spsa_params(data["spsa"])
         if len(data["spsa"]["params"]) == 0:
