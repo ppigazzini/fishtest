@@ -152,11 +152,31 @@ class SPSAHandler:
         result = spsa_results["wins"] - spsa_results["losses"]
         spsa["iter"] += spsa_results["num_games"] // 2
 
+        # SGD schedule free parameters
+        lr = spsa.get("lr", 0.1)
+        beta = spsa.get("beta", 0.9)
+        spsa["iter_corr"] = spsa.get("iter_corr", 0) + 1
+        c_iter = 1 / (spsa["iter_corr"] + 1)
+
         for idx, param in enumerate(spsa["params"]):
-            R = w_params[idx]["R"]
-            c = w_params[idx]["c"]
+            # Initialize optimizer state if it doesn't exist
+            if "x" not in param:
+                param["x"] = param["theta"]
+                param["z"] = param["theta"]
+
+            c_k = w_params[idx]["c"]
             flip = w_params[idx]["flip"]
-            param["theta"] = _param_clip(param, R * c * result * flip)
+
+            # SPSA gradient estimate proxy
+            g = result * flip
+
+            # Update z and x
+            param["z"] += lr * g * c_k
+            param["x"] = (1 - c_iter) * param["x"] + c_iter * param["z"]
+
+            # Update theta
+            param["theta"] = (1 - beta) * param["z"] + beta * param["x"]
+            param["theta"] = min(max(param["theta"], param["min"]), param["max"])
 
         _add_to_history(spsa, run["args"]["num_games"], w_params)
 
