@@ -3,6 +3,99 @@ import zlib
 
 import numpy as np
 
+# ---------------- Shared helpers (branch-agnostic) ----------------
+
+
+def _sf_weighting(spsa, N, lr):
+    """
+    Update and return weighted mass accumulator components.
+    Returns (weight_sum_prev, weight_sum_curr, a_k).
+    Behavior:
+      base weight    = lr
+      report_weight  = base weight * N
+      weight_sum_prev = spsa["sf_weight_sum"]
+      weight_sum_curr = weight_sum_prev + report_weight
+      spsa["sf_weight_sum"] = weight_sum_curr
+      a_k = report_weight / weight_sum_curr
+    """
+    base_weight = lr
+    report_weight = base_weight * N
+    weight_sum_prev = spsa["sf_weight_sum"]
+    weight_sum_curr = weight_sum_prev + report_weight
+    spsa["sf_weight_sum"] = weight_sum_curr
+    a_k = (report_weight / weight_sum_curr) if weight_sum_curr > 0 else 1.0
+    return weight_sum_prev, weight_sum_curr, a_k
+
+
+def _reconstruct_x_prev_clamped(theta_prev, z_prev, beta1, pmin, pmax):
+    """
+    Reconstruct Polyak surrogate x_prev and clamp it into [pmin, pmax].
+    Returns x_prev or None if beta1 == 0.
+    """
+    if not beta1 or beta1 == 0.0:
+        return None
+    x_prev = (theta_prev - (1.0 - beta1) * z_prev) / beta1
+    if x_prev < pmin:
+        return pmin
+    if x_prev > pmax:
+        return pmax
+    return x_prev
+
+
+def _blend_theta_clamped(z_new, x_new, beta1, pmin, pmax):
+    """
+    Blend z/x into theta and clamp into [pmin, pmax].
+    If beta1 == 0, x_new is ignored and theta = z_new.
+    """
+    theta_unclamped = z_new if beta1 == 0.0 else (1.0 - beta1) * z_new + beta1 * x_new
+    if theta_unclamped < pmin:
+        return pmin
+    if theta_unclamped > pmax:
+        return pmax
+    return theta_unclamped
+
+
+def _history_show_val(beta1, x_new, theta_new):
+    """
+    History value: x_new when beta1 > 0, else theta_new.
+    """
+    return x_new if beta1 and beta1 > 0.0 else theta_new
+
+
+# ---------------- SGD-specific helpers ----------------
+
+
+def _sgd_delta_total_step(lr, c, result, flip):
+    """
+    Fast iterate increment (no division by N), θ-space after multiplying by c.
+    """
+    return lr * c * result * flip
+
+
+def _sgd_x_new(
+    weight_sum_prev,
+    weight_sum_curr,
+    x_prev,
+    z_prev,
+    delta_total_step,
+    report_weight,
+    weight,
+    N,
+):
+    """
+    Triangular surrogate Polyak numerator with weighted mass, then divide by weight_sum_curr.
+    Caller clamps x_new after.
+    """
+    tri_factor = (N + 1) / 2.0
+    return (
+        weight_sum_prev * x_prev
+        + report_weight * z_prev
+        + weight * delta_total_step * tri_factor
+    ) / weight_sum_curr
+
+
+# ---------------- Existing code continues ----------------
+
 
 def _pack_flips(flips):
     """
@@ -58,23 +151,112 @@ def _generate_data(spsa, iter=None):
     return result
 
 
-def _add_to_history(spsa, num_games, w_params):
-    # Compute the update frequency so that the required storage does not depend
-    # on the the number of parameters. We have to recompute this every time since
-    # the user may have modified the run.
+def _add_to_history(spsa, num_games, w_params, show_vals):
+    """
+    Simple, uniform-per-pair sampling (matches master):
+    - fixed target samples based on number of params
+    - period derived from run-level num_games
+    - stores show_val under the 'theta' key for UI compatibility:
+        - schedule-free: x_new if beta1 > 0, else theta_new
+        - classic: theta after classic update
+    """
     n_params = len(spsa["params"])
     samples = 100 if n_params < 100 else 10000 / n_params if n_params < 1000 else 1
     period = num_games / 2 / samples
 
-    # Now update if the time has come...
     if "param_history" not in spsa:
         spsa["param_history"] = []
+
     if len(spsa["param_history"]) + 1 <= spsa["iter"] / period:
         summary = [
-            {"theta": spsa_param["theta"], "R": w_param["R"], "c": w_param["c"]}
-            for w_param, spsa_param in zip(w_params, spsa["params"])
+            {"theta": show_val, "R": w_param["R"], "c": w_param["c"]}
+            for w_param, show_val in zip(w_params, show_vals)
         ]
         spsa["param_history"].append(summary)
+
+
+def _classic_param_update(param, w_param, result):
+    """
+    Classic SPSA per-parameter update (legacy path).
+    Mutates param["theta"] in place and returns the show value (theta).
+    """
+    c = w_param["c"]
+    flip = w_param["flip"]
+    R = w_param["R"]
+    param["theta"] = _param_clip(param, R * c * result * flip)
+    return param["theta"]
+
+
+def _schedule_free_sgd_param_update(
+    param, w_param, result, N, lr, beta1, weight_sum_prev, weight_sum_curr
+):
+    """
+    Schedule-free lean update with per-report weighting.
+
+    Generalized weighted surrogate average:
+        weight = lr
+        report_weight = weight * N
+        weight_sum_prev = previous cumulative mass
+        weight_sum_curr = weight_sum_prev + report_weight
+
+    Triangular surrogate (kept as current biased form):
+        tri_factor = (N + 1) / 2
+
+    Surrogate long average:
+        x_new = (weight_sum_prev * x_prev
+                 + report_weight * z_prev
+                 + weight * delta_total_step * tri_factor) / weight_sum_curr
+
+    Where:
+        delta_total_step = lr * c * result * flip   (no division by N)
+    """
+    c = w_param["c"]
+    flip = w_param["flip"]
+    z_prev = param["z"]
+
+    # Reconstruct x_prev if needed (clamped)
+    x_prev = _reconstruct_x_prev_clamped(
+        param["theta"], z_prev, beta1, param["min"], param["max"]
+    )
+
+    # Aggregated fast iterate increment (no division by N)
+    delta_total_step = _sgd_delta_total_step(lr, c, result, flip)
+    z_new = z_prev + delta_total_step
+
+    # Report weighting
+    weight = lr
+    report_weight = weight * N
+
+    if beta1 == 0.0:
+        # No surrogate path; export fast iterate
+        theta_new = _blend_theta_clamped(
+            z_new, z_new, beta1, param["min"], param["max"]
+        )
+        param["theta"] = theta_new
+        param["z"] = z_new
+        return _history_show_val(beta1, None, theta_new)
+
+    # Weighted surrogate average (then clamp)
+    x_new = _sgd_x_new(
+        weight_sum_prev,
+        weight_sum_curr,
+        x_prev,
+        z_prev,
+        delta_total_step,
+        report_weight,
+        weight,
+        N,
+    )
+    if x_new < param["min"]:
+        x_new = param["min"]
+    elif x_new > param["max"]:
+        x_new = param["max"]
+
+    theta_new = _blend_theta_clamped(z_new, x_new, beta1, param["min"], param["max"])
+
+    param["theta"] = theta_new
+    param["z"] = z_new
+    return _history_show_val(beta1, x_new, theta_new)
 
 
 class SPSAHandler:
@@ -150,16 +332,37 @@ class SPSAHandler:
 
         # Update the current theta based on the results from the worker
         result = spsa_results["wins"] - spsa_results["losses"]
-        spsa["iter"] += spsa_results["num_games"] // 2
+        N = spsa_results["num_games"] // 2
 
-        for idx, param in enumerate(spsa["params"]):
-            R = w_params[idx]["R"]
-            c = w_params[idx]["c"]
-            flip = w_params[idx]["flip"]
-            param["theta"] = _param_clip(param, R * c * result * flip)
+        # Advance total consumed pair counter
+        spsa["iter"] += N
 
-        _add_to_history(spsa, run["args"]["num_games"], w_params)
+        # Schedule-free globals
+        lr = spsa["sf_lr"]
+        beta1 = spsa["sf_beta1"]
 
+        # Unified weighted mass update
+        weight_sum_prev, weight_sum_curr, _ = _sf_weighting(spsa, N, lr)
+
+        # Apply per-parameter updates and collect show values for history
+        show_vals = []
+        for param, w_param in zip(spsa["params"], w_params):
+            if "z" not in param:
+                show_val = _classic_param_update(param, w_param, result)
+            else:
+                show_val = _schedule_free_sgd_param_update(
+                    param,
+                    w_param,
+                    result,
+                    N,
+                    lr,
+                    beta1,
+                    weight_sum_prev,
+                    weight_sum_curr,
+                )
+            show_vals.append(show_val)
+
+        _add_to_history(spsa, run["args"]["num_games"], w_params, show_vals)
         self.buffer(run)
 
     def get_spsa_data(self, run_id):
