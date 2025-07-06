@@ -192,19 +192,13 @@
                         <table class="table table-sm">
                           <thead>
                             <tr>
-                              <th>param</th>
-                              <th>value</th>
-                              <th>start</th>
-                              <th>min</th>
-                              <th>max</th>
-                              <th>c</th>
-                              <th>c_end</th>
-                              <th>r</th>
-                              <th>r_end</th>
+                              % for header in arg[1][1]:
+                                <th>${header}</th>
+                              % endfor
                             </tr>
                           </thead>
                           <tbody>
-                            % for row in arg[1][1:]:
+                            % for row in arg[1][2:]:
                               <tr class="spsa-param-row">
                               % for element in row:
                                 <td>${element}</td>

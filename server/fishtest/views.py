@@ -829,20 +829,28 @@ def parse_spsa_params(spsa):
         chunks = line.strip().split(",")
         if len(chunks) == 1 and chunks[0] == "":  # blank line
             continue
-        if len(chunks) != 6:
-            raise Exception("the line {} does not have 6 entries".format(chunks))
+        if len(chunks) not in [5, 6]:
+            raise Exception("the line {} does not have 5 or 6 entries".format(chunks))
         param = {
             "name": chunks[0],
             "start": float(chunks[1]),
             "min": float(chunks[2]),
             "max": float(chunks[3]),
-            "c_end": float(chunks[4]),
-            "r_end": float(chunks[5]),
         }
-        param["c"] = param["c_end"] * spsa["num_iter"] ** spsa["gamma"]
-        param["a_end"] = param["r_end"] * param["c_end"] ** 2
-        param["a"] = param["a_end"] * (spsa["A"] + spsa["num_iter"]) ** spsa["alpha"]
+        if len(chunks) == 6:
+            param["c_end"] = float(chunks[4])
+            param["r_end"] = float(chunks[5])
+            param["c"] = param["c_end"]
+        else:
+            param["c"] = float(chunks[4])
+            param["c_end"] = param["c"]
+            param["r_end"] = 0.0
+
+        param["a_end"] = 0.0
+        param["a"] = 0.0
         param["theta"] = param["start"]
+        param["z"] = param["start"]
+        param["v"] = 0.0
         params.append(param)
     return params
 
@@ -1124,12 +1132,15 @@ def validate_form(request):
             raise Exception("Number of games must be >= 0")
 
         data["spsa"] = {
-            "A": int(float(request.POST["spsa_A"]) * data["num_games"] / 2),
-            "alpha": float(request.POST["spsa_alpha"]),
-            "gamma": float(request.POST["spsa_gamma"]),
+            "A": 0,
+            "alpha": 0.0,
+            "gamma": 0.0,
             "raw_params": request.POST["spsa_raw_params"],
             "iter": 0,
             "num_iter": int(data["num_games"] / 2),
+            "sf_lr": float(request.POST.get("spsa_sf_lr", "0.005")),
+            "sf_beta": float(request.POST.get("spsa_sf_beta", "0.9")),
+            "sf_weight_sum": 0.0,
         }
         data["spsa"]["params"] = parse_spsa_params(data["spsa"])
         if len(data["spsa"]["params"]) == 0:
@@ -1249,11 +1260,6 @@ def tests_run(request):
         if run is None:
             raise HTTPNotFound()
         run_args = copy.deepcopy(run["args"])
-        if "spsa" in run_args:
-            # needs deepcopy
-            run_args["spsa"]["A"] = (
-                round(1000 * 2 * run_args["spsa"]["A"] / run_args["num_games"]) / 1000
-            )
 
     username = request.authenticated_userid
     u = request.userdb.get_user(username)
@@ -1600,33 +1606,70 @@ def tests_view(request):
 
         if name == "spsa" and value != "-":
             iter_local = value["iter"] + 1  # start from 1 to avoid division by zero
-            A = value["A"]
-            alpha = value["alpha"]
-            gamma = value["gamma"]
-            summary = "iter: {:d}, A: {:d}, alpha: {:0.3f}, gamma: {:0.3f}".format(
-                iter_local,
-                A,
-                alpha,
-                gamma,
-            )
-            params = value["params"]
-            value = [summary]
-            for p in params:
-                c_iter = p["c"] / (iter_local**gamma)
-                r_iter = p["a"] / (A + iter_local) ** alpha / c_iter**2
-                value.append(
-                    [
-                        p["name"],
-                        "{:.2f}".format(p["theta"]),
-                        int(p["start"]),
-                        int(p["min"]),
-                        int(p["max"]),
-                        "{:.3f}".format(c_iter),
-                        "{:.3f}".format(p["c_end"]),
-                        "{:.2e}".format(r_iter),
-                        "{:.2e}".format(p["r_end"]),
-                    ]
+            if "sf_lr" in value:
+                sf_lr = value.get("sf_lr", 0.005)
+                sf_beta = value.get("sf_beta", 0.9)
+                summary = "iter: {:d}, LR: {:0.5f}, Beta: {:0.3f}".format(
+                    iter_local,
+                    sf_lr,
+                    sf_beta,
                 )
+                headers = ["param", "value", "start", "min", "max", "c"]
+                rows = []
+                params = value["params"]
+                for p in params:
+                    c_iter = p["c"]
+                    rows.append(
+                        [
+                            p["name"],
+                            "{:.2f}".format(p["theta"]),
+                            int(p["start"]),
+                            int(p["min"]),
+                            int(p["max"]),
+                            "{:.3f}".format(c_iter),
+                        ]
+                    )
+                value = [summary, headers] + rows
+            else:
+                A = value["A"]
+                alpha = value["alpha"]
+                gamma = value["gamma"]
+                summary = "iter: {:d}, A: {:d}, alpha: {:0.3f}, gamma: {:0.3f}".format(
+                    iter_local,
+                    A,
+                    alpha,
+                    gamma,
+                )
+                headers = [
+                    "param",
+                    "value",
+                    "start",
+                    "min",
+                    "max",
+                    "c",
+                    "c_end",
+                    "r",
+                    "r_end",
+                ]
+                rows = []
+                params = value["params"]
+                for p in params:
+                    c_iter = p["c"] / (iter_local**gamma)
+                    r_iter = p["a"] / (A + iter_local) ** alpha / c_iter**2
+                    rows.append(
+                        [
+                            p["name"],
+                            "{:.2f}".format(p["theta"]),
+                            int(p["start"]),
+                            int(p["min"]),
+                            int(p["max"]),
+                            "{:.3f}".format(c_iter),
+                            "{:.3f}".format(p["c_end"]),
+                            "{:.2e}".format(r_iter),
+                            "{:.2e}".format(p["r_end"]),
+                        ]
+                    )
+                value = [summary, headers] + rows
 
         tests_repo_ = tests_repo(run)
         user, repo = gh.parse_repo(tests_repo_)

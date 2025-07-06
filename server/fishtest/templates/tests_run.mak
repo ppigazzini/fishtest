@@ -413,46 +413,33 @@
               style="${args.get('spsa') or 'display: none'}"
             >
               <div class="row gx-1">
-                <div class="col-4">
+                <div class="col-6">
                   <div class="mb-2">
-                    <label for="spsa_A" class="form-label">SPSA A ratio</label>
+                    <label for="spsa_sf_lr" class="form-label">Learning Rate</label>
                     <input
                       type="number"
                       min="0"
                       max="1"
-                      step="0.001"
-                      name="spsa_A"
-                      id="spsa_A"
+                      step="0.0001"
+                      name="spsa_sf_lr"
+                      id="spsa_sf_lr"
                       class="form-control"
-                      value="${args.get('spsa', {'A': '0.1'})['A']}"
+                      value="${args.get('spsa', {}).get('sf_lr', '0.005')}"
                     >
                   </div>
                 </div>
-                <div class="col-4">
+                <div class="col-6">
                   <div class="mb-2">
-                    <label for="spsa_alpha" class="form-label">SPSA Alpha</label>
+                    <label for="spsa_sf_beta" class="form-label">Beta</label>
                     <input
                       type="number"
                       min="0"
-                      step="0.001"
-                      name="spsa_alpha"
-                      id="spsa_alpha"
+                      max="1"
+                      step="0.01"
+                      name="spsa_sf_beta"
+                      id="spsa_sf_beta"
                       class="form-control"
-                      value="${args.get('spsa', {'alpha': '0.602'})['alpha']}"
-                    >
-                  </div>
-                </div>
-                <div class="col-4">
-                  <div class="mb-2">
-                    <label for="spsa_gamma" class="form-label">SPSA Gamma</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.001"
-                      name="spsa_gamma"
-                      id="spsa_gamma"
-                      class="form-control"
-                      value="${args.get('spsa', {'gamma': '0.101'})['gamma']}"
+                      value="${args.get('spsa', {}).get('sf_beta', '0.9')}"
                     >
                   </div>
                 </div>
@@ -464,60 +451,8 @@
                   name="spsa_raw_params"
                   id="spsa_raw_params"
                   class="form-control"
-                  placeholder="Paste values printed at the startup of the code here"
-                >${args.get('spsa', {'raw_params': ''})['raw_params']}</textarea>
-              </div>
-
-              <div class="mb-2 form-check">
-                <label class="form-check-label" for="autoselect">Autoselect</label>
-                <input
-                  type="checkbox"
-                  class="form-check-input"
-                  id="autoselect"
-                >
-
-                <i
-                  class="fa-solid fa-circle-info"
-                  role="button"
-                  data-bs-toggle="modal"
-                  data-bs-target="#autoselect-modal"
-                ></i>
-                <div class="modal fade" id="autoselect-modal" tabindex="-1" aria-hidden="true">
-                  <div class="modal-dialog modal-dialog-scrollable">
-                    <div class="modal-content">
-                      <div class="modal-header">
-                        <h5 class="modal-title">Autoselect information</h5>
-                        <button
-                          type="button"
-                          class="btn-close"
-                          data-bs-dismiss="modal"
-                          aria-label="Close"
-                        ></button>
-                      </div>
-                      <div class="modal-body text-break">
-                        Checking this option will rewrite the hyperparameters furnished by the tuning
-                        code in Stockfish in such a way that the SPSA tune will finish within 0.5 Elo
-                        from the optimum (with 95% probability) assuming the function
-                        <span class="text-nowrap">'parameters-&gt;Elo'</span> is quadratic and varies
-                        2 Elo per parameter over each specified parameter interval. The
-                        hyperparameters are relatively conservative and their performance will degrade
-                        gracefully if the actual variation is different. The theoretical basis for
-                        choosing the hyperparameters is given in this document:
-                        <a
-                          href="https://github.com/vdbergh/spsa_simul/blob/master/doc/theoretical_basis.pdf"
-                          target="_blank"
-                        >
-                          https://github.com/vdbergh/spsa_simul/blob/master/doc/theoretical_basis.pdf</a
-                        >. The formulas can be checked by simulation which is done here:
-                        <a href="https://github.com/vdbergh/spsa_simul" target="_blank">
-                          https://github.com/vdbergh/spsa_simul</a
-                        >. Currently this option should be used with the book
-                        'UHO_4060_v4.epd' and in addition the option should not be used with
-                        nodestime or with more than one thread.
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                  placeholder="name, start, min, max, c"
+                >${args.get('spsa', {}).get('raw_params', '')}</textarea>
               </div>
             </div>
 
@@ -848,7 +783,6 @@
           document.getElementById("run-info").value = info;
         }
 
-        spsaWork();
         handleLtcSpsaThroughput();
       }
     })
@@ -945,10 +879,6 @@
         }
       }
 
-      const ret = spsaWork(); // Last check that all spsa data are consistent.
-      if (!ret) {
-        return false;
-      }
       // we want to be able to register users for their own tests
       if (supportsNotifications() && Notification.permission === "default") {
         Notification.requestPermission();
@@ -1028,79 +958,5 @@
 
   document.getElementById('checkbox-book-visibility').addEventListener("change", (e) => {
     toggleBook(e.target);
-  });
-</script>
-
-<script src="${request.static_url('fishtest:static/js/spsa_new.js')}"></script>
-
-<script>
-  function spsaWork() {
-    /* parsing/computing */
-    if (!document.getElementById('autoselect').checked) {
-      return true;
-    }
-    const params = document.getElementById('spsa_raw_params').value;
-    let s = fishtestToSpsa(params);
-    if (s === null) {
-      alertError("Unable to parse spsa parameters.");
-      return false;
-    }
-    /* estimate the draw ratio */
-    const tc = document.getElementById('tc').value;
-    const dr = drawRatio(tc);
-    if (dr === null) {
-      alertError("Unable to parse time control.");
-      return false;
-    }
-    s.draw_ratio = dr;
-    s = spsaCompute(s);
-    const fs = spsaToFishtest(s);
-    /* Let's go */
-    document.getElementById("spsa_A").value = 0;
-    document.getElementById("spsa_alpha").value = 0.0;
-    document.getElementById("spsa_gamma").value = 0.0;
-    document.getElementById("num-games").value = 1000 * Math.round(s.num_games / 1000);
-    document.getElementById("spsa_raw_params").value = fs.trim();
-    return true;
-  }
-
-  let saved_A = null;
-  let saved_alpha = null;
-  let saved_gamma = null;
-  let saved_games = null;
-  let saved_params = null;
-
-  function spsaEvents() {
-    if (document.getElementById('autoselect')["checked"]) {
-      /* save old stuff */
-      saved_A = document.getElementById("spsa_A").value;
-      saved_alpha = document.getElementById("spsa_alpha").value;
-      saved_gamma = document.getElementById("spsa_gamma").value;
-      saved_games = document.getElementById("num-games").value;
-      saved_params = document.getElementById("spsa_raw_params").value;
-      const ret = spsaWork();
-      if (!ret) {
-        document.getElementById('autoselect').checked = false;
-      }
-    } else {
-      document.getElementById("spsa_A").value = saved_A;
-      document.getElementById("spsa_alpha").value = saved_alpha;
-      document.getElementById("spsa_gamma").value = saved_gamma;
-      document.getElementById("num-games").value = saved_games;
-      document.getElementById("spsa_raw_params").value = saved_params;
-    }
-  }
-
-  document.getElementById('autoselect').addEventListener("change", spsaEvents);
-
-  document.getElementById('tc').addEventListener("input", (e) => {
-    if (!document.getElementById('autoselect').checked) {
-      return;
-    }
-    const tc = e.target.value;
-    const tc_seconds = tcToSeconds(tc);
-    if (tc_seconds !== null) {
-      spsaWork();
-    }
   });
 </script>
