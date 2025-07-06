@@ -152,11 +152,35 @@ class SPSAHandler:
         result = spsa_results["wins"] - spsa_results["losses"]
         spsa["iter"] += spsa_results["num_games"] // 2
 
+        # Adam parameters
+        beta1 = 0.9
+        beta2 = 0.999
+        eps = 1e-8
+
+        # Bias correction counter
+        spsa["iter_corr"] = spsa.get("iter_corr", 0) + 1
+        bias1 = 1 / (1 - beta1 ** spsa["iter_corr"])
+        bias2 = 1 / (1 - beta2 ** spsa["iter_corr"])
+
         for idx, param in enumerate(spsa["params"]):
             R = w_params[idx]["R"]
             c = w_params[idx]["c"]
             flip = w_params[idx]["flip"]
-            param["theta"] = _param_clip(param, R * c * result * flip)
+
+            if "m" not in param or "v" not in param:
+                # Todo: remove after all SPSA runs are started with Adam
+                update = R * c * result * flip
+            else:
+                # Moment updates
+                gradient = result * flip
+                param["m"] = beta1 * param["m"] + (1 - beta1) * gradient
+                param["v"] = beta2 * param["v"] + (1 - beta2) * gradient**2
+                # Bias-corrected moment estimates
+                m_hat = param["m"] * bias1
+                v_hat = param["v"] * bias2
+                update = R * c * m_hat / (np.sqrt(v_hat) + eps)
+
+            param["theta"] = _param_clip(param, update)
 
         _add_to_history(spsa, run["args"]["num_games"], w_params)
 
