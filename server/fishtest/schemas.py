@@ -664,7 +664,7 @@ valid_aggregated_data = intersect(
 # about non-validation of runs created with the prior
 # schema.
 
-RUN_VERSION = 21
+RUN_VERSION = 22
 
 runs_schema = intersect(
     {
@@ -749,6 +749,16 @@ runs_schema = intersect(
                     "A": unumber,
                     "alpha": unumber,
                     "gamma": unumber,
+                    "sf_lr?": unumber,
+                    "sf_beta1?": unumber,
+                    "sf_beta2?": unumber,
+                    "sf_eps?": unumber,
+                    "sf_weight_sum?": unumber,
+                    "mu2_init?": unumber,
+                    "mu2_reports?": unumber,
+                    "mu2_sum_N?": unumber,
+                    "mu2_sum_s?": number,
+                    "mu2_sum_s2_over_N?": unumber,
                     "raw_params": str,
                     "iter": uint,
                     "num_iter": uint,
@@ -764,12 +774,20 @@ runs_schema = intersect(
                             "a_end": unumber,
                             "a": unumber,
                             "theta": number,
+                            "z?": number,
+                            "v?": number,
                         },
                         ...,
                     ],
                     "param_history?": [
                         [
-                            {"theta": number, "R": unumber, "c": unumber},
+                            {
+                                "theta": number,
+                                "R?": unumber,
+                                "c": unumber,
+                                "z?": number,
+                                "v?": unumber,
+                            },
                             ...,
                         ],
                         ...,

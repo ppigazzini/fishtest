@@ -823,27 +823,39 @@ def get_nets(commit_sha, repo_url):
 
 
 def parse_spsa_params(spsa):
-    raw = spsa["raw_params"]
     params = []
-    for line in raw.split("\n"):
-        chunks = line.strip().split(",")
-        if len(chunks) == 1 and chunks[0] == "":  # blank line
+    for line in spsa["raw_params"].strip().split("\n"):
+        chunks = [c.strip() for c in line.split(",")]
+        if len(chunks) == 0:
             continue
-        if len(chunks) != 6:
-            raise Exception("the line {} does not have 6 entries".format(chunks))
+
+        if len(chunks) not in (5, 6):
+            raise Exception("the line {} does not have 5 or 6 entries".format(chunks))
+
         param = {
             "name": chunks[0],
             "start": float(chunks[1]),
             "min": float(chunks[2]),
             "max": float(chunks[3]),
-            "c_end": float(chunks[4]),
-            "r_end": float(chunks[5]),
+            "theta": float(chunks[1]),
         }
-        param["c"] = param["c_end"] * spsa["num_iter"] ** spsa["gamma"]
-        param["a_end"] = param["r_end"] * param["c_end"] ** 2
-        param["a"] = param["a_end"] * (spsa["A"] + spsa["num_iter"]) ** spsa["alpha"]
-        param["theta"] = param["start"]
+
+        if len(chunks) == 6:
+            param["c_end"] = float(chunks[4])
+            param["r_end"] = float(chunks[5])
+            param["c"] = param["c_end"]
+        else:
+            param["c"] = float(chunks[4])
+            param["c_end"] = param["c"]
+            param["r_end"] = 0.0
+
+        param["a_end"] = 0.0
+        param["a"] = 0.0
+        param["z"] = param["theta"]
+        param["v"] = 0.0
+
         params.append(param)
+
     return params
 
 
@@ -1124,12 +1136,22 @@ def validate_form(request):
             raise Exception("Number of games must be >= 0")
 
         data["spsa"] = {
-            "A": int(float(request.POST["spsa_A"]) * data["num_games"] / 2),
-            "alpha": float(request.POST["spsa_alpha"]),
-            "gamma": float(request.POST["spsa_gamma"]),
+            "A": 0,
+            "alpha": 0.0,
+            "gamma": 0.0,
             "raw_params": request.POST["spsa_raw_params"],
             "iter": 0,
-            "num_iter": int(data["num_games"] / 2),
+            "num_iter": data["num_games"] // 2,
+            "sf_lr": float(request.POST["spsa_sf_lr"]),
+            "sf_beta1": float(request.POST["spsa_sf_beta1"]),
+            "sf_beta2": float(request.POST["spsa_sf_beta2"]),
+            "sf_eps": float(request.POST["spsa_sf_eps"]),
+            "sf_weight_sum": 0.0,
+            "mu2_init": 0.8,
+            "mu2_reports": 5.0,
+            "mu2_sum_N": 82.5,
+            "mu2_sum_s": 0.0,
+            "mu2_sum_s2_over_N": 4.0,
         }
         data["spsa"]["params"] = parse_spsa_params(data["spsa"])
         if len(data["spsa"]["params"]) == 0:
@@ -1250,10 +1272,15 @@ def tests_run(request):
             raise HTTPNotFound()
         run_args = copy.deepcopy(run["args"])
         if "spsa" in run_args:
-            # needs deepcopy
-            run_args["spsa"]["A"] = (
-                round(1000 * 2 * run_args["spsa"]["A"] / run_args["num_games"]) / 1000
-            )
+            spsa = run_args["spsa"]
+            if "sf_lr" not in spsa:
+                spsa["sf_lr"] = 0.0025
+                spsa["sf_beta1"] = 0.90
+                spsa["sf_beta2"] = 0.999
+                spsa["sf_eps"] = 1e-8
+                spsa.pop("A", None)
+                spsa.pop("alpha", None)
+                spsa.pop("gamma", None)
 
     username = request.authenticated_userid
     u = request.userdb.get_user(username)
@@ -1600,33 +1627,71 @@ def tests_view(request):
 
         if name == "spsa" and value != "-":
             iter_local = value["iter"] + 1  # start from 1 to avoid division by zero
-            A = value["A"]
-            alpha = value["alpha"]
-            gamma = value["gamma"]
-            summary = "iter: {:d}, A: {:d}, alpha: {:0.3f}, gamma: {:0.3f}".format(
-                iter_local,
-                A,
-                alpha,
-                gamma,
-            )
             params = value["params"]
-            value = [summary]
-            for p in params:
-                c_iter = p["c"] / (iter_local**gamma)
-                r_iter = p["a"] / (A + iter_local) ** alpha / c_iter**2
-                value.append(
-                    [
-                        p["name"],
-                        "{:.2f}".format(p["theta"]),
-                        int(p["start"]),
-                        int(p["min"]),
-                        int(p["max"]),
-                        "{:.3f}".format(c_iter),
-                        "{:.3f}".format(p["c_end"]),
-                        "{:.2e}".format(r_iter),
-                        "{:.2e}".format(p["r_end"]),
-                    ]
+
+            if "sf_lr" in value:
+                # SF-Adam
+                summary = "iter: {:d}, lr: {}, beta1: {}, beta2: {}, eps: {}".format(
+                    iter_local,
+                    value["sf_lr"],
+                    value["sf_beta1"],
+                    value["sf_beta2"],
+                    value["sf_eps"],
                 )
+                headers = ["param", "value", "start", "min", "max", "c"]
+                value_list = [summary, headers]
+                for p in params:
+                    value_list.append(
+                        [
+                            p["name"],
+                            "{:.2f}".format(p["theta"]),
+                            int(p["start"]),
+                            int(p["min"]),
+                            int(p["max"]),
+                            "{:.3f}".format(p["c"]),
+                        ]
+                    )
+                value = value_list
+            else:
+                # Classic SPSA
+                A = value["A"]
+                alpha = value["alpha"]
+                gamma = value["gamma"]
+                summary = "iter: {:d}, A: {:d}, alpha: {:0.3f}, gamma: {:0.3f}".format(
+                    iter_local,
+                    A,
+                    alpha,
+                    gamma,
+                )
+                headers = [
+                    "param",
+                    "value",
+                    "start",
+                    "min",
+                    "max",
+                    "c",
+                    "c_end",
+                    "r",
+                    "r_end",
+                ]
+                value_list = [summary, headers]
+                for p in params:
+                    c_iter = p["c"] / (iter_local**gamma)
+                    r_iter = p["a"] / (A + iter_local) ** alpha / c_iter**2
+                    value_list.append(
+                        [
+                            p["name"],
+                            "{:.2f}".format(p["theta"]),
+                            int(p["start"]),
+                            int(p["min"]),
+                            int(p["max"]),
+                            "{:.3f}".format(c_iter),
+                            "{:.3f}".format(p["c_end"]),
+                            "{:.2e}".format(r_iter),
+                            "{:.2e}".format(p["r_end"]),
+                        ]
+                    )
+                value = value_list
 
         tests_repo_ = tests_repo(run)
         user, repo = gh.parse_repo(tests_repo_)
