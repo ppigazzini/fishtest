@@ -27,8 +27,9 @@ from fishtest.views_helpers import _host_url
 
 logger = logging.getLogger(__name__)
 
-_SPSA_PARAM_FIELDS = 6
 _RUN_MODIFY_MAX_AGE_DAYS = 30
+_SPSA_SF_ADAM_PARAM_FIELDS = 5
+_SPSA_CLASSIC_PARAM_FIELDS = 6
 
 if TYPE_CHECKING:
     from starlette.responses import RedirectResponse
@@ -177,24 +178,39 @@ def parse_spsa_params(spsa: dict[str, Any]) -> list[dict[str, Any]]:
     raw = spsa["raw_params"]
     params = []
     for line in raw.split("\n"):
-        chunks = line.strip().split(",")
+        chunks = [chunk.strip() for chunk in line.split(",")]
         if len(chunks) == 1 and chunks[0] == "":  # blank line
             continue
-        if len(chunks) != _SPSA_PARAM_FIELDS:
-            msg = f"the line {chunks} does not have {_SPSA_PARAM_FIELDS} entries"
+        if len(chunks) not in (
+            _SPSA_SF_ADAM_PARAM_FIELDS,
+            _SPSA_CLASSIC_PARAM_FIELDS,
+        ):
+            msg = (
+                f"the line {chunks} does not have "
+                f"{_SPSA_SF_ADAM_PARAM_FIELDS} or {_SPSA_CLASSIC_PARAM_FIELDS} entries"
+            )
             raise ValueError(msg)
         param = {
             "name": chunks[0],
             "start": float(chunks[1]),
             "min": float(chunks[2]),
             "max": float(chunks[3]),
-            "c_end": float(chunks[4]),
-            "r_end": float(chunks[5]),
+            "theta": float(chunks[1]),
         }
-        param["c"] = param["c_end"] * spsa["num_iter"] ** spsa["gamma"]
-        param["a_end"] = param["r_end"] * param["c_end"] ** 2
-        param["a"] = param["a_end"] * (spsa["A"] + spsa["num_iter"]) ** spsa["alpha"]
-        param["theta"] = param["start"]
+
+        if len(chunks) == _SPSA_CLASSIC_PARAM_FIELDS:
+            param["c_end"] = float(chunks[4])
+            param["r_end"] = float(chunks[5])
+            param["c"] = param["c_end"]
+        else:
+            param["c"] = float(chunks[4])
+            param["c_end"] = param["c"]
+            param["r_end"] = 0.0
+
+        param["a_end"] = 0.0
+        param["a"] = 0.0
+        param["z"] = param["theta"]
+        param["v"] = 0.0
         params.append(param)
     return params
 
@@ -561,12 +577,19 @@ def validate_form(request: Any) -> dict[str, Any]:  # noqa: ANN401, C901, PLR091
             raise ValueError(msg)
 
         data["spsa"] = {
-            "A": int(float(request.POST["spsa_A"]) * data["num_games"] / 2),
-            "alpha": float(request.POST["spsa_alpha"]),
-            "gamma": float(request.POST["spsa_gamma"]),
             "raw_params": request.POST["spsa_raw_params"],
             "iter": 0,
-            "num_iter": int(data["num_games"] / 2),
+            "num_iter": data["num_games"] // 2,
+            "sf_lr": float(request.POST["spsa_sf_lr"]),
+            "sf_beta1": float(request.POST["spsa_sf_beta1"]),
+            "sf_beta2": float(request.POST["spsa_sf_beta2"]),
+            "sf_eps": float(request.POST["spsa_sf_eps"]),
+            "sf_weight_sum": 0.0,
+            "mu2_init": 0.8,
+            "mu2_reports": 5.0,
+            "mu2_sum_N": 82.5,
+            "mu2_sum_s": 0.0,
+            "mu2_sum_s2_over_N": 4.0,
         }
         data["spsa"]["params"] = parse_spsa_params(data["spsa"])
         if len(data["spsa"]["params"]) == 0:

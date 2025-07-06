@@ -2420,10 +2420,15 @@ def tests_run(request: _ViewContext) -> dict[str, Any] | RedirectResponse:
             raise StarletteHTTPException(status_code=404)
         run_args = copy.deepcopy(run["args"])
         if "spsa" in run_args:
-            # needs deepcopy
-            run_args["spsa"]["A"] = (
-                round(1000 * 2 * run_args["spsa"]["A"] / run_args["num_games"]) / 1000
-            )
+            spsa = run_args["spsa"]
+            if "sf_lr" not in spsa:
+                spsa["sf_lr"] = 0.0025
+                spsa["sf_beta1"] = 0.90
+                spsa["sf_beta2"] = 0.999
+                spsa["sf_eps"] = 1e-8
+                spsa.pop("A", None)
+                spsa.pop("alpha", None)
+                spsa.pop("gamma", None)
 
     username = request.authenticated_userid
     u = request.userdb.get_user(username)
@@ -3193,14 +3198,58 @@ def _format_tests_view_spsa_value(
     value: dict[str, Any],
 ) -> list[str | _SpsaTableRow]:
     iter_local = value["iter"] + 1  # start from 1 to avoid division by zero
+    params = value["params"]
+
+    if "sf_lr" in value:
+        summary = (
+            "iter: {iter_local:d}, lr: {sf_lr}, beta1: {sf_beta1}, "
+            "beta2: {sf_beta2}, eps: {sf_eps}"
+        ).format(
+            iter_local=iter_local,
+            sf_lr=value["sf_lr"],
+            sf_beta1=value["sf_beta1"],
+            sf_beta2=value["sf_beta2"],
+            sf_eps=value["sf_eps"],
+        )
+        spsa_value: list[str | _SpsaTableRow] = [
+            summary,
+            ["param", "value", "start", "min", "max", "c"],
+        ]
+        for p in params:
+            try:
+                c_value = float(p["c"])
+            except (KeyError, TypeError, ValueError) as e:
+                logger.warning(
+                    "Invalid SF-Adam param state while rendering "
+                    "run %s (iter=%d, param=%s): %s",
+                    run["_id"],
+                    iter_local,
+                    p.get("name", "<unknown>"),
+                    e,
+                )
+                c_value = float("nan")
+            spsa_value.append(
+                [
+                    p["name"],
+                    "{:.2f}".format(p["theta"]),
+                    str(int(p["start"])),
+                    str(int(p["min"])),
+                    str(int(p["max"])),
+                    f"{c_value:.3f}",
+                ],
+            )
+        return spsa_value
+
     A = value["A"]  # noqa: N806
     alpha = value["alpha"]
     gamma = value["gamma"]
     summary = (
         f"iter: {iter_local:d}, A: {A:d}, alpha: {alpha:0.3f}, gamma: {gamma:0.3f}"
     )
-    params = value["params"]
-    spsa_value: list[str | _SpsaTableRow] = [summary]
+    spsa_value = [
+        summary,
+        ["param", "value", "start", "min", "max", "c", "c_end", "r", "r_end"],
+    ]
     for p in params:
         try:
             c_iter = p["c"] / (iter_local**gamma)
