@@ -66,25 +66,20 @@ def _add_to_history(spsa, num_games, w_params):
     samples = 100 if n_params < 100 else 10000 / n_params if n_params < 1000 else 1
     period = num_games / 2 / samples
 
-    # Now update if the time has come...
     if "param_history" not in spsa:
         spsa["param_history"] = []
     if len(spsa["param_history"]) + 1 <= spsa["iter"] / period:
-        # For schedule-free runs we want to display the averaged iterate x, not the evaluation theta.
-        # Reconstruct x on the fly (do not store it): theta = (1-beta) * z + beta * x => x = (theta - (1-beta) * z)/beta
-        # Use the beta provided at run creation (views.py) if present; fallback keeps backward compatibility.
-        beta = spsa.get("sf_beta", 0.9)
+        # Schedule-free: display the long averaged iterate x (reconstructed), not the fast z.
+        # Relation: theta = (1 - beta1) * z + beta1 * x  =>  x = (theta - (1 - beta1)*z)/beta1
+        beta1 = spsa.get("sf_beta1", 0.9)
         summary = []
         for w_param, spsa_param in zip(w_params, spsa["params"]):
-            if "z" in spsa_param and beta > 0:
-                # Reconstruct averaged iterate x for schedule-free params
-                x_val = (spsa_param["theta"] - (1 - beta) * spsa_param["z"]) / beta
-                theta_for_history = x_val
+            if "z" in spsa_param and beta1 > 0:
+                x_val = (spsa_param["theta"] - (1 - beta1) * spsa_param["z"]) / beta1
+                show_val = x_val
             else:
-                theta_for_history = spsa_param["theta"]
-            summary.append(
-                {"theta": theta_for_history, "R": w_param["R"], "c": w_param["c"]}
-            )
+                show_val = spsa_param["theta"]
+            summary.append({"theta": show_val, "R": w_param["R"], "c": w_param["c"]})
         spsa["param_history"].append(summary)
 
 
@@ -160,53 +155,116 @@ class SPSAHandler:
             del w_param["value"]  # for safety!
 
         # Update the current theta based on the results from the worker
+        # Aggregate outcomes
         result = spsa_results["wins"] - spsa_results["losses"]
-        # Number of pairs in this report
         N = spsa_results["num_games"] // 2
-        # Advance global counter
+        if N <= 0:
+            print(
+                f"update_spsa_data: N=0 for {run_id}/{task_id}, skipping.", flush=True
+            )
+            return
+
+        # Advance total consumed pair counter (still used for UI)
         spsa["iter"] += N
 
-        # Averaging weight for schedule-free variant (N-weighted Polyak):
-        # Use cum_pairs_before + N in the denominator; since we've just incremented,
-        # cum_pairs_after = spsa["iter"] = cum_pairs_before + N, so w = N / cum_pairs_after.
-        w = N / spsa["iter"]
-        # Schedule-free SGD hyperparameters (set at run creation time in views.py).
-        # Fallback to legacy constants if fields are missing (old runs).
+        # ------------------ Schedule-free SGD (Enhanced: mean gradient + lr-weighted mass) ------------------
+        #
+        # MODEL SUMMARY:
+        #   We treat each arriving report (num_pairs = N) as ONE aggregated stochastic sample whose
+        #   gradient in φ-space is the MEAN over its pairs: g_phi = (result / N) * flip.
+        #   The fast iterate z updates with a constant per-pair learning rate (with optional warmup).
+        #   A long Polyak-style average (implicit x) is maintained via a cumulative weight mass:
+        #       weight_sum += lr_eff * N
+        #       a_k = (lr_eff * N) / weight_sum
+        #   The evaluation iterate theta blends z and x with beta1.
+        #
+        #   Using lr_eff * N (instead of just N) discounts very early, partially warmed steps
+        #   so they do not dominate the average—mirrors the AdamW schedule-free variant fairness.
+        #
+        # LEGACY DIFFERENCES (old sf-sgd):
+        #   - Previously: step used raw result (∝ N) and averaging weight w = N / total_pairs.
+        #   - Now: step uses mean result/N and averaging mass is lr_eff * N (fair & scale-free).
+        #   - Behavior matches old code after warmup up to a multiplicative reparameterization,
+        #     but removes bias favoring large-N workers and early oversized (unwarmed) steps.
+        #
+        # OPTIONAL VARIANCE CLAMP:
+        #   If 'sf_var_clamp' = λ > 0, clamp result to ± λ * N BEFORE dividing by N.
+        #
+        # STATE REQUIREMENTS:
+        #   Per param: theta, z.
+        #   Global: iter (total pairs), sf_weight_sum (cumulative lr_eff * N). Lazily initialized.
+        #
+        # SENTINEL (do not remove this block without preserving its rationale).
+
         lr = spsa.get("sf_lr", 0.0025)
-        beta = spsa.get("sf_beta", 0.9)
+        beta1 = spsa.get("sf_beta1", 0.9)
+        clamp_lambda = spsa.get("sf_var_clamp", 0.0)
+
+        # Warmup (linear ramp of learning rate over first ~10% of planned pairs unless overridden)
+        total_pairs_planned = max(1, run["args"]["num_games"] // 2)
+        warmup_pairs_default = max(1, int(0.1 * total_pairs_planned))
+        warmup_pairs = spsa.get("sf_warmup_pairs", warmup_pairs_default)
+        current_pairs = spsa["iter"]
+        warmup_scale = (
+            current_pairs / warmup_pairs if current_pairs < warmup_pairs else 1.0
+        )
+        lr_eff = lr * warmup_scale
+
+        # Optional variance clamp (before mean)
+        if clamp_lambda and clamp_lambda > 0.0:
+            limit = clamp_lambda * N
+            result_clamped = max(min(result, limit), -limit)
+        else:
+            result_clamped = result
+
+        # Mean gradient scalar (per pair) in φ-space (scale-free across heterogeneous N)
+        g_scalar = result_clamped / N
+
+        # Learning-rate & pair-weighted averaging mass (lazy init)
+        if "sf_weight_sum" not in spsa:
+            spsa["sf_weight_sum"] = 0.0
+        spsa["sf_weight_sum"] += lr_eff * N
+        weight_sum = spsa["sf_weight_sum"]
+        a_k = (lr_eff * N) / weight_sum if weight_sum > 0.0 else 1.0
 
         for idx, param in enumerate(spsa["params"]):
-            R = w_params[idx]["R"]
             c = w_params[idx]["c"]
             flip = w_params[idx]["flip"]
 
+            # Classic fallback for legacy parameters without schedule-free state
             if "z" not in param:
-                # Legacy classic SPSA update (kept for backward compatibility with very old runs)
-                update = R * c * result * flip
-                param["theta"] = _param_clip(param, update)
+                R = w_params[idx]["R"]
+                classic_step = R * c * result * flip
+                param["theta"] = _param_clip(param, classic_step)
                 continue
 
-            # Schedule-free path
-            # Reconstruct previous x from current (clipped) theta and z:
-            # x_prev = (theta - (1 - beta) * z) / beta, requiring beta > 0
-            if beta > 0:
-                x_prev = (param["theta"] - (1 - beta) * param["z"]) / beta
-            else:
-                # Degenerate case: no averaging; theta follows z
-                x_prev = param["z"]
+            z_old = param["z"]
 
-            # Update fast iterate z
-            z_new = param["z"] + lr * c * result * flip
+            # φ-gradient component
+            g_phi = g_scalar * flip
 
-            # Update running average x with weight w
-            if beta > 0:
-                x_new = (1 - w) * x_prev + w * z_new
-                theta_new = (1 - beta) * z_new + beta * x_new
-            else:
+            # Plain SGD fast iterate step (no RMS / no weight decay)
+            # θ-space delta: delta_z = lr_eff * c * g_phi = lr_eff * c * (result/N) * flip
+            delta_z = lr_eff * c * g_phi
+            z_new = z_old + delta_z
+
+            if beta1 == 0.0:
                 theta_new = z_new
+            else:
+                # Closed-form θ update eliminating explicit x:
+                # theta_new = (1 - a_k)*theta_old + (1 - beta1 + beta1 * a_k)*z_new - (1 - a_k)*(1 - beta1)*z_old
+                theta_new = (
+                    (1.0 - a_k) * param["theta"]
+                    + (1.0 - beta1 + beta1 * a_k) * z_new
+                    - (1.0 - a_k) * (1.0 - beta1) * z_old
+                )
 
-            # Clip and store
-            param["theta"] = min(max(theta_new, param["min"]), param["max"])
+            if theta_new < param["min"]:
+                theta_new = param["min"]
+            elif theta_new > param["max"]:
+                theta_new = param["max"]
+
+            param["theta"] = theta_new
             param["z"] = z_new
 
         _add_to_history(spsa, run["args"]["num_games"], w_params)

@@ -240,147 +240,213 @@ Operational tweak (optional)
 - `alpha, gamma, A`: `gamma` small (slow `c` decay), `alpha` moderate (stability late), `A` optional warm‑up (0–20% of total pairs).
 - Bounds: keep `[min, max]` wide enough to avoid constant clipping; still clip every `theta` update.
 
-## Chapter 6 — Schedule‑free SPSA (full)
+## Chapter 6 — Schedule‑free SGD (mean‑gradient, weighted averaging)
 
-This chapter expands the schedule‑free (constant learning rate) variant: why we introduce a fast iterate `z`, an averaged iterate `x`, and the evaluation/blend iterate `theta` (a.k.a. `y` in textbook momentum/EMA literature), how we keep RAM neutral by not storing `x`, and how weighting by pairs (`N`) adapts fairly to heterogeneous workers.
+This chapter documents the lean schedule‑free SGD variant used alongside the AdamW form (Chapter 7). It removes all power decays and second‑moment state while retaining: (a) constant φ‑space learning rate with optional warmup, (b) mean gradient scaling (`result / N`) for fairness across heterogeneous report sizes, (c) pair & learning‑rate weighted Polyak averaging mass (`lr_eff * N`), and (d) a short evaluation blend controlled by `sf_beta1` (first‑moment style smoothing). Weight decay, RMS normalization, variance clamp, and β₂ logic are NOT part of this branch.
 
 ### 6.1 Goals
-1. Eliminate hand‑tuned power decays (`a_k`, `c_k`) for the learning rate part while keeping the existing per‑axis `c` for probe separation (still needed for finite differences / scale).
-2. Use a single constant scalar step size in φ‑space: `lr` (alias: `sf_lr`).
-3. Variance reduction and stability via two nested smoothers:
-   - Long EMA (or cumulative average) `x` of the stochastic fast iterate.
-   - Short blend of the current fast iterate and the smoothed iterate into the played/evaluated parameters `theta`.
-4. Respect asynchronous heterogeneous batch sizes by weighting averages by the number of game pairs contributed.
-5. Remain memory‑neutral: do not persist a full extra vector for `x` in history; reconstruct on demand.
+1. Remove `a_k`, `c_k` learning rate decay complexity; keep per‑axis `c` only as probe radius.
+2. Use a single constant scalar `sf_lr` (with optional warmup) shared by all parameters in φ.
+3. Normalize gradient scale by dividing by `N` (pairs) so large reports are lower variance, not larger magnitude.
+4. Use averaging mass `lr_eff * N` (not just `N`) so warmup scaling proportionally reduces early influence and the effective step size and averaging weight stay coupled.
+5. Provide a light smoother (`sf_beta1`) via a blend with the (implicit) Polyak average; memory‑neutral implementation (no stored `x`).
 
-### 6.2 The three sequences (textbook view)
-We conceptually maintain for each parameter dimension `i`:
+### 6.2 Fast iterate, average, evaluation blend
+Conceptually three sequences exist (per axis `i`): fast iterate `z`, long average `x`, evaluation iterate `theta_eval` (what games are played at). For a report with mean gradient scalar `g_scalar = (result / N)` and signing flips `flip[i]` captured at dispatch with scale `c_i`:
 
 ```
-z_{t+1} = z_t + lr * (c_i * result_t * flip_t[i])          # fast step (φ gradient mapped back to θ via c_i)
-x_{t+1} = (1 - w_t) * x_t + w_t * z_{t+1}                  # long average (Polyak / EMA)
-theta_{t+1} = (1 - beta) * z_{t+1} + beta * x_{t+1}        # evaluation blend
+g_phi[i]    = g_scalar * flip[i]
+delta_z[i]  = lr_eff * g_phi[i] * c_i              # map φ step to θ via c_i
+z_new[i]    = z_old[i] + delta_z[i]
+# Averaging mass update (scalar): weight_sum += lr_eff * N
+w_mass      = (lr_eff * N) / weight_sum_after      # a_k in AdamW notation
+x_new[i]    = (1 - w_mass) * x_old[i] + w_mass * z_new[i]
+theta_eval[i] = (1 - sf_beta1) * z_new[i] + sf_beta1 * x_new[i]
 ```
 
-Where:
-* `lr` (`sf_lr`) is constant (no decay).
-* `beta` (`sf_beta`) is a blend weight in `[0,1]` (typical: `0.9`). Larger `beta` shifts evaluation toward the averaged iterate, smoothing noise; smaller `beta` makes evaluation track the fast iterate (more responsive, noisier).
-* `w_t` is the averaging weight for incorporating the new sample into `x`.
+Implementation eliminates `x` using algebra (see §6.5) and directly updates the exported/smoothed trajectory without storing an extra vector per history entry.
 
-We play games (the SPSA probes) at `theta_t ± c_i * flip[i]`, i.e. evaluation iterate.
+### 6.3 Mean gradient and fairness
+Using `g_scalar = result / N` keeps expected gradient magnitude invariant to report size; variance shrinks ~1/N. The averaging mass includes `N` so total influence (step + weighting) still scales with contributed data volume. Splitting one big report into smaller ones with the same total pairs yields comparable net effect (up to stochastic noise).
 
-### 6.3 φ‑space interpretation
-Recall: a θ‑step of `delta_theta_i = lr * c_i * result * flip[i]` corresponds to a φ‑step of `delta_phi_i = lr * result * flip[i]` (since `theta_i = c_i * phi_i` at the same snapshot). Thus schedule‑free SPSA is literally constant‑step SGD in φ with a two‑level smoother before evaluation. No power schedules remain; only the per‑axis scale `c_i` (probe radius) persists.
+### 6.4 Learning rate and warmup
+`lr_eff = sf_lr * warmup_scale`, with an optional linear warmup over the first `sf_warmup_pairs` total pairs (`warmup_scale = min(1, iter_pairs / sf_warmup_pairs)`). Because averaging mass uses `lr_eff * N`, early steps (smaller `lr_eff`) also contribute proportionally less to the long average, mirroring the AdamW variant’s coupling.
 
-### 6.4 Choice of averaging weight `w_t`
-We want fair contribution proportional to the number of *pairs* (`N`) in each asynchronous report so large workers do not under‑ or over‑influence relative to their data volume. Let `pairs_total_before` be the cumulative number of pairs incorporated into `x` so far. For a new report with `N` pairs:
+### 6.5 Eliminating the explicit average
+Let `a_k = (lr_eff * N) / weight_sum_after` be the incremental averaging weight. Define `beta = sf_beta1` for brevity. From the conceptual equations:
 
 ```
-w_t = N / (pairs_total_before + N)
+x_new = (1 - a_k) * x_old + a_k * z_new
+theta_eval_new = (1 - beta) * z_new + beta * x_new
 ```
 
-Properties:
-* This is exactly the incremental formula for a cumulative average of all past `z` samples when each sample is replicated `N` times.
-* If every report had `N = 1`, it degenerates to the standard running average (`1/(t+1)`).
-* No tuning knob: purely data‑proportional.
-
-Alternative (EMA) form: if one preferred an exponential average with fixed half‑life, you could set `w_t = 1 - exp(-N / tau_pairs)`, but we currently use the unbiased cumulative version (no extra hyperparameter) for transparency.
-
-### 6.5 RAM‑neutral reconstruction of `x`
-We do not store `x` in persistent state or in the per‑step history vector (saves one vector per history point). Instead we store only:
-* `theta_t` (actually we overwrite this slot with `x_t` for schedule‑free runs — see §6.9 for rationale).
-* `z_t` as part of the internal SPSA state.
-* Cumulative pair count (implicit in `spsa["iter"]`).
-
-Reconstruction identity (derive from the blend equation):
+We store a single exported trajectory `theta_export` that we choose to be the *smoothed* path (analogous to `x` in the limit `beta→1`). Eliminate `x` and `theta_eval` algebraically using the previous exported value (`theta_old`) and both `z_old`, `z_new`:
 
 ```
-theta_t = (1 - beta) * z_t + beta * x_t
-=> x_t = (theta_t - (1 - beta) * z_t) / beta          (beta > 0)
+theta_new = (1 - a_k) * theta_old + (1 - beta + beta * a_k) * z_new - (1 - a_k)*(1 - beta) * z_old
 ```
 
-Thus when we need to display the *averaged* trajectory (what users care about for progress / convergence), we reconstruct `x_t` on the fly from the stored `theta_t` (which actually is `x_t` after substitution; see §6.9) and the current `z_t` if needed for intermediate steps. This keeps history semantics identical to classic runs (frontend still consumes `param_history[].theta`).
+Edge cases:
+* `beta = 0`: simplifies to `theta_new = z_new` (pure constant‑lr SPSA without smoothing).
+* First update: define `weight_sum_before = 0` ⇒ `a_k = 1`; formula yields `theta_new = z_new` (expected: average equals fast iterate initially).
 
-Edge when `beta = 0`: the evaluation iterate equals the fast iterate; then `x` is unused and reconstruction is undefined (division by 0). Implementation guards: if `beta == 0` we skip reconstruction and treat `theta` as the displayed fast iterate.
+### 6.6 State summary (SGD branch)
+Global scalar fields: `iter` (pairs), `sf_lr`, `sf_beta1`, optional `sf_warmup_pairs`, running `sf_weight_sum` (initial 0).
 
-### 6.6 Putting it together (one report)
-For a report spanning `N` pairs with aggregated `result = wins - losses` (sum over those games) and stored snapshot index `k0` for `c_i`:
+Per parameter: `theta` (exported smoothed path), `z` (fast iterate), bounds & `c` from classic SPSA setup.
 
-1. Compute the fast step per axis:
-   `z[i] = z[i] + lr * c_i_k0 * result * flip[i]`
-2. Update cumulative pairs: `pairs_total += N`.
-3. Compute weight: `w = N / pairs_total`.
-4. Update running average (concept): `x[i] = (1 - w) * x[i] + w * z[i]`.
-5. Evaluation blend: `theta[i] = (1 - beta) * z[i] + beta * x[i]`.
-6. Clip `theta[i]` into `[min_i, max_i]`.
-7. Advance global `iter` by `N`.
+No: `v` (second moment), `sf_beta2`, `sf_eps`, `sf_wd`, `sf_updates`, `sf_var_clamp` — those belong only to the AdamW branch.
 
-Implementation detail: we do not materialize step (4) permanently; instead we either (a) store `x` in the historical record directly (so the plotting field is the smoothed path) or (b) reconstruct as needed (historical choice here is to store `x` in the `theta` slot for clarity and leave `z` only in state).
-
-### 6.7 Relation to classic decayed schedule
-If in the classic formulation you froze `a_k/c_k` to a constant value `lr * c_i` and disabled both the `a` and `c` power decays, then the raw θ‑update sequence is identical to the schedule‑free fast iterate `z`. The schedule‑free method simply *adds* the long average `x` and blend `beta` for variance reduction, offering smoother progress without decays. Thus classic late‑run behavior (where `a_k/c_k` stabilizes) mirrors schedule‑free steady state.
-
-### 6.8 Hyperparameters (`sf_lr`, `sf_beta`)
-* `sf_lr` (`lr`): primary knob; too large -> frequent clipping & noisy plateau; too small -> slow drift.
-* `sf_beta` (`beta`): smoothing depth. Higher yields slower but cleaner trajectory. Practical window:
-  - `0.8` light smoothing.
-  - `0.9` default (balance).
-  - `0.95+` heavy smoothing (may lag improvements in highly dynamic early phases).
-No separate decay exists; adapt by manual adjustments or future adaptive schemes (not yet implemented).
-
-### 6.9 History semantics and user display
-Users expect the plotted curve to represent *progress* (denoised). We therefore store the *averaged* iterate for schedule‑free runs in the existing history field `theta` (so downstream code and UI remain unchanged). Internally the true evaluation iterate used for that report is `(1 - beta) * z + beta * x`; because immediately after blending we overwrite the export slot with `x`, the visible path is the smoothed one. Legacy (classic) runs still store the post‑update θ. This conditional meaning is documented here to avoid confusion.
-
-Consistency checks:
-* When `beta -> 0`: exported path matches fast iterate; behavior reduces to constant‑lr SPSA without smoothing.
-* When `beta -> 1`: exported path is the cumulative average of all past fast iterates (Polyak average), and evaluation iterate is almost identical (`theta ≈ x`).
-* In all cases, instantaneous raw step magnitude (before smoothing) is `lr * c_i_k0 * |result|`.
-
-### 6.10 Edge cases & safeguards
-* Division by zero: guard when `pairs_total_before = 0` -> first weight `w = 1` (makes `x = z`).
-* Large result spikes: optional clamp (`|result| <= lambda_ * N`) from Chapter 4 can still be applied; variance reduction layers are orthogonal.
-* Bounds interaction: clipping occurs *after* blending; extreme clips can bias the average—monitor clip frequency to choose `lr`.
-
-### 6.11 Minimal pseudocode (arrival path)
+### 6.7 One report arrival (pseudocode)
 ```
-def handle_report(result, N, flips, c_vec, state):
-    # state: {theta[], z[], iter_pairs, sf_lr, sf_beta, ...}
-    lr = state.sf_lr
-    beta = state.sf_beta
-    # 1. Fast iterate update
-    for i in range(len(z)):
-        z[i] += lr * c_vec[i] * result * flips[i]
-    # 2. Weight
-    pairs_before = state.iter_pairs
-    pairs_after = pairs_before + N
-    w = N / pairs_after
-    # 3. (Conceptual) average x  -- not stored separately
-    # x_new = (1 - w) * x_old + w * z   (x_old reconstructed if needed)
-    # 4. Blend to evaluation iterate
-    if beta == 0:
-        theta = z[:]  # direct
-    else:
-        # Reconstruct x_old from stored theta_old and z_old if needed:
-        # x_old = (theta_old - (1 - beta) * z_old) / beta
-        # x_new = (1 - w) * x_old + w * z
-        # theta_new = (1 - beta) * z + beta * x_new
-        # Implementation shortcut: compute theta_new directly without persisting x.
-        # (Actual code does algebra inline.)
-        theta = blend_and_average(theta, z, w, beta)
-    clip(theta)
-    state.iter_pairs = pairs_after
-    store_history(theta_as_display(theta))
+g_scalar = result / N
+lr_eff = sf_lr * warmup_scale(iter_pairs)
+sf_weight_sum += lr_eff * N
+a_k = (lr_eff * N) / sf_weight_sum
+for each param i:
+  delta_z = lr_eff * g_scalar * flip[i] * c_i
+  z_new = z_old + delta_z
+  if sf_beta1 == 0:
+    theta_new = z_new
+  else:
+    theta_new = (1 - a_k) * theta_old \
+           + (1 - sf_beta1 + sf_beta1 * a_k) * z_new \
+           - (1 - a_k) * (1 - sf_beta1) * z_old
+  clip(theta_new)
+  store(theta = theta_new, z = z_new)
+iter += N
 ```
 
-### 6.12 Summary
-Schedule‑free SPSA is constant‑step φ‑space SGD plus Polyak-style averaging and a short blend, implemented so that: (a) only one new scalar learning rate (`sf_lr`) and one smoothing scalar (`sf_beta`) are exposed; (b) heterogeneous asynchronous reports contribute proportionally via `w = N / cumulative_pairs_after`; (c) no extra per‑history vector is stored; (d) the user sees the stabilized `x` trajectory under the familiar `theta` key.
+### 6.8 Hyperparameters
+* `sf_lr`: constant φ learning rate; tune by monitoring clip frequency & convergence slope.
+* `sf_beta1`: blend toward the long average. Typical 0.9 (0.8 faster, 0.95 smoother, 0 disables smoothing).
+* `sf_warmup_pairs` (optional): linear ramp length for `sf_lr` and averaging mass coupling (default: 10% of planned pairs if omitted, or disabled if set to 0).
 
-Practical tuning: start from the classic run’s late effective `r_end` as `sf_lr`; pick `sf_beta = 0.9`; watch clipping & improvement slope—adjust `sf_lr` by ~×1.25 or ÷1.25 as needed.
+### 6.9 History semantics
+Exported `theta` is already the smoothed trajectory (`theta_new` above). No reconstruction needed. If `sf_beta1 = 0`, the path is the raw fast iterate. Plots therefore remain directly comparable to classic runs (representing a denoised improving parameter trajectory).
 
-Arrival‑anchored mass adjustment (§4) is unnecessary here because there is no decaying `a_k`; each report’s contribution is already normalized by *pairs* in the averaging weight.
+### 6.10 Safeguards & notes
+* Division by zero: first report handled by `sf_weight_sum` update (becomes `lr_eff * N` > 0) ⇒ `a_k = 1`.
+* Large outliers: any variance clamp is deliberately excluded here to stay minimal; enabling it would mirror Chapter 7 step 1 (can be added later if needed).
+* Clipping after blend is essential; excessive clipping suggests lowering `sf_lr`.
+
+### 6.11 Summary
+Schedule‑free SGD = constant‑lr φ‑space SPSA with mean gradient, lr‑scaled pair weighting, and a light blend controlled by `sf_beta1`. It is the minimal fair variant for heterogeneous workers: no RMS, no weight decay, no β₂ counter—just the pieces required for scale invariance, smoothing, and warmup‑consistent averaging mass.
+
+Practical start: set `sf_lr` near the late classic `r_end`, `sf_beta1 = 0.9`; adjust `sf_lr` by ×1.25 / ÷1.25 based on observed stability & speed.
+
+## Chapter 7 — Schedule‑free AdamW SPSA (Fishtest implementation)
+
+Chapter 6 described a minimal schedule‑free SPSA using a simple cumulative (pair‑weighted) average plus a short blend. The production implementation adds (a) an RMS (second‑moment) normalization like Adam/AdamW, (b) decoupled weight decay, (c) warmup scaling, and (d) an arrival (report) based interpretation ("Model A: aggregated update"). This chapter documents the exact math used in `spsa_handler.py`.
+
+### 7.1 High‑level differences vs Chapter 6
+| Aspect | Chapter 6 (SGD) | Chapter 7 (AdamW variant) |
+|--------|-----------------|---------------------------|
+| Variance normalization | None | RMS via exponential second moment (β₂) |
+| Weight decay | None | Decoupled, first‑order approx over N pairs |
+| Averaging weight mass | lr_eff * N | lr_eff * N (same coupling) |
+| Bias correction | N/A | Adam-style on second moment using arrival count |
+| Gradient scale | result / N | result / N (mean) |
+| Heterogeneous workers | Pair & lr weighting | Pair & lr weighting |
+
+### 7.2 State (naming mirrors code)
+Global (`spsa` dict): `iter`, `sf_lr`, `sf_beta1`, `sf_beta2`, `sf_eps`, `sf_wd`, `sf_updates`, `sf_weight_sum`, optional `sf_warmup_pairs`, `sf_var_clamp`.
+
+Per parameter: `theta`, `z` (fast iterate), `v` (second moment), plus classic fields (`min`, `max`, `c`, etc.) retained for fallback.
+
+### 7.3 One report update (Model A)
+Given a report with `result = wins - losses` over `2N` games and flips `flip[i]` used with scale `c_i` captured at dispatch:
+
+1. Optional clamp: `result <- clamp(result, ± λ N)` if `sf_var_clamp = λ > 0`.
+2. Mean gradient scalar: `g_scalar = result / N`.
+3. Per‑axis φ gradient: `g_phi[i] = g_scalar * flip[i]`.
+4. Second moment: `v[i] = β₂ * v[i] + (1 - β₂) * g_phi[i]^2`.
+5. Bias correction: `v_hat[i] = v[i] / (1 - β₂^{sf_updates})` after incrementing `sf_updates`.
+6. Warmup: `lr_eff = sf_lr * min(1, iter_pairs / warmup_pairs)` (linear, pairs based).
+7. RMS‑normalized φ step: `step_phi[i] = lr_eff * g_phi[i] / (sqrt(v_hat[i]) + sf_eps)`.
+8. Map to θ fast iterate: `Δz[i] = step_phi[i] * c_i`.
+9. Decoupled weight decay (first order N pairs): `z[i] = (1 - lr_eff * sf_wd * N)_+ * z[i] + Δz[i]`.
+10. Averaging mass: `sf_weight_sum += lr_eff * N`, `a_k = (lr_eff * N) / sf_weight_sum`.
+11. Blend (eliminating explicit x):
+```
+theta_new = (1 - a_k) * theta_old + (1 - β₁ + β₁ a_k) * z_new - (1 - a_k)(1 - β₁) * z_old
+```
+   If `β₁ = 0`, `theta_new = z_new`.
+12. Clip `theta_new` into `[min, max]`.
+13. Increment `iter += N`.
+
+### 7.4 Why mean gradient (result / N)
+Expected gradient scale independent of N; variance shrinks as 1/N; large workers contribute lower‑noise samples without inflated steps. Pair‑weighted averaging (`lr_eff * N`) still makes total influence proportional to data volume.
+
+### 7.5 Warmup
+Linear over first `sf_warmup_pairs` (or 10% of planned total pairs if unspecified). Applies to both step size and averaging mass (since mass uses `lr_eff * N`).
+
+### 7.6 Variance clamp
+If enabled (`sf_var_clamp = λ`), clamp raw `result` to `± λ N` before dividing by `N`. Protects RMS accumulator from rare outliers (e.g., crash cascades).
+
+### 7.7 History reconstruction
+We export a smoothed trajectory. Using `theta = (1 - β₁) z + β₁ x`, we can reconstruct `x = (theta - (1 - β₁) z)/β₁` for display if needed. For `β₁ = 0` this is skipped.
+
+### 7.8 Fairness & equivalence
+Splitting a large `N` report into multiple smaller reports summing to the same total pairs gives similar net effect (up to stochastic noise) because: gradient means are identical, cumulative averaging mass matches, weight decay approximation aggregates linearly, and each arrival applies exactly one β₂ decay.
+
+### 7.9 Differences vs reference schedule‑free AdamW
+| Feature | Fishtest | PyTorch / Optax |
+|---------|----------|------------------|
+| Averaging mass | lr_eff * N | polynomial / lr_max^p variants |
+| Weight decay | (1 - lr_eff*wd*N)_+ | Decoupled (no N scaling needed for fixed batch) |
+| Heterogeneous adjustment | Mean gradient + pair weighting | Fixed batch size |
+| First moment | Omitted (RMS only) | Omitted in schedule‑free variant |
+
+### 7.10 Hyperparameter quick guide
+| Name | Meaning | Typical |
+|------|---------|---------|
+| sf_lr | Base φ learning rate | Start from late classic r_end |
+| sf_beta1 | Eval blend β₁ | 0.9 (0.8 fast, 0.95 smoother) |
+| sf_beta2 | RMS decay | 0.999 (0.995 faster response) |
+| sf_eps | Numeric eps | 1e-8 |
+| sf_wd | Decoupled weight decay | 0 (enable only if drift) |
+| sf_var_clamp | Outlier λ | 0 (disabled), else 3–5 |
+
+### 7.11 Edge safeguards
+- Clamp decay factor to `[0,1]`.
+- Guard bias denom: if `1 - β₂^{t} < 1e-16`, skip divide.
+- If `β₁ = 0`, bypass reconstruction.
+- If `β₂ = 1`, RMS reduces to raw gradient magnitude.
+
+### 7.12 Pseudocode
+```
+sf_updates += 1
+lr_eff = sf_lr * min(1, iter_pairs / warmup_pairs)
+if var_clamp>0: result = clamp(result, -λN, +λN)
+g_scalar = result / N
+sf_weight_sum += lr_eff * N
+a_k = (lr_eff * N) / sf_weight_sum
+for each param i:
+  g_phi = g_scalar * flip[i]
+  v = β₂ * v + (1-β₂) * g_phi^2
+  v_hat = v / (1 - β₂^{sf_updates})
+  step_phi = lr_eff * g_phi / (sqrt(v_hat) + eps)
+  delta_z = step_phi * c_i
+  if sf_wd>0:
+    decay = max(0, 1 - lr_eff * sf_wd * N)
+    z = z * decay + delta_z
+  else:
+    z = z + delta_z
+  if β₁ == 0:
+    theta = z
+  else:
+    theta = (1 - a_k) * theta + (1 - β₁ + β₁ a_k) * z - (1 - a_k)(1 - β₁) * z_old
+  clip(theta)
+iter += N
+```
+
+### 7.13 Summary
+Schedule‑free AdamW SPSA in Fishtest = mean gradient over pairs + RMS normalization + pair & lr weighted averaging + optional warmup & variance clamp + decoupled N‑scaled weight decay, all in a memory‑neutral form with fair treatment of heterogeneous workers.
 
 
-## Chapter 7 — Quick reference
+
+## Chapter 8 — Quick reference
 
 Symbols
 - `theta[i]`: parameter `i` in θ‑space
