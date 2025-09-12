@@ -113,7 +113,7 @@ def main() -> None:
 
     # External warm-start (adjust or set reports to 0.0 to disable)
     prior_p5: Tuple[float, float, float, float, float] = (0.05, 0.20, 0.50, 0.20, 0.05)
-    prior_reports: float = 5.0  # 0.0 disables
+    prior_reports: float = 10.0  # 0.0 disables
     N_min, N_max = 1, 32
     prior_mean_N: float = (N_min + N_max) / 2.0
 
@@ -127,6 +127,23 @@ def main() -> None:
 
     # Build external init aggregates once
     init_stats = compute_init_stats_from_prior(prior_p5, prior_reports, prior_mean_N)
+
+    # Print suggested μ2 init and aggregates for spsa_handler
+    mu_prior, mu2_prior, var_prior = compute_pentanomial_moments(prior_p5)
+    print("=== Suggested μ2 init and aggregates for spsa_handler (from prior_p5) ===")
+    print(f"Prior Mean (μ_prior)        : {mu_prior:.6f}")
+    print(f"Prior Variance (σ^2_prior)  : {var_prior:.6f}")
+    print(f"Prior Second moment (μ2_prior = E[x^2]) : {mu2_prior:.6f}")
+    print()
+    print("Paste this block into your run['args']['spsa'] to seed μ2:")
+    print("{")
+    print(f'  "mu2_init": {mu2_prior:.12f},')
+    print(f'  "mu2_reports": {init_stats.reports:.12f},')
+    print(f'  "mu2_sum_N": {init_stats.sum_N:.12f},')
+    print(f'  "mu2_sum_s": {init_stats.sum_s:.12f},')
+    print(f'  "mu2_sum_s2_over_N": {init_stats.sum_s2_over_N:.12f}')
+    print("}")
+    print()
 
     # Simulate reports
     seed = 42

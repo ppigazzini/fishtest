@@ -1130,13 +1130,19 @@ def validate_form(request):
             "alpha": float(request.POST["spsa_alpha"]),
             "gamma": float(request.POST["spsa_gamma"]),
             "raw_params": request.POST["spsa_raw_params"],
-            "iter": 0,
-            "num_iter": int(data["num_games"] / 2),
+            # Schedule-free Adam defaults
             "sf_lr": float(request.POST.get("sf_lr", "0.0025")),
             "sf_beta1": float(request.POST.get("sf_beta1", "0.9")),
             "sf_beta2": float(request.POST.get("sf_beta2", "0.999")),
             "sf_eps": float(request.POST.get("sf_eps", "1e-8")),
             "sf_weight_sum": 0.0,
+            # Mandatory μ2 prior initialization (WL domain)
+            # These ensure stable normalization from the first block.
+            "mu2_init": 0.8,
+            "mu2_reports": 5.0,
+            "mu2_sum_N": 82.5,
+            "mu2_sum_s": 0.0,
+            "mu2_sum_s2_over_N": 4.0,
         }
         data["spsa"]["params"] = parse_spsa_params(data["spsa"])
         if len(data["spsa"]["params"]) == 0:

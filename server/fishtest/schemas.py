@@ -749,11 +749,19 @@ runs_schema = intersect(
                     "A": unumber,
                     "alpha": unumber,
                     "gamma": unumber,
+                    # schedule-free Adam knobs (optional)
                     "sf_lr?": unumber,
                     "sf_beta1?": unumber,
                     "sf_beta2?": unumber,
                     "sf_eps?": unumber,
                     "sf_weight_sum?": unumber,
+                    # μ2 prior/accumulator fields (optional, add-only)
+                    "mu2_init?": unumber,
+                    "mu2_reports?": unumber,
+                    "mu2_sum_N?": unumber,
+                    "mu2_sum_s?": number,
+                    "mu2_sum_s2_over_N?": unumber,
+                    # existing required SPSA config
                     "raw_params": str,
                     "iter": uint,
                     "num_iter": uint,

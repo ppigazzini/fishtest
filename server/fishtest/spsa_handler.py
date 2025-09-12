@@ -104,21 +104,11 @@ def _adam_x_new_clamped(a_k, x_prev, z_new, pmin, pmax):
 # ---------------- Online μ2 estimator (report-level only) ----------------
 
 
-def _ensure_mu2_state(spsa: dict[str, Any]) -> None:
-    """Ensure μ2 accumulator fields exist in the run dict with sane defaults."""
-    spsa.setdefault("mu2_reports", 0.0)
-    spsa.setdefault("mu2_sum_N", 0.0)
-    spsa.setdefault("mu2_sum_s", 0.0)
-    spsa.setdefault("mu2_sum_s2_over_N", 0.0)
-    spsa.setdefault("mu2_init", 1.0)
-
-
 def _mu2_hat(spsa: dict[str, Any]) -> float:
     """
-    Exact block-averaged μ2 estimate using only (N, s) per report:
+    Block-averaged μ2 using only per-report (N, s):
       σ̂² = E[s²/N] − μ̂² · E[N],  μ̂2 = μ̂² + σ̂²
-    Uses spsa fields: mu2_reports, mu2_sum_N, mu2_sum_s, mu2_sum_s2_over_N.
-    Returns mu2_init if no reports yet. Clamped to [1e-12, 4.0].
+    Falls back to mu2_init if no reports yet. Clamped to [1e-12, 4.0].
     """
     reports = float(spsa.get("mu2_reports", 0.0))
     if reports <= 0.0:
@@ -143,13 +133,11 @@ def _mu2_hat(spsa: dict[str, Any]) -> float:
 
 
 def _mu2_update(spsa: dict[str, Any], N: int, s: float) -> None:
-    """Update μ2 accumulators after consuming the current report."""
-    spsa["mu2_reports"] = float(spsa.get("mu2_reports", 0.0)) + 1.0
-    spsa["mu2_sum_N"] = float(spsa.get("mu2_sum_N", 0.0)) + float(N)
-    spsa["mu2_sum_s"] = float(spsa.get("mu2_sum_s", 0.0)) + float(s)
-    spsa["mu2_sum_s2_over_N"] = float(spsa.get("mu2_sum_s2_over_N", 0.0)) + (
-        (float(s) * float(s)) / float(N)
-    )
+    """Update μ2 accumulators after the current report."""
+    spsa["mu2_reports"] += 1.0
+    spsa["mu2_sum_N"] += float(N)
+    spsa["mu2_sum_s"] += float(s)
+    spsa["mu2_sum_s2_over_N"] += (float(s) * float(s)) / float(N)
 
 
 # ---------------- Existing code continues ----------------
@@ -393,12 +381,11 @@ class SPSAHandler:
         # Unified weighted mass update (only a_k used in Adam path)
         _, _, a_k = _sf_weighting(spsa, N, lr)
 
-        # Ensure μ2 state and compute μ̂2 (pre-block) for Adam normalization
-        _ensure_mu2_state(spsa)
+        # μ̂2 (mean of squares) pre-block for Adam normalization
         g2_mean = _mu2_hat(spsa)
 
         show_vals = []
-        for param, w_param in zip(spsa["params"], w_params):  # fixed stray bracket
+        for param, w_param in zip(spsa["params"], w_params):
             if "z" not in param:
                 show_val = _classic_param_update(param, w_param, result)
             else:
