@@ -2,7 +2,7 @@ import random
 import zlib
 from typing import Any
 
-import numpy as np
+import numpy as np  # type: ignore
 
 # ---------------- Shared helpers (branch-agnostic) ----------------
 
@@ -48,14 +48,15 @@ def _history_show_val(beta1, x_new, theta_new):
 # ---------------- Adam-specific helpers ----------------
 
 
-def _adam_update_v_and_denom(v, beta2, N, g_phi_mean, micro_steps, eps):
+def _adam_update_v_and_denom(v, beta2, N, g_sq_mean, micro_steps, eps):
     """
-    Closed-form EMA update of v over N identical mean micro gradients with bias correction.
+    Closed-form EMA update of v over N steps using a constant mean of squared signals (g^2).
+    This consumes g_sq_mean directly (no squaring inside) and applies bias correction.
     Returns (v_new, denom) where denom = sqrt(v_hat) + eps.
     """
     if beta2 < 1.0:
         beta2_pow_N = beta2**N
-        v_new = beta2_pow_N * v + (1.0 - beta2_pow_N) * (g_phi_mean * g_phi_mean)
+        v_new = beta2_pow_N * v + (1.0 - beta2_pow_N) * g_sq_mean
         bc_denom = 1.0 - (beta2**micro_steps)
         v_hat = v_new / bc_denom if bc_denom > 1e-16 else v_new
     else:
@@ -98,6 +99,57 @@ def _adam_x_new_clamped(a_k, x_prev, z_new, pmin, pmax):
     elif x_new > pmax:
         x_new = pmax
     return x_new
+
+
+# ---------------- Online μ2 estimator (report-level only) ----------------
+
+
+def _ensure_mu2_state(spsa: dict[str, Any]) -> None:
+    """Ensure μ2 accumulator fields exist in the run dict with sane defaults."""
+    spsa.setdefault("mu2_reports", 0.0)
+    spsa.setdefault("mu2_sum_N", 0.0)
+    spsa.setdefault("mu2_sum_s", 0.0)
+    spsa.setdefault("mu2_sum_s2_over_N", 0.0)
+    spsa.setdefault("mu2_init", 1.0)
+
+
+def _mu2_hat(spsa: dict[str, Any]) -> float:
+    """
+    Exact block-averaged μ2 estimate using only (N, s) per report:
+      σ̂² = E[s²/N] − μ̂² · E[N],  μ̂2 = μ̂² + σ̂²
+    Uses spsa fields: mu2_reports, mu2_sum_N, mu2_sum_s, mu2_sum_s2_over_N.
+    Returns mu2_init if no reports yet. Clamped to [1e-12, 4.0].
+    """
+    reports = float(spsa.get("mu2_reports", 0.0))
+    if reports <= 0.0:
+        return float(spsa.get("mu2_init", 1.0))
+    sum_N = float(spsa.get("mu2_sum_N", 0.0))
+    sum_s = float(spsa.get("mu2_sum_s", 0.0))
+    sum_s2_over_N = float(spsa.get("mu2_sum_s2_over_N", 0.0))
+    if sum_N <= 0.0:
+        return float(spsa.get("mu2_init", 1.0))
+    mu = sum_s / sum_N
+    E_s2_over_N = sum_s2_over_N / reports
+    E_N = sum_N / reports
+    sigma2 = E_s2_over_N - (mu * mu) * E_N
+    if sigma2 < 0.0:
+        sigma2 = 0.0
+    mu2 = mu * mu + sigma2
+    if mu2 < 1e-12:
+        mu2 = 1e-12
+    elif mu2 > 4.0:
+        mu2 = 4.0
+    return mu2
+
+
+def _mu2_update(spsa: dict[str, Any], N: int, s: float) -> None:
+    """Update μ2 accumulators after consuming the current report."""
+    spsa["mu2_reports"] = float(spsa.get("mu2_reports", 0.0)) + 1.0
+    spsa["mu2_sum_N"] = float(spsa.get("mu2_sum_N", 0.0)) + float(N)
+    spsa["mu2_sum_s"] = float(spsa.get("mu2_sum_s", 0.0)) + float(s)
+    spsa["mu2_sum_s2_over_N"] = float(spsa.get("mu2_sum_s2_over_N", 0.0)) + (
+        (float(s) * float(s)) / float(N)
+    )
 
 
 # ---------------- Existing code continues ----------------
@@ -211,17 +263,15 @@ def _schedule_free_adam_param_update(
     eps,
     micro_steps,
     a_k,
+    g2_mean,
 ):
     c = w_param["c"]
     flip = w_param["flip"]
     z_prev = param["z"]
 
-    # Mean directional phi "gradient"
-    g_phi_mean = result / N * flip
-
-    # v and denom
+    # v and denom using μ̂2 (mean of squares), not (mean)^2
     v_new, denom = _adam_update_v_and_denom(
-        param["v"], beta2, N, g_phi_mean, micro_steps, eps
+        param["v"], beta2, N, g2_mean, micro_steps, eps
     )
 
     # Fast iterate step (theta-space)
@@ -343,6 +393,10 @@ class SPSAHandler:
         # Unified weighted mass update (only a_k used in Adam path)
         _, _, a_k = _sf_weighting(spsa, N, lr)
 
+        # Ensure μ2 state and compute μ̂2 (pre-block) for Adam normalization
+        _ensure_mu2_state(spsa)
+        g2_mean = _mu2_hat(spsa)
+
         show_vals = []
         for param, w_param in zip(spsa["params"], w_params):  # fixed stray bracket
             if "z" not in param:
@@ -359,8 +413,12 @@ class SPSAHandler:
                     eps=eps,
                     micro_steps=micro_steps,
                     a_k=a_k,
+                    g2_mean=g2_mean,
                 )
             show_vals.append(show_val)
+
+        # Update μ2 accumulators post-block
+        _mu2_update(spsa, N, result)
 
         _add_to_history(spsa, run["args"]["num_games"], w_params, show_vals)
         self.buffer(run)
