@@ -1130,6 +1130,8 @@ def validate_form(request):
             "alpha": float(request.POST["spsa_alpha"]),
             "gamma": float(request.POST["spsa_gamma"]),
             "raw_params": request.POST["spsa_raw_params"],
+            "iter": 0,
+            "num_iter": data["num_games"] // 2,
             # Schedule-free Adam defaults
             "sf_lr": float(request.POST.get("sf_lr", "0.0025")),
             "sf_beta1": float(request.POST.get("sf_beta1", "0.9")),
