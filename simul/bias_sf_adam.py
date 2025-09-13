@@ -317,40 +317,6 @@ def build_const_mean_online_sequences(
     return seqs
 
 
-def gen_pentanomial_outcomes(
-    seed: int, N: int, p5: tuple[float, float, float, float, float]
-) -> list[int]:
-    rng = random.Random(seed)
-    vals = [-2, -1, 0, +1, +2]
-    outs = rng.choices(vals, weights=p5, k=N)
-    rng.shuffle(outs)
-    return outs
-
-
-def make_schedule(
-    num_reports: int,
-    N_min: int,
-    N_max: int,
-    p5: tuple[float, float, float, float, float],
-    base_seed: int,
-) -> tuple[list[int], list[list[int]]]:
-    rng = random.Random(base_seed)
-    Ns = [rng.randint(N_min, N_max) for _ in range(num_reports)]
-    outcomes_by_report = [
-        gen_pentanomial_outcomes(base_seed + r, Ns[r], p5) for r in range(num_reports)
-    ]
-    return Ns, outcomes_by_report
-
-
-def end_adjacent_shuffle(order: list[int], p: float, rng: random.Random) -> list[int]:
-    # Single backward sweep: for pos from end→1, swap (pos,pos-1) with prob p
-    idx = order.copy()
-    for pos in range(len(idx) - 1, 0, -1):
-        if rng.random() < p:
-            idx[pos], idx[pos - 1] = idx[pos - 1], idx[pos]
-    return idx
-
-
 # ----- runners -----
 
 
