@@ -1,3 +1,4 @@
+# ruff: noqa: I001
 # Clean-room simulation for schedule-free Adam vs micro loop, mirroring the SGD structure.
 # States:
 # - z: fast iterate (unclamped update state in θ-space)
@@ -18,6 +19,11 @@ from dataclasses import dataclass
 from typing import Optional, Sequence
 
 import matplotlib.pyplot as plt
+
+try:
+    from .bias_util import Line, plot_many, make_schedule, end_adjacent_shuffle
+except Exception:  # direct run
+    from bias_util import Line, plot_many, make_schedule, end_adjacent_shuffle  # type: ignore
 
 # ----- data models -----
 
@@ -258,8 +264,6 @@ def build_sequence(
     N = len(outcomes)
     if N == 0:
         return [], []
-    s = float(sum(outcomes))
-    mean = s / N
     if kind == "outcomes":
         # per-outcome numerators and per-outcome squares (for the real micro path only)
         out_sq = [float(o * o) for o in outcomes]
@@ -441,37 +445,7 @@ def run_micro(
     return Series(t_pairs=t, x=xs, z=zs, theta=ths)
 
 
-# ----- plotting (mirror SGD helpers) -----
-
-# Replace the fixed triple-plot helpers with a flexible multi-line plotter
-
-
-@dataclass(slots=True)
-class Line:
-    t: Sequence[int]
-    y: Sequence[float]
-    label: str
-    linestyle: str = "-"
-    linewidth: float = 2.0
-    alpha: float = 1.0
-
-
-def plot_many(
-    ax: plt.Axes, *lines: Line, y_label: Optional[str] = None, legend_ncol: int = 2
-) -> None:
-    for ln in lines:
-        ax.plot(
-            ln.t,
-            ln.y,
-            label=ln.label,
-            linestyle=ln.linestyle,
-            linewidth=ln.linewidth,
-            alpha=ln.alpha,
-        )
-    if y_label:
-        ax.set_ylabel(y_label)
-    ax.grid(True, alpha=0.3)
-    ax.legend(ncol=legend_ncol)
+"""Plotting helpers imported from bias_util (Line, plot_many)."""
 
 
 # ----- main -----

@@ -10,13 +10,32 @@
 # - Real micro step (outcomes): N micro-steps s_j = lr*c*out_j; exact per-step mass blend for x
 #
 # Start from z=x=theta=0, iter_pairs=0, sf_weight_sum=0. Plot x vs cumulative pairs.
+# ruff: noqa: I001
 
 import random
 from dataclasses import dataclass
-from math import isclose
 from typing import Sequence
 
 import matplotlib.pyplot as plt
+
+try:
+    from .bias_util import (
+        Line,
+        plot_many,
+        make_schedule,
+        end_adjacent_shuffle,
+        build_sequence,
+        series_allclose,
+    )
+except Exception:  # direct run
+    from bias_util import (  # type: ignore
+        Line,
+        plot_many,
+        make_schedule,
+        end_adjacent_shuffle,
+        build_sequence,
+        series_allclose,
+    )
 
 # ----- data models -----
 
@@ -125,51 +144,7 @@ def micro_apply_sequence(
 # ----- schedule + sequences -----
 
 
-def build_sequence(outcomes: Sequence[int], kind: str) -> list[float]:
-    N = len(outcomes)
-    if N == 0:
-        return []
-    s = float(sum(outcomes))
-    mean = s / N
-    if kind == "outcomes":
-        return [float(o) for o in outcomes]
-    if kind == "const_mean":
-        return [mean] * N
-    raise ValueError("kind must be 'outcomes' or 'const_mean'")
-
-
-def gen_pentanomial_outcomes(
-    seed: int, N: int, p5: tuple[float, float, float, float, float]
-) -> list[int]:
-    rng = random.Random(seed)
-    vals = [-2, -1, 0, +1, +2]
-    outs = rng.choices(vals, weights=p5, k=N)
-    rng.shuffle(outs)
-    return outs
-
-
-def make_schedule(
-    num_reports: int,
-    N_min: int,
-    N_max: int,
-    p5: tuple[float, float, float, float, float],
-    base_seed: int,
-) -> tuple[list[int], list[list[int]]]:
-    rng = random.Random(base_seed)
-    Ns = [rng.randint(N_min, N_max) for _ in range(num_reports)]
-    outcomes_by_report = [
-        gen_pentanomial_outcomes(base_seed + r, Ns[r], p5) for r in range(num_reports)
-    ]
-    return Ns, outcomes_by_report
-
-
-def end_adjacent_shuffle(order: list[int], p: float, rng: random.Random) -> list[int]:
-    # Single backward sweep: for pos from end→1, swap (pos,pos-1) with prob p
-    idx = order.copy()
-    for pos in range(len(idx) - 1, 0, -1):
-        if rng.random() < p:
-            idx[pos], idx[pos - 1] = idx[pos - 1], idx[pos]
-    return idx
+"""Shared schedule and plotting helpers imported from bias_util."""
 
 
 # ----- runners -----
@@ -238,42 +213,13 @@ def run_micro(
     return Series(t_pairs=t, x=xs, z=zs, theta=ths)
 
 
-def series_allclose(
-    a: Sequence[float], b: Sequence[float], rel: float = 1e-12, abs_tol: float = 1e-12
-) -> bool:
-    return all(isclose(x, y, rel_tol=rel, abs_tol=abs_tol) for x, y in zip(a, b))
+"""series_allclose imported from bias_util."""
 
 
 # ----- plotting -----
 
 
-# New: flexible multi-line plotter
-@dataclass(slots=True)
-class Line:
-    t: Sequence[int]
-    y: Sequence[float]
-    label: str
-    linestyle: str = "-"
-    linewidth: float = 2.0
-    alpha: float = 1.0
-
-
-def plot_many(
-    ax: plt.Axes, *lines: Line, y_label: str | None = None, legend_ncol: int = 2
-) -> None:
-    for ln in lines:
-        ax.plot(
-            ln.t,
-            ln.y,
-            label=ln.label,
-            linestyle=ln.linestyle,
-            linewidth=ln.linewidth,
-            alpha=ln.alpha,
-        )
-    if y_label:
-        ax.set_ylabel(y_label)
-    ax.grid(True, alpha=0.3)
-    ax.legend(ncol=legend_ncol)
+"""plot_many imported from bias_util."""
 
 
 # ----- main -----

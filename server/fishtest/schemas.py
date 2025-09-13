@@ -664,7 +664,7 @@ valid_aggregated_data = intersect(
 # about non-validation of runs created with the prior
 # schema.
 
-RUN_VERSION = 22
+RUN_VERSION = 23
 
 runs_schema = intersect(
     {
