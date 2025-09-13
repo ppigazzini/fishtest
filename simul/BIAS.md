@@ -110,8 +110,3 @@ Code anchors:
 - Paths: macro_update and build_const_mean_online_sequences in simul/bias-sf-adam.py
 
 ---
-
-References:
-- SPSA: simul/bias-spsa.py
-- SF-SGD: simul/bias-sf-sgd.py
-- SF-Adam: simul/bias-sf-adam.py
