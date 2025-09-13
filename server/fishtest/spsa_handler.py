@@ -107,17 +107,21 @@ def _adam_x_new_clamped(a_k, x_prev, z_new, pmin, pmax):
 def _mu2_hat(spsa: dict[str, Any]) -> float:
     """
     Block-averaged μ2 using only per-report (N, s):
-      σ̂² = E[s²/N] − μ̂² · E[N],  μ̂2 = μ̂² + σ̂²
+      σ̂² = E[s²/N] - μ̂² · E[N],  μ̂2 = μ̂² + σ̂²
     Falls back to mu2_init if no reports yet. Clamped to [1e-12, 4.0].
     """
-    reports = float(spsa.get("mu2_reports", 0.0))
+    # All keys are initialized in views.py
+    reports = spsa["mu2_reports"]
     if reports <= 0.0:
-        return float(spsa.get("mu2_init", 1.0))
-    sum_N = float(spsa.get("mu2_sum_N", 0.0))
-    sum_s = float(spsa.get("mu2_sum_s", 0.0))
-    sum_s2_over_N = float(spsa.get("mu2_sum_s2_over_N", 0.0))
+        return spsa["mu2_init"]
+
+    sum_N = spsa["mu2_sum_N"]
+    sum_s = spsa["mu2_sum_s"]
+    sum_s2_over_N = spsa["mu2_sum_s2_over_N"]
+
     if sum_N <= 0.0:
-        return float(spsa.get("mu2_init", 1.0))
+        return spsa["mu2_init"]
+
     mu = sum_s / sum_N
     E_s2_over_N = sum_s2_over_N / reports
     E_N = sum_N / reports
@@ -135,9 +139,9 @@ def _mu2_hat(spsa: dict[str, Any]) -> float:
 def _mu2_update(spsa: dict[str, Any], N: int, s: float) -> None:
     """Update μ2 accumulators after the current report."""
     spsa["mu2_reports"] += 1.0
-    spsa["mu2_sum_N"] += float(N)
-    spsa["mu2_sum_s"] += float(s)
-    spsa["mu2_sum_s2_over_N"] += (float(s) * float(s)) / float(N)
+    spsa["mu2_sum_N"] += N
+    spsa["mu2_sum_s"] += s
+    spsa["mu2_sum_s2_over_N"] += (s * s) / N
 
 
 # ---------------- Existing code continues ----------------
