@@ -104,13 +104,12 @@ def _adam_x_new_clamped(a_k, x_prev, z_new, pmin, pmax):
 # ---------------- Online μ2 estimator (report-level only) ----------------
 
 
-def _mu2_hat(spsa: dict[str, Any]) -> float:
+def _mu2_hat(spsa):
     """
     Block-averaged μ2 using only per-report (N, s):
       σ̂² = E[s²/N] - μ̂² · E[N],  μ̂2 = μ̂² + σ̂²
     Falls back to mu2_init if no reports yet. Clamped to [1e-12, 4.0].
     """
-    # All keys are initialized in views.py
     reports = spsa["mu2_reports"]
     if reports <= 0.0:
         return spsa["mu2_init"]
@@ -136,7 +135,7 @@ def _mu2_hat(spsa: dict[str, Any]) -> float:
     return mu2
 
 
-def _mu2_update(spsa: dict[str, Any], N: int, s: float) -> None:
+def _mu2_update(spsa, N, s):
     """Update μ2 accumulators after the current report."""
     spsa["mu2_reports"] += 1.0
     spsa["mu2_sum_N"] += N
