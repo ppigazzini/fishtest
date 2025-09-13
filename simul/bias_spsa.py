@@ -126,28 +126,6 @@ def micro_apply_sequence(
     return theta
 
 
-# ----- schedule + sequences -----
-
-
-"""build_sequence imported from bias_util."""
-
-
-def gen_pentanomial_outcomes(
-    seed: int, N: int, p5: tuple[float, float, float, float, float]
-) -> list[int]:
-    rng = random.Random(seed)
-    vals = [-2, -1, 0, +1, +2]
-    outs = rng.choices(vals, weights=p5, k=N)
-    rng.shuffle(outs)
-    return outs
-
-
-"""make_schedule imported from bias_util."""
-
-
-"""end_adjacent_shuffle imported from bias_util."""
-
-
 # ----- runners -----
 
 
@@ -197,15 +175,6 @@ def run_micro(
         t.append(glob.iter_pairs)
         th.append(theta)
     return Series(t_pairs=t, theta=th)
-
-
-"""series_allclose imported from bias_util."""
-
-
-# ----- plotting (mirror SGD helpers) -----
-
-
-"""plot_many imported from bias_util."""
 
 
 # ----- main -----

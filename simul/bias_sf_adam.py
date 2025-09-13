@@ -21,9 +21,21 @@ from typing import Optional, Sequence
 import matplotlib.pyplot as plt
 
 try:
-    from .bias_util import Line, plot_many, make_schedule, end_adjacent_shuffle
+    from .bias_util import (
+        Line,
+        plot_many,
+        make_schedule,
+        end_adjacent_shuffle,
+        compute_pentanomial_moments,
+    )
 except Exception:  # direct run
-    from bias_util import Line, plot_many, make_schedule, end_adjacent_shuffle  # type: ignore
+    from bias_util import (  # type: ignore
+        Line,
+        plot_many,
+        make_schedule,
+        end_adjacent_shuffle,
+        compute_pentanomial_moments,
+    )
 
 # ----- data models -----
 
@@ -247,17 +259,6 @@ def micro_apply_sequence(
 # ----- schedule + sequences -----
 
 
-def compute_pentanomial_moments(
-    p5: tuple[float, float, float, float, float],
-) -> tuple[float, float, float]:
-    # Values correspond to [-2, -1, 0, +1, +2]
-    vals = (-2.0, -1.0, 0.0, 1.0, 2.0)
-    mu = sum(p * v for p, v in zip(p5, vals))
-    mu2 = sum(p * (v * v) for p, v in zip(p5, vals))
-    var = mu2 - mu * mu
-    return mu, mu2, var
-
-
 def build_sequence(
     outcomes: Sequence[int], kind: str
 ) -> tuple[list[float], list[float]]:
@@ -443,9 +444,6 @@ def run_micro(
         zs.append(upd.z)
         ths.append(upd.theta)
     return Series(t_pairs=t, x=xs, z=zs, theta=ths)
-
-
-"""Plotting helpers imported from bias_util (Line, plot_many)."""
 
 
 # ----- main -----

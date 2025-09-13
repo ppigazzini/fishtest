@@ -141,12 +141,6 @@ def micro_apply_sequence(
     return Update(x=x, z=z, theta=theta)
 
 
-# ----- schedule + sequences -----
-
-
-"""Shared schedule and plotting helpers imported from bias_util."""
-
-
 # ----- runners -----
 
 
@@ -211,15 +205,6 @@ def run_micro(
         zs.append(upd.z)
         ths.append(upd.theta)
     return Series(t_pairs=t, x=xs, z=zs, theta=ths)
-
-
-"""series_allclose imported from bias_util."""
-
-
-# ----- plotting -----
-
-
-"""plot_many imported from bias_util."""
 
 
 # ----- main -----
