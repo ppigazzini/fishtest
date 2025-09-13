@@ -42,12 +42,28 @@ Not recoverable from block sums/means:
 
 ---
 
+## Files and modules
+
+- simul/bias_spsa.py — SPSA macro vs micro simulation (corrected vs uncorrected; original vs shuffled).
+- simul/bias_sf_sgd.py — Schedule-free SGD simulation (macro vs micro const-mean vs micro real).
+- simul/bias_sf_adam.py — Schedule-free Adam simulation (macro with online μ2; micro const-mean; micro real).
+- simul/bias_util.py — Shared helpers:
+  - Plotting: Line, plot_many
+  - Schedules/sequences: make_schedule, end_adjacent_shuffle, build_sequence
+  - Utilities: series_allclose, compute_A_from_outcomes
+- simul/bias_stats.py — Pentanomial and online stats:
+  - compute_pentanomial_moments, gen_pentanomial_outcomes
+  - InitStats, compute_init_stats_from_prior
+  - OnlineReportStats (exact block-averaged estimator from (s, N) only)
+
+---
+
 ## SPSA (weighted sum with time-varying gains)
 
 - Nature: the block update is a weighted sum, sum_j gain_j * signal_j, where gain_j = a_k / c_k depends on the within-block position k. Because gains vary across the block, the update is not determined by sum_signal alone.
 
 Recoverable (aggregation):
-- Using mean_gain per block removes the “use the first gain” shortcut bias, and reproduces the constant-mean surrogate exactly (mean-gain macro == constant-mean micro). See simul/bias-spsa.py.
+- Using mean_gain per block removes the “use the first gain” shortcut bias, and reproduces the constant-mean surrogate exactly (mean-gain macro == constant-mean micro). See simul/bias_spsa.py.
 
 Not recoverable (sequence dependence):
 - Without the per-step sequence, you cannot in general reconstruct sum_j gain_j * signal_j. Two sequences with the same sum_signal (even the same histogram) give different results when gains vary within the block.
@@ -62,7 +78,7 @@ What the charts show (and why it improves over time):
 - States: z updates linearly in signal_j; x is a linear time-varying average of z; theta = (1 - beta1) * z + beta1 * x.
 
 Recoverable (aggregation):
-- The macro closed form equals a micro run with signal_j = mean_signal for z, x, and theta (see simul/bias-sf-sgd.py). Macro == micro(const-mean) by construction.
+- The macro closed form equals a micro run with signal_j = mean_signal for z, x, and theta (see simul/bias_sf_sgd.py). Macro == micro(const-mean) by construction.
 
 Why the charts show near-coincidence and robustness:
 - z at report boundaries depends only on sum_signal, so it is sequence-invariant.
@@ -81,7 +97,7 @@ Core mechanics inside a block:
 What we model (block-level only, no per-outcome access):
 - Macro (fishtest-style):
   - Inputs per report: {N, s}, where s = Σ_j signal_j and N is the count.
-  - Online second moment per pair is estimated before the block using exact block averages:
+  - Online second moment per pair is estimated before the block using exact block averages (see OnlineReportStats in simul/bias_stats.py):
     - μ̂ = (Σ s_i) / (Σ N_i)
     - E_N = (Σ N_i) / K, E_s2_over_N = (Σ s_i² / N_i) / K, with K = number of reports
     - σ̂² = E_s2_over_N − μ̂² · E_N
@@ -105,8 +121,10 @@ Key formulas (block-averaged, report-level only):
 - μ̂2 = μ̂² + σ̂²
 
 Code anchors:
-- Estimator and updates: mu2_hat, update_mu2_stats in simul/bias-sf-adam.py
-- Adam closed form and intra-block damping: adam_v_closed_form, adam_k in simul/bias-sf-adam.py
-- Paths: macro_update and build_const_mean_online_sequences in simul/bias-sf-adam.py
+- Estimator and updates: mu2_hat, update_mu2_stats in simul/bias_sf_adam.py
+- Adam closed form and intra-block damping: adam_v_closed_form, adam_k in simul/bias_sf_adam.py
+- Paths: macro_update and build_const_mean_online_sequences in simul/bias_sf_adam.py
+- Stats and priors: InitStats, OnlineReportStats, compute_init_stats_from_prior, compute_pentanomial_moments in simul/bias_stats.py
+- Shared plotting/schedules/utilities: Line, plot_many, make_schedule, end_adjacent_shuffle, build_sequence, series_allclose, compute_A_from_outcomes in simul/bias_util.py
 
 ---
