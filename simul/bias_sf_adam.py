@@ -45,7 +45,7 @@ class GlobalState:
     iter_pairs: int = 0
     sf_weight_sum: float = 0.0
     # Online μ2 estimator state (from report-level summaries only)
-    # Use exact block-averaged aggregates like simul/online_stats.py
+    # Use exact block-averaged aggregates like simul/bias_stats.py
     reports: float = 0.0
     sum_N: float = 0.0
     sum_s: float = 0.0
@@ -279,7 +279,7 @@ def build_const_mean_online_sequences(
 ) -> list[tuple[list[float], list[float]]]:
     """
     Build per-report constant-mean sequences using the same exact block-averaged estimator
-    as OnlineReportStats in simul/online_stats.py. Uses pre-block μ2_hat and updates after.
+    as OnlineReportStats in simul/bias_stats.py. Uses pre-block μ2_hat and updates after.
     Seeds with externally computed InitStats (virtual prior).
     """
     seqs: list[tuple[list[float], list[float]]] = []
