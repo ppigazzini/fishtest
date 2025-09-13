@@ -247,58 +247,33 @@ def series_allclose(
 # ----- plotting -----
 
 
-def plot_triple_overlay(
-    ax: plt.Axes,
-    t1: list[int],
-    m1: list[float],
-    me1: list[float],
-    r1: list[float],
-    t2: list[int],
-    m2: list[float],
-    me2: list[float],
-    r2: list[float],
-    name: str,
-) -> None:
-    ax.plot(t1, m1, label=f"{name} — macro (orig)", linewidth=2)
-    ax.plot(t1, me1, label=f"{name} — micro mean (orig)", linestyle="--", linewidth=2)
-    ax.plot(t1, r1, label=f"{name} — micro real (orig)", linestyle="-.", linewidth=2)
-    ax.plot(t2, m2, label=f"{name} — macro (shuf)", linewidth=1.5, alpha=0.6)
-    ax.plot(
-        t2,
-        me2,
-        label=f"{name} — micro mean (shuf)",
-        linestyle="--",
-        linewidth=1.5,
-        alpha=0.6,
-    )
-    ax.plot(
-        t2,
-        r2,
-        label=f"{name} — micro real (shuf)",
-        linestyle="-.",
-        linewidth=1.5,
-        alpha=0.6,
-    )
-    ax.set_ylabel(name)
-    ax.grid(True, alpha=0.3)
-    ax.legend(ncol=2)
+# New: flexible multi-line plotter
+@dataclass(slots=True)
+class Line:
+    t: Sequence[int]
+    y: Sequence[float]
+    label: str
+    linestyle: str = "-"
+    linewidth: float = 2.0
+    alpha: float = 1.0
 
 
-# New: single-schedule plotting helper (parity with Adam)
-def plot_triple_single(
-    ax: plt.Axes,
-    t: list[int],
-    m: list[float],
-    me: list[float],
-    r: list[float],
-    name: str,
+def plot_many(
+    ax: plt.Axes, *lines: Line, y_label: str | None = None, legend_ncol: int = 2
 ) -> None:
-    ax.plot(t, m, label=f"{name} — macro", linewidth=2)
-    ax.plot(t, me, label=f"{name} — micro mean", linestyle="--", linewidth=2)
-    ax.plot(t, r, label=f"{name} — micro real", linestyle="-.", linewidth=2)
-    ax.set_ylabel(name)
+    for ln in lines:
+        ax.plot(
+            ln.t,
+            ln.y,
+            label=ln.label,
+            linestyle=ln.linestyle,
+            linewidth=ln.linewidth,
+            alpha=ln.alpha,
+        )
+    if y_label:
+        ax.set_ylabel(y_label)
     ax.grid(True, alpha=0.3)
-    ax.legend(ncol=2)
+    ax.legend(ncol=legend_ncol)
 
 
 # ----- main -----
@@ -335,10 +310,30 @@ if __name__ == "__main__":
 
     # Figure 1: only the original schedule (parity with Adam)
     fig1, axs1 = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
-    plot_triple_single(axs1[0], macro.t_pairs, macro.x, micro_mean.x, micro_real.x, "x")
-    plot_triple_single(axs1[1], macro.t_pairs, macro.z, micro_mean.z, micro_real.z, "z")
-    plot_triple_single(
-        axs1[2], macro.t_pairs, macro.theta, micro_mean.theta, micro_real.theta, "theta"
+    plot_many(
+        axs1[0],
+        Line(macro.t_pairs, macro.x, "x — macro"),
+        Line(micro_mean.t_pairs, micro_mean.x, "x — micro mean", linestyle="--"),
+        Line(micro_real.t_pairs, micro_real.x, "x — micro real", linestyle="-."),
+        y_label="x",
+    )
+    plot_many(
+        axs1[1],
+        Line(macro.t_pairs, macro.z, "z — macro"),
+        Line(micro_mean.t_pairs, micro_mean.z, "z — micro mean", linestyle="--"),
+        Line(micro_real.t_pairs, micro_real.z, "z — micro real", linestyle="-."),
+        y_label="z",
+    )
+    plot_many(
+        axs1[2],
+        Line(macro.t_pairs, macro.theta, "theta — macro"),
+        Line(
+            micro_mean.t_pairs, micro_mean.theta, "theta — micro mean", linestyle="--"
+        ),
+        Line(
+            micro_real.t_pairs, micro_real.theta, "theta — micro real", linestyle="-."
+        ),
+        y_label="theta",
     )
     axs1[-1].set_xlabel("pairs")
     fig1.suptitle("Schedule-free SGD — single schedule (x, z, theta)", y=0.98)
@@ -368,41 +363,99 @@ if __name__ == "__main__":
 
     # Figure 2: original vs shuffled overlay (parity with Adam)
     fig2, axs2 = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
-    plot_triple_overlay(
+    plot_many(
         axs2[0],
-        macro.t_pairs,
-        macro.x,
-        micro_mean.x,
-        micro_real.x,
-        macro2.t_pairs,
-        macro2.x,
-        micro_mean2.x,
-        micro_real2.x,
-        "x",
+        # original
+        Line(macro.t_pairs, macro.x, "x — macro (orig)"),
+        Line(micro_mean.t_pairs, micro_mean.x, "x — micro mean (orig)", linestyle="--"),
+        Line(micro_real.t_pairs, micro_real.x, "x — micro real (orig)", linestyle="-."),
+        # shuffled
+        Line(macro2.t_pairs, macro2.x, "x — macro (shuf)", linewidth=1.5, alpha=0.6),
+        Line(
+            micro_mean2.t_pairs,
+            micro_mean2.x,
+            "x — micro mean (shuf)",
+            linestyle="--",
+            linewidth=1.5,
+            alpha=0.6,
+        ),
+        Line(
+            micro_real2.t_pairs,
+            micro_real2.x,
+            "x — micro real (shuf)",
+            linestyle="-.",
+            linewidth=1.5,
+            alpha=0.6,
+        ),
+        y_label="x",
     )
-    plot_triple_overlay(
+    plot_many(
         axs2[1],
-        macro.t_pairs,
-        macro.z,
-        micro_mean.z,
-        micro_real.z,
-        macro2.t_pairs,
-        macro2.z,
-        micro_mean2.z,
-        micro_real2.z,
-        "z",
+        # original
+        Line(macro.t_pairs, macro.z, "z — macro (orig)"),
+        Line(micro_mean.t_pairs, micro_mean.z, "z — micro mean (orig)", linestyle="--"),
+        Line(micro_real.t_pairs, micro_real.z, "z — micro real (orig)", linestyle="-."),
+        # shuffled
+        Line(macro2.t_pairs, macro2.z, "z — macro (shuf)", linewidth=1.5, alpha=0.6),
+        Line(
+            micro_mean2.t_pairs,
+            micro_mean2.z,
+            "z — micro mean (shuf)",
+            linestyle="--",
+            linewidth=1.5,
+            alpha=0.6,
+        ),
+        Line(
+            micro_real2.t_pairs,
+            micro_real2.z,
+            "z — micro real (shuf)",
+            linestyle="-.",
+            linewidth=1.5,
+            alpha=0.6,
+        ),
+        y_label="z",
     )
-    plot_triple_overlay(
+    plot_many(
         axs2[2],
-        macro.t_pairs,
-        macro.theta,
-        micro_mean.theta,
-        micro_real.theta,
-        macro2.t_pairs,
-        macro2.theta,
-        micro_mean2.theta,
-        micro_real2.theta,
-        "theta",
+        # original
+        Line(macro.t_pairs, macro.theta, "theta — macro (orig)"),
+        Line(
+            micro_mean.t_pairs,
+            micro_mean.theta,
+            "theta — micro mean (orig)",
+            linestyle="--",
+        ),
+        Line(
+            micro_real.t_pairs,
+            micro_real.theta,
+            "theta — micro real (orig)",
+            linestyle="-.",
+        ),
+        # shuffled
+        Line(
+            macro2.t_pairs,
+            macro2.theta,
+            "theta — macro (shuf)",
+            linewidth=1.5,
+            alpha=0.6,
+        ),
+        Line(
+            micro_mean2.t_pairs,
+            micro_mean2.theta,
+            "theta — micro mean (shuf)",
+            linestyle="--",
+            linewidth=1.5,
+            alpha=0.6,
+        ),
+        Line(
+            micro_real2.t_pairs,
+            micro_real2.theta,
+            "theta — micro real (shuf)",
+            linestyle="-.",
+            linewidth=1.5,
+            alpha=0.6,
+        ),
+        y_label="theta",
     )
     axs2[-1].set_xlabel("pairs")
     fig2.suptitle(
