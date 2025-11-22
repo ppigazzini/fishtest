@@ -1,11 +1,15 @@
 # Collapsing N micro-steps into one macro update: what changes, and why
 
+This note is scoped to the experimental schedule-free SPSA branches (`sf-sgd`, `sf-adam`). It explains how collapsing N micro-updates inside a report into a single macro update changes the path, and how far we can recover the micro behavior using only block-level statistics. It is a companion to `SPSA.md`, focused purely on aggregation and sequence effects in the `simul/` experiments, not on the full fishtest framework.
+
 Inside a report there are N per-pair signals signal_j and per-pair gains gain_j that can vary across the block.
 
 Definitions:
 - sum_signal = sum over j of signal_j (block sum)
 - mean_signal = sum_signal / N (block mean)
 - mean_gain = (1/N) * sum over j of gain_j (mean gain in the block)
+
+In the SPSA setting, `signal_j` plays the role of a per-pair result (wins − losses or its φ-space proxy); we keep the abstract name `signal_j` because the same reasoning also applies to generic schedule-free SGD/Adam updates.
 
 Replacing the N sequential micro-steps with one macro update creates two separate effects. Keeping them distinct shows what can be fixed (recoverable) and what cannot.
 
@@ -42,7 +46,17 @@ Not recoverable from block sums/means:
 
 ---
 
+## How to read this note
+
+- If you are tuning **classic SPSA** only, focus on the section *SPSA (classic, weighted sum with time-varying gains)* and the general "Two distinct effects" discussion above.
+- If you are comparing **schedule-free SGD vs classic SPSA**, read the SPSA section first, then *Schedule-free SPSA with SGD backend (linear dynamics for z and x)*.
+- If you are working on **sf-adam**, skim the earlier sections and then pay close attention to *Schedule-free SPSA with AdamW backend (with online μ2 from block summaries)*; that is where the μ₂ estimator and k(N, β₂) behavior is summarized.
+
+---
+
 ## Files and modules
+
+- These `simul/` modules are experimental tools for understanding macro vs micro behavior in the schedule-free SPSA branches; they are not used by the production fishtest server or worker.
 
 - simul/bias_spsa.py — SPSA macro vs micro simulation (corrected vs uncorrected; original vs shuffled).
 - simul/bias_sf_sgd.py — Schedule-free SGD simulation (macro vs micro const-mean vs micro real).
@@ -58,7 +72,7 @@ Not recoverable from block sums/means:
 
 ---
 
-## SPSA (weighted sum with time-varying gains)
+## SPSA (classic, weighted sum with time-varying gains)
 
 - Nature: the block update is a weighted sum, sum_j gain_j * signal_j, where gain_j = a_k / c_k depends on the within-block position k. Because gains vary across the block, the update is not determined by sum_signal alone.
 
@@ -73,7 +87,7 @@ What the charts show (and why it improves over time):
 
 ---
 
-## Schedule-free SGD (linear dynamics for z and x)
+## Schedule-free SPSA with SGD backend (linear dynamics for z and x)
 
 - States: z updates linearly in signal_j; x is a linear time-varying average of z; theta = (1 - beta1) * z + beta1 * x.
 
@@ -87,7 +101,7 @@ Why the charts show near-coincidence and robustness:
 
 ---
 
-## Schedule-free Adam (with online μ2 from block summaries)
+## Schedule-free SPSA with AdamW backend (with online μ2 from block summaries)
 
 Core mechanics inside a block:
 - Per-step variance state: v_j = β₂ · v_{j−1} + (1 − β₂) · (signal_j)²
