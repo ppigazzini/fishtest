@@ -2,13 +2,17 @@
 
 This document explains SPSA in Fishtest using Elo‑normalized coordinates `phi` and how the single learning rate `r` maps to the classic `theta`‑space schedule `a = r * c**2`. Equations use simple Python-style expressions. The code is authoritative; when in doubt, defer to `server/fishtest/spsa_handler.py`.
 
+This document is scoped to SPSA and its experimental schedule‑free variants (using SGD and AdamW backends) as implemented in `server/fishtest/spsa_handler.py`. It is not a general fishtest manual: any mention of fishtest internals is only to make it possible to understand and test these SPSA branches. By the end, you should understand how classic SPSA works here, how the schedule‑free variants differ, and which knobs to tune when running experiments on the `sf-sgd` and `sf-adam` branches.
+
 ### At a glance
 - Workers play symmetric probes around current parameters: `theta ± c * flip`.
 - Each report applies one SPSA update using the total `result = wins − losses` from that report (raw result; not divided by `N`).
 
-## Chapter 1 — Textbook SPSA and ScheduleFree optimizers (short recap)
+## Chapter 1 — Classic SPSA and Schedule‑free Optimizers (short recap)
 
-### SPSA
+### 1.1 Classic SPSA recap
+
+#### Classic SPSA (textbook)
 - Notation
   - Vectors are Python-style arrays; “*” is elementwise; “@” is matrix multiply (only used when written explicitly).
   - `F(theta)` is the objective proxy (e.g., Elo/log-odds estimated from game outcomes).
@@ -33,12 +37,12 @@ This document explains SPSA in Fishtest using Elo‑normalized coordinates `phi`
   - `a_k = a / (A + k)**alpha`
   - `c_k[i] = c_i / (k+1)**gamma`    # Fishtest evaluates an arriving report with k = K+1 to avoid k=0
 
-### Noise/SNR quick facts
+#### Noise/SNR quick facts
 - Finite‑difference signal grows linearly with `c` for small gaps; over `N` pairs: `E[result] ∝ N * c`.
 - Expected step (first order): `(a_k / c_k) * E[result] ∝ a_k`.
 - Step noise std: `(a_k / c_k) * sqrt(N)`; hence step SNR: `SNR ∝ c_k / sqrt(N)`.
 
-### Schedule‑free optimizers (textbook)
+### 1.2 Schedule‑free optimizers (textbook)
 
 We minimize a differentiable objective f: R^d → R. At iteration t, let g_t be a stochastic gradient with E[g_t | θ_t] = ∇f(θ_t). Schedule‑free means: constant step size (no decay), stability from Polyak averaging of the fast iterate (not from shrinking the learning rate).
 
@@ -101,7 +105,7 @@ Defaults (common, not prescriptive)
 
 ## Chapter 2 — Core math: θ‑space vs φ‑space (maximize Elo)
 
-This chapter shows the same SPSA step in two coordinate systems and why working in `phi` (Elo‑normalized) is simpler and better conditioned than working in `theta`.
+This chapter shows the same SPSA step in two coordinate systems and why working in `phi` (Elo‑normalized) is simpler and better conditioned than working in `theta`. If you only need the practical knobs for experiments, you can skim this chapter on a first read and return later when you want to see exactly how the φ‑based learning rate `r` corresponds to the classic `a_k` in θ‑space.
 
 ### Sign convention
 - We maximize `F` (Elo). Updates use a plus sign (move along +gradient).
@@ -156,7 +160,7 @@ This chapter shows the same SPSA step in two coordinate systems and why working 
 - Units check: `phi` is unitless, `c_i` has θ‑units, `r_k` has inverse “result” units; θ‑step has θ‑units: `delta_theta_i = (r_k * c_i) * result * Delta[i]`.
 - Symbols: This chapter uses `Delta` for conceptual flips; Chapter 3 uses `flip` for the packed/transported bits—same object, different names to match context.
 
-## Chapter 3 — Inputs, schedules, and the θ ↔ φ transform
+## Chapter 3 — Classic SPSA in Fishtest: inputs, schedules, and the θ ↔ φ transform
 
 This chapter shows how user inputs become schedules on the server and how θ and φ relate at dispatch and arrival.
 
@@ -208,7 +212,7 @@ This chapter shows how user inputs become schedules on the server and how θ and
 - Normalize at dispatch: `phi = theta / c(k0)`; probes are `phi ± flip`.
 - Update at arrival: `theta += (a/c) * result * flip = (r * c) * result * flip` with `a = r * c**2`.
 
-## Chapter 4 — Server ↔ worker protocol
+## Chapter 4 — Classic SPSA server ↔ worker protocol
 
 Dispatch (request), using global pairs counter `K`
 - `iter_local = K + 1`
@@ -234,9 +238,9 @@ Notes
 - Multiple workers can share the same `k0`; all use the same `(a_k0, c_k0)` captured at dispatch.
 - Only arrival advances `K` by `N`.
 
-## Chapter 5 — Lean schedule‑free SGD SPSA
+## Chapter 5 — Schedule‑free SPSA with SGD backend
 
-This chapter documents the code path in `server/fishtest/spsa_handler.py` for the lean schedule‑free SGD branch (`sf-sgd`), implemented per‑parameter in helper `_schedule_free_sgd_param_update`. It is authoritative for tests and audits.
+This chapter documents the code path in `server/fishtest/spsa_handler.py` for the lean schedule‑free SGD branch (`sf-sgd`), implemented per‑parameter in helper `_schedule_free_sgd_param_update`. It is authoritative for tests and audits. SPSA’s two‑sided estimator supplies the gradient signal, a constant learning rate `sf_lr` drives the fast iterate `z` in θ‑space, and an optional Polyak average controlled by `sf_beta1` smooths the exported `theta`.
 
 ### 5.R Requirements (authoritative)
 - Constant learning rate `sf_lr`; no decay, no warmup.
@@ -247,48 +251,6 @@ This chapter documents the code path in `server/fishtest/spsa_handler.py` for th
 - Clamp `x_new` (if used) and always clamp `theta_new`. Never clamp `z`.
 - Global counters: `iter += N`; `sf_weight_sum += report_weight`, with `weight = sf_lr` and `report_weight = weight * N`.
 - Legacy fallback: if a parameter lacks `"z"`, apply classic SPSA: `theta += R * c * result * flip` then clamp.
-
-### Very short recap with N=1
-- Gradient proxy (φ-space) evaluated at theta_new: `g_phi_mean[i] ≈ (wins - losses) * flip[i]`.
-- Fast iterate in θ-space (N‑invariant total signal):
-  `delta_total_step = sf_lr * c * (wins - losses) * flip`
-  `z_new = z_prev + delta_total_step`
-- Polyak surrogate x is the running arithmetic mean of z (θ-space, per‑pair mass).
-  ```
-  report_weight = 1
-  weight_sum_curr = weight_sum_prev + report_weight
-
-  x_new = (
-      weight_sum_prev * x_prev
-      + report_weight * z_new
-  ) / weight_sum_curr
-  ```
-- Gradient evaluation point:
-  `theta_new = (1 - sf_beta1) * z_new + sf_beta1 * x_new`
-- Clamp rules and counters: clamp `x_new` and `theta_new`, never `z_new`; `iter += 1`, `sf_weight_sum += sf_lr * 1`.
-
-### Very short recap with random N
-- Gradient proxy (φ-space) evaluated at theta_new: `g_phi_mean[i] ≈ (wins - losses) / N * flip[i]`.
-- Fast iterate in θ-space (N‑invariant total signal):
-  `delta_total_step = sf_lr * c * (wins - losses) * flip`
-  `z_new = z_prev + delta_total_step`
-- Polyak surrogate x is the running arithmetic mean of z (θ-space, per‑pair mass). Closed form inside one report:
-  ```
-  weight = sf_lr
-  report_weight = weight * N
-  weight_sum_curr = weight_sum_prev + report_weight
-  tri_factor = (N + 1) / 2
-
-  x_new = (
-      weight_sum_prev * x_prev
-      + report_weight * z_prev
-      + weight * delta_total_step * tri_factor
-  ) / weight_sum_curr
-  ```
-- Gradient evaluation point:
-  `theta_new = (1 - sf_beta1) * z_new + sf_beta1 * x_new`
-- Clamp rules and counters: clamp `x_new` and `theta_new`, never `z_new`; `iter += N`, `sf_weight_sum += sf_lr * N`.
-
 
 ### 5.0 Snapshot (per report arrival)
 ```
@@ -411,7 +373,7 @@ Why this formula matches “x is the running average of z” (θ-space)
 - After this report: `num_curr = num_prev + num_add`, `den_curr = den_prev + den_add = weight_sum_curr`.
 - Running average is `x_new = num_curr / den_curr`, which is exactly the code above.
 
-Blend the new gradient evaluation and persist (θ-space)
+Blend export and persist (θ-space)
 ```
 if beta1 == 0:
     theta_new = z_new
@@ -456,9 +418,9 @@ History is recorded via `_add_to_history` at a sampling cadence derived from the
 - Bounds: `min ≤ x_new ≤ max` (when used), `min ≤ theta_new ≤ max`; `z_new` is unconstrained.
 - Update is aborted if signature mismatch or `N <= 0`.
 
-## Chapter 6 — Schedule‑free AdamW SPSA
+## Chapter 6 — Schedule‑free SPSA with AdamW backend
 
-This chapter mirrors Chapter 5 for the schedule‑free AdamW path, explaining all math used in the sf-adam code:
+This chapter mirrors Chapter 5 for the schedule‑free AdamW path, explaining all math used in the sf-adam code: it replaces the plain SGD step with a schedule‑free AdamW step, where a second moment `v` in φ‑space normalizes the direction, optional micro‑batch damping keeps N‑invariance, and the same Polyak/export machinery produces the final `theta`.
 - Space map at a glance.
 - φ-space: g_phi_mean, v → v_hat → denom (normalization lives here).
 - θ-space: z_prev → z_new, x_prev → x_new, theta; mapping via `θ-step = c * (φ-step)`.
@@ -712,7 +674,7 @@ History behavior is identical to Chapter 5 (same cadence and stored fields):
 
 ## Chapter 7 — Quick reference
 
-Symbols and spaces
+### 7.1 Symbols and spaces
 - `theta[i]`: parameter `i` in θ‑space
 - `phi[i]`: `theta[i] / c_i(k0)` (Elo‑normalized at dispatch)
 - `c_i(k)`: per‑axis perturbation schedule; `c_i(k0)` fixed for the report
@@ -721,7 +683,7 @@ Symbols and spaces
 - `result`: `wins - losses` over the report
 - `K`: global pairs count (server), `k0`: dispatch snapshot, `N`: pairs in the report
 
-Space map
+### 7.2 Space map and units
 - θ‑space: `theta`, `z`, `x`, `delta_theta`, `tri_factor` contribution, `c` has θ‑units.
 - φ‑space: `phi`, `g_phi_mean`, `v`, `v_hat`, `denom`, `step_phi` (unitless after multiplying by result and sf_lr).
 - Mapping: `theta = c * phi`; θ‑step = `c * (φ-step)`.
@@ -730,7 +692,7 @@ Units quick notes
 - φ is unitless; c has θ‑units; sf_lr has inverse “result” units.
 - φ‑step: `(sf_lr * result)` is unitless; θ‑step multiplies by c to get θ‑units.
 
-Implementation pointers (code map)
+### 7.3 Implementation map
 - Server: request/update and state in `server/fishtest/spsa_handler.py`
   - `_generate_data(...)`: compute `c_i(k0)`, draw flips, return w/b params; store `k0` and packed flips
   - `__update_spsa_data(...)`: verify signature, reconstruct flips and `c(k0)`; compute `result`, `N`; apply update; advance `iter` by `N`
