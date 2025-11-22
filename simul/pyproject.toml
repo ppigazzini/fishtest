@@ -3,7 +3,7 @@ name = "fishtest-simul"
 version = "0.1.0"
 description = "fishtest-simul"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
-    "matplotlib>=3.10.6",
+    "matplotlib>=3.10.7",
 ]
