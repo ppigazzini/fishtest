@@ -1,9 +1,8 @@
-import threading, time
-
+import threading
+import time
+from collections import OrderedDict
 from collections.abc import MutableMapping
 
-
-from collections import OrderedDict
 
 class LRUCache(MutableMapping):
     def __init__(self, size=None, expiration=None):
@@ -17,7 +16,10 @@ class LRUCache(MutableMapping):
             current_time = time.time()
             self.__dict.move_to_end(key)
             v, atime = self.__dict[key]
-            if self.__expiration is not None and atime < current_time - self.__expiration:
+            if (
+                self.__expiration is not None
+                and atime < current_time - self.__expiration
+            ):
                 raise KeyError(key)
             self.__dict[key] = (v, current_time)
             return v
@@ -37,33 +39,27 @@ class LRUCache(MutableMapping):
             self.__purge()
             return len(self.__dict)
 
+    # not thread safe
     def __iter__(self):
+        self.__purge()
         return iter(self.__dict)
 
-# we cannot use the default implementation of values() and items()
-# since these modify self.__dict during iteration (via the
-# calls to __getitem__)
+    # we cannot use the default implementation of values() and items()
+    # since these modify self.__dict during iteration (via the
+    # calls to __getitem__)
 
+    # not thread safe
     def values(self):
-        values = self.__dict.values()
-        current_time = time.time()
-        for v in values:
-            with self.__lock:
-                atime = v[1]
-                if self.__expiration is not None and atime < current_time - self.__expiration:
-                    continue
-                yield v[0]
+        self.__purge()
+        for v in self.__dict.values():
+            yield v[0]
 
+    # not thread safe        
     def items(self):
-        items = self.__dict.items()
-        current_time = time.time()
-        for k, v in items:
-            with self.__lock:
-                atime = v[1]
-                if self.__expiration is not None and atime < current_time - self.__expiration:
-                    continue
-                yield (k, v[0])
-            
+        self.__purge()
+        for k,v in self.__dict.items():
+            yield k, v[0]
+
     def __purge(self):
         if self.__size is not None:
             while len(self.__dict) > self.size:
@@ -79,7 +75,7 @@ class LRUCache(MutableMapping):
                 break
             for k in expired:
                 del self.__dict[k]
-        
+
     @property
     def size(self):
         return self.__size
@@ -99,3 +95,7 @@ class LRUCache(MutableMapping):
         with self.__lock:
             self.__expiration = val
             self.__purge()
+
+    @property
+    def lock(self):
+        return self.__lock
