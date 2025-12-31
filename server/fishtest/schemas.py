@@ -108,6 +108,30 @@ user_schema = {
     "groups": [str, ...],
     "tests_repo": union(github_repo, ""),
     "machine_limit": uint,
+    # OAuth identity linkage (web login). Keep minimal data only.
+    # Use lax() to tolerate any pre-existing extra keys without breaking validation.
+    "oauth?": lax(
+        {
+            "github?": lax(
+                {
+                    "sub": str,
+                    "login?": str,
+                    "email?": email,
+                    "email_verified?": bool,
+                    "updated_at?": datetime_utc,
+                }
+            ),
+            "google?": lax(
+                {
+                    "sub": str,
+                    "login?": str,
+                    "email?": email,
+                    "email_verified?": bool,
+                    "updated_at?": datetime_utc,
+                }
+            ),
+        }
+    ),
 }
 
 kvstore_schema = {

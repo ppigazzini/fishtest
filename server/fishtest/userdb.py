@@ -1,7 +1,9 @@
+import re
 import sys
 import threading
 import time
 from datetime import UTC, datetime
+from secrets import token_urlsafe
 
 from fishtest.schemas import user_schema
 from pymongo import ASCENDING
@@ -42,6 +44,131 @@ class UserDb:
 
     def find_by_email(self, email):
         return self.users.find_one({"email": email})
+
+    def find_by_oauth_subject(self, provider: str, subject: str):
+        if not provider or not subject:
+            return None
+        return self.users.find_one({f"oauth.{provider}.sub": subject})
+
+    def _sanitize_username_base(self, value: str) -> str:
+        value = (value or "").strip()
+        value = re.sub(r"[^A-Za-z0-9]", "", value)
+        return value[:20]
+
+    def _generate_unique_username(self, preferred: str) -> str:
+        base = self._sanitize_username_base(preferred) or "user"
+        candidate = base
+        suffix = 0
+        while self.find_by_username(candidate):
+            suffix += 1
+            candidate = f"{base}{suffix}"
+        return candidate
+
+    def link_oauth_identity(
+        self,
+        user: dict,
+        provider: str,
+        subject: str,
+        *,
+        email: str | None = None,
+        email_verified: bool | None = None,
+        login: str | None = None,
+    ) -> dict:
+        if not provider or not subject:
+            raise ValueError("provider and subject are required")
+
+        existing = self.find_by_oauth_subject(provider, subject)
+        if existing is not None and existing.get("_id") != user.get("_id"):
+            raise ValueError(
+                f"OAuth identity already linked to another user: {provider}"
+            )
+
+        oauth = dict(user.get("oauth") or {})
+        identity = {
+            "sub": subject,
+            "updated_at": datetime.now(UTC),
+        }
+        if login:
+            identity["login"] = login
+        if email:
+            identity["email"] = email
+        if email_verified is not None:
+            identity["email_verified"] = bool(email_verified)
+
+        oauth[provider] = identity
+        user["oauth"] = oauth
+        self.save_user(user)
+        return user
+
+    def get_or_create_user_from_oauth(
+        self,
+        provider: str,
+        subject: str,
+        *,
+        email: str,
+        email_verified: bool,
+        preferred_username: str,
+        login: str | None = None,
+    ):
+        if not email:
+            return {"error": "Email is required"}
+
+        user = self.find_by_oauth_subject(provider, subject)
+        if user is None and email_verified:
+            user = self.find_by_email(email)
+            if user is not None:
+                self.link_oauth_identity(
+                    user,
+                    provider,
+                    subject,
+                    email=email,
+                    email_verified=email_verified,
+                    login=login,
+                )
+
+        if user is not None:
+            if user.get("blocked"):
+                return {
+                    "error": f"Account blocked for user: {user.get('username', '')}"
+                }
+            if user.get("pending"):
+                return {
+                    "error": f"Account pending for user: {user.get('username', '')}"
+                }
+            return {"username": user["username"], "authenticated": True}
+
+        username = self._generate_unique_username(preferred_username)
+        user = {
+            "username": username,
+            # Keep password login as a fallback for existing users.
+            # For OAuth-created users, set a strong random password that is not disclosed.
+            "password": token_urlsafe(32),
+            "registration_time": datetime.now(UTC),
+            "pending": True,
+            "blocked": False,
+            "email": email,
+            "groups": [],
+            "tests_repo": "",
+            "machine_limit": DEFAULT_MACHINE_LIMIT,
+            "oauth": {
+                provider: {
+                    "sub": subject,
+                    "email": email,
+                    "email_verified": bool(email_verified),
+                    "updated_at": datetime.now(UTC),
+                    **({"login": login} if login else {}),
+                }
+            },
+        }
+        try:
+            validate_user(user)
+        except Exception as e:
+            return {"error": str(e)}
+        self.users.insert_one(user)
+        self.last_pending_time = 0
+        self.last_blocked_time = 0
+        self.clear_cache()
+        return {"error": f"Account pending for user: {username}"}
 
     def clear_cache(self):
         with self.user_lock:

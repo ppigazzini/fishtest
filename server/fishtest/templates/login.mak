@@ -13,6 +13,22 @@
     </div>
   </header>
 
+  % if oauth_providers:
+    <div class="d-grid gap-2 mb-3">
+      % if 'github' in oauth_providers:
+        <a class="btn btn-outline-dark" href="${oauth_providers['github']}">
+          Sign in with GitHub
+        </a>
+      % endif
+      % if 'google' in oauth_providers:
+        <a class="btn btn-outline-primary" href="${oauth_providers['google']}">
+          Sign in with Google
+        </a>
+      % endif
+    </div>
+    <div class="text-center text-muted my-2">or</div>
+  % endif
+
   <form method="POST">
     <div class="form-floating mb-3">
       <input

@@ -5,6 +5,7 @@ import html
 import json
 import os
 import re
+import secrets
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -12,6 +13,7 @@ import bson
 import fishtest.github_api as gh
 import fishtest.stats.stat_util
 import requests
+from fishtest import oauth
 from fishtest.run_cache import Prio
 from fishtest.schemas import (
     RUN_VERSION,
@@ -108,6 +110,33 @@ def ensure_logged_in(request):
     return userid
 
 
+def _safe_next_url(value: str | None) -> str:
+    if not value:
+        return "/"
+    value = value.strip()
+    # Only allow local redirects.
+    if value.startswith("/") and not value.startswith("//"):
+        return value
+    return "/"
+
+
+def _oauth_template_context(request, *, came_from: str) -> dict:
+    providers = oauth.enabled_providers()
+    if not providers:
+        return {"oauth_providers": {}}
+    next_target = _safe_next_url(request.params.get("next") or came_from)
+    return {
+        "oauth_providers": {
+            provider: request.route_url(
+                "oauth_login",
+                provider=provider,
+                _query={"next": next_target},
+            )
+            for provider in providers
+        }
+    }
+
+
 @view_config(
     route_name="login",
     renderer="login.mak",
@@ -147,7 +176,114 @@ def login(request):
                 "Thank you!"
             )
         request.session.flash(message, "error")
-    return {}
+    return _oauth_template_context(request, came_from=came_from)
+
+
+@view_config(route_name="oauth_login", request_method="GET")
+def oauth_login(request):
+    provider = (request.matchdict.get("provider") or "").lower()
+    if provider not in oauth.PROVIDERS:
+        request.session.flash("Unknown OAuth provider", "error")
+        return HTTPFound(location=request.route_url("login"))
+    if not oauth.provider_enabled(provider):
+        request.session.flash(f"OAuth provider not configured: {provider}", "error")
+        return HTTPFound(location=request.route_url("login"))
+
+    redirect_uri = request.route_url("oauth_callback", provider=provider)
+    client = oauth.make_oauth_client(provider, redirect_uri=redirect_uri)
+
+    state = secrets.token_urlsafe(32)
+    request.session[f"oauth_state_{provider}"] = state
+    request.session["oauth_next"] = _safe_next_url(request.params.get("next"))
+
+    extra_params = {}
+    if provider == "google":
+        extra_params = {"prompt": "select_account"}
+
+    authorization_url, _ = client.create_authorization_url(
+        oauth.PROVIDERS[provider].authorize_url,
+        state=state,
+        **extra_params,
+    )
+    return HTTPFound(location=authorization_url)
+
+
+@view_config(route_name="oauth_callback", request_method="GET")
+def oauth_callback(request):
+    provider = (request.matchdict.get("provider") or "").lower()
+    if provider not in oauth.PROVIDERS:
+        request.session.flash("Unknown OAuth provider", "error")
+        return HTTPFound(location=request.route_url("login"))
+    if not oauth.provider_enabled(provider):
+        request.session.flash(f"OAuth provider not configured: {provider}", "error")
+        return HTTPFound(location=request.route_url("login"))
+
+    if request.params.get("error"):
+        request.session.flash(
+            f"OAuth error from {provider}: {request.params.get('error')}", "error"
+        )
+        return HTTPFound(location=request.route_url("login"))
+
+    expected_state = request.session.get(f"oauth_state_{provider}")
+    received_state = request.params.get("state")
+    if not expected_state or not received_state or received_state != expected_state:
+        request.session.flash("OAuth state check failed", "error")
+        return HTTPFound(location=request.route_url("login"))
+    request.session.pop(f"oauth_state_{provider}", None)
+
+    redirect_uri = request.route_url("oauth_callback", provider=provider)
+    client = oauth.make_oauth_client(provider, redirect_uri=redirect_uri)
+
+    try:
+        oauth.exchange_code_for_token(
+            provider, client, authorization_response_url=request.url
+        )
+        profile = oauth.fetch_profile(provider, client)
+    except Exception as e:
+        request.session.flash(f"OAuth failed: {str(e)}", "error")
+        return HTTPFound(location=request.route_url("login"))
+
+    subject = (profile.get("sub") or "").strip()
+    email = (profile.get("email") or "").strip()
+    email_verified = bool(profile.get("email_verified"))
+    preferred_username = (
+        profile.get("login") or (email.split("@", 1)[0] if email else "user") or "user"
+    )
+
+    if not subject:
+        request.session.flash("OAuth profile missing subject", "error")
+        return HTTPFound(location=request.route_url("login"))
+    if not email:
+        request.session.flash(
+            f"{provider} did not provide an email address; please use password signup/login",
+            "error",
+        )
+        return HTTPFound(location=request.route_url("login"))
+
+    token = request.userdb.get_or_create_user_from_oauth(
+        provider,
+        subject,
+        email=email,
+        email_verified=email_verified,
+        preferred_username=preferred_username,
+        login=profile.get("login"),
+    )
+
+    if "error" in token:
+        message = token["error"]
+        if "Account pending for user:" in message:
+            message += (
+                " . If you recently registered to fishtest, "
+                "a person will now manually approve your new account, to avoid spam. "
+                "This is usually quick, but sometimes takes a few hours. "
+                "Thank you!"
+            )
+        request.session.flash(message, "error")
+        return HTTPFound(location=request.route_url("login"))
+
+    headers = remember(request, token["username"])
+    next_page = request.session.pop("oauth_next", None) or request.route_url("tests")
+    return HTTPFound(location=_safe_next_url(next_page), headers=headers)
 
 
 # Note that the allowed length of mailto URLs on Chrome/Windows is severely
@@ -701,6 +837,9 @@ def user(request):
     else:
         extract_repo_from_link = ""
 
+    oauth_data = user_data.get("oauth") or {}
+    oauth_linked = [p for p in ("github", "google") if p in oauth_data]
+
     return {
         "format_date": format_date,
         "user": user_data,
@@ -708,6 +847,7 @@ def user(request):
         "hours": hours,
         "profile": profile,
         "extract_repo_from_link": extract_repo_from_link,
+        "oauth_linked": oauth_linked,
     }
 
 

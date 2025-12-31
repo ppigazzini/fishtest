@@ -59,6 +59,21 @@
         <li class="list-group-item bg-transparent text-break">CPU-Hours: ${hours}</li>
       </ul>
     </div>
+
+    % if profile:
+      <div class="alert alert-secondary">
+        <strong>OAuth sign-in:</strong>
+        % if oauth_linked:
+          Linked providers: ${', '.join(oauth_linked)}.
+        % else:
+          No OAuth providers linked.
+        % endif
+        <div class="small text-muted mt-1">
+          For OAuth-linked accounts we store only what is needed to authenticate and link accounts
+          (provider subject ID and verified email when available). We do not store avatars/images or other profile data.
+        </div>
+      </div>
+    % endif
   </header>
 
   <form id="profile_form" action="${request.url}" method="POST">
