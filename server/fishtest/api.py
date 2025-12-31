@@ -8,7 +8,12 @@ from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 import fishtest.github_api as gh
-from fishtest.schemas import api_access_schema, api_schema, gzip_data
+from fishtest.schemas import (
+    api_access_schema_api_key_only,
+    api_access_schema_request_version,
+    api_schema,
+    gzip_data,
+)
 from fishtest.stats.stat_util import SPRT_elo, get_elo
 from fishtest.util import strip_run, worker_name
 from pyramid.httpexceptions import (
@@ -87,18 +92,31 @@ class WorkerApi(GenericApi):
             self.handle_error("request is not json encoded")
 
     def validate_auth(self):
+        route_name = getattr(getattr(self.request, "matched_route", None), "name", None)
+        allow_password = route_name == "api_request_version"
+
         # Is the request syntactically correct?
         try:
-            validate(api_access_schema, self.request_body, "request")
+            schema = (
+                api_access_schema_request_version
+                if allow_password
+                else api_access_schema_api_key_only
+            )
+            validate(schema, self.request_body, "request")
         except ValidationError as e:
             self.handle_error(str(e))
 
         if "api_key" in self.request_body:
             self.validate_api_key()
             self._auth_method = "api_key"
-        else:
+            return
+
+        if allow_password and "password" in self.request_body:
             self.validate_password()
             self._auth_method = "password"
+            return
+
+        self.handle_error("API key required", exception=HTTPUnauthorized)
 
     def validate_password(self):
         token = self.request.userdb.authenticate(
@@ -357,6 +375,9 @@ class WorkerApi(GenericApi):
         self.validate_auth()
         response = {"version": WORKER_VERSION}
         if getattr(self, "_auth_method", None) == "password":
+            # Do NOT mint new API keys on worker requests.
+            # API keys should be provisioned out-of-band (e.g. via backfill script)
+            # and can be rotated explicitly from the user profile.
             user = self.request.userdb.get_user(self.get_username())
             if user and user.get("api_key"):
                 response["api_key"] = user["api_key"]

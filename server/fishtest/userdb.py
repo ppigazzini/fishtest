@@ -168,7 +168,14 @@ class UserDb:
         # two workers concurrently create and save different API keys.
         new_api_key = self._generate_api_key()
         result = self.users.find_one_and_update(
-            {"_id": user["_id"], "api_key": {"$exists": False}},
+            {
+                "_id": user["_id"],
+                "$or": [
+                    {"api_key": {"$exists": False}},
+                    {"api_key": None},
+                    {"api_key": ""},
+                ],
+            },
             {"$set": {"api_key": new_api_key}},
         )
         if result is not None:

@@ -460,15 +460,19 @@ def has_worker_auth(request):
     return "password" in request or "api_key" in request
 
 
-api_access_schema = intersect(
+api_access_schema_request_version = intersect(
     lax({"password?": str, "api_key?": str, "worker_info": {"username": username}}),
     has_worker_auth,
 )
 
+# All worker endpoints except /api/request_version require an API key.
+api_access_schema_api_key_only = lax(
+    {"api_key": str, "worker_info": {"username": username}}
+)
+
 api_schema = intersect(
     {
-        "password?": str,
-        "api_key?": str,
+        "api_key": str,
         "run_id?": run_id,
         "task_id?": task_id,
         "pgn?": str,
@@ -487,7 +491,6 @@ api_schema = intersect(
         "stats?": results_schema,
     },
     ifthen(keys("task_id"), keys("run_id")),
-    has_worker_auth,
 )
 
 

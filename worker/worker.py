@@ -390,7 +390,14 @@ def get_credentials(config, options, args):
         if ret is None:
             return "", "", ""
         if ret:
-            return username, password, api_key
+            # Once an API key is validated, do not keep using/storing the password.
+            return username, "", api_key
+
+        # If an API key is explicitly configured, do not silently fall back to
+        # password authentication. This avoids masking misconfiguration and
+        # prevents unintended credential downgrade.
+        print("Invalid API key.")
+        return "", "", ""
 
     ret, new_api_key = verify_credentials(remote, username, password, cached)
     if ret is None:
@@ -409,7 +416,10 @@ def get_credentials(config, options, args):
             if not ret:
                 return "", "", ""
 
-    return username, password, new_api_key or api_key
+    # If the server returned an API key, prefer it and stop using/storing the password.
+    if new_api_key:
+        return username, "", new_api_key
+    return username, password, api_key
 
 
 def verify_fastchess(fastchess_path, fastchess_sha):
@@ -1275,22 +1285,7 @@ def verify_worker_version(remote, username, auth, worker_lock):
     except WorkerException:
         return None  # the error message has already been written
     if "error" in req:
-        if auth.get("api_key") and auth.get("password"):
-            print("API key rejected, retrying with password.")
-            payload = {
-                "worker_info": {"username": username},
-                "password": auth["password"],
-            }
-            try:
-                req = send_api_post_request(remote + "/api/request_version", payload)
-            except WorkerException:
-                return None
-            if "error" in req:
-                return False
-            if "api_key" in req:
-                auth["api_key"] = req["api_key"]
-        else:
-            return False  # likewise
+        return False
     if "api_key" in req:
         auth["api_key"] = req["api_key"]
     if req["version"] > WORKER_VERSION:

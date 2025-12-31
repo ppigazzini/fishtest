@@ -145,6 +145,9 @@ class TestApi(unittest.TestCase):
         user["machine_limit"] = 50
         cls.rundb.userdb.save_user(user)
 
+        # Keep the API key for API-key auth tests.
+        cls.api_key = cls.rundb.userdb.get_user(cls.username).get("api_key")
+
         cls.rundb.userdb.user_cache.insert_one(
             {"username": cls.username, "cpu_hours": 0}
         )
@@ -160,32 +163,66 @@ class TestApi(unittest.TestCase):
         cls.rundb.userdb.user_cache.delete_many({"username": cls.username})
         cls.rundb.runs.drop()
 
-    def build_json_request(self, json_body):
+    def build_json_request(
+        self, json_body, route_name="api_foo", route_path="/api/foo"
+    ):
         return DummyRequest(
             rundb=self.rundb,
             userdb=self.rundb.userdb,
             actiondb=self.rundb.actiondb,
             remote_addr=self.remote_addr,
             json_body=json_body,
-            matched_route=DummyRoute("api_foo"),
-            route_url=lambda x: "/api/foo",
+            matched_route=DummyRoute(route_name),
+            route_url=lambda x: route_path,
         )
 
-    def invalid_password_request(self):
+    def invalid_password_request(self, route_name="api_foo", route_path="/api/foo"):
         return self.build_json_request(
             {
                 "password": "wrong password",
                 "worker_info": copy.deepcopy(self.worker_info),
-            }
+            },
+            route_name=route_name,
+            route_path=route_path,
         )
 
-    def correct_password_request(self, json_body={}):
+    def correct_password_request(
+        self, json_body={}, route_name="api_foo", route_path="/api/foo"
+    ):
         return self.build_json_request(
             {
                 "password": self.password,
                 "worker_info": copy.deepcopy(self.worker_info),
                 **json_body,
-            }
+            },
+            route_name=route_name,
+            route_path=route_path,
+        )
+
+    def invalid_api_key_request(
+        self, json_body={}, route_name="api_foo", route_path="/api/foo"
+    ):
+        return self.build_json_request(
+            {
+                "api_key": "ft_invalid_key",
+                "worker_info": copy.deepcopy(self.worker_info),
+                **json_body,
+            },
+            route_name=route_name,
+            route_path=route_path,
+        )
+
+    def correct_api_key_request(
+        self, json_body={}, route_name="api_foo", route_path="/api/foo"
+    ):
+        return self.build_json_request(
+            {
+                "api_key": self.api_key,
+                "worker_info": copy.deepcopy(self.worker_info),
+                **json_body,
+            },
+            route_name=route_name,
+            route_path=route_path,
         )
 
     def test_get_active_runs(self):
@@ -212,13 +249,13 @@ class TestApi(unittest.TestCase):
 
         runs = [new_run(self), new_run(self), new_run(self)]
 
-        request = self.invalid_password_request()
+        request = self.invalid_api_key_request()
         with self.assertRaises(HTTPUnauthorized):
             response = WorkerApi(request).request_task()
             self.assertTrue("error" in response)
             print(response["error"])
 
-        request = self.correct_password_request()
+        request = self.correct_api_key_request()
         response = WorkerApi(request).request_task()
 
         run = response["run"]
@@ -238,18 +275,18 @@ class TestApi(unittest.TestCase):
         stop_all_runs(self)
         run_id = new_run(self)
         run = self.rundb.get_run(run_id)
-        request = self.correct_password_request()
+        request = self.correct_api_key_request()
         response = WorkerApi(request).request_task()
         self.assertTrue(run["tasks"][0]["active"])
 
         # Request fails if username/password is invalid
         with self.assertRaises(HTTPUnauthorized):
-            response = WorkerApi(self.invalid_password_request()).update_task()
+            response = WorkerApi(self.invalid_api_key_request()).update_task()
             self.assertTrue("error" in response)
             print(response["error"])
 
         # Task is active after calling /api/update_task with the first set of results
-        request = self.correct_password_request(
+        request = self.correct_api_key_request(
             {
                 "run_id": run_id,
                 "task_id": 0,
@@ -270,7 +307,7 @@ class TestApi(unittest.TestCase):
         cs = self.chunk_size
         w, d = cs // 2 - 10, cs // 2
 
-        request = self.correct_password_request(
+        request = self.correct_api_key_request(
             {
                 "run_id": run_id,
                 "task_id": 0,
@@ -289,7 +326,7 @@ class TestApi(unittest.TestCase):
 
         # Task is still active. Odd update.
 
-        request = self.correct_password_request(
+        request = self.correct_api_key_request(
             {
                 "run_id": run_id,
                 "task_id": 0,
@@ -306,7 +343,7 @@ class TestApi(unittest.TestCase):
         with self.assertRaises(HTTPBadRequest):
             response = WorkerApi(cleanup(request)).update_task()
 
-        request = self.correct_password_request(
+        request = self.correct_api_key_request(
             {
                 "run_id": run_id,
                 "task_id": 0,
@@ -324,7 +361,7 @@ class TestApi(unittest.TestCase):
         self.assertTrue(response["task_alive"])
 
         # Go back in time
-        request = self.correct_password_request(
+        request = self.correct_api_key_request(
             {
                 "run_id": run_id,
                 "task_id": 0,
@@ -368,11 +405,11 @@ class TestApi(unittest.TestCase):
         stop_all_runs(self)
         run_id = new_run(self)
         run = self.rundb.get_run(run_id)
-        request = self.correct_password_request()
+        request = self.correct_api_key_request()
         response = WorkerApi(request).request_task()
         self.assertTrue(run["tasks"][0]["active"])
         message = "Sorry but I can't run this"
-        request = self.correct_password_request(
+        request = self.correct_api_key_request(
             {"run_id": run_id, "task_id": 0, "message": message}
         )
         response = WorkerApi(request).failed_task()
@@ -380,7 +417,7 @@ class TestApi(unittest.TestCase):
         self.assertEqual(response, {})
         self.assertFalse(run["tasks"][0]["active"])
 
-        request = self.correct_password_request({"run_id": run_id, "task_id": 0})
+        request = self.correct_api_key_request({"run_id": run_id, "task_id": 0})
         response = WorkerApi(request).failed_task()
         self.assertTrue("info" in response)
         print(response["info"])
@@ -389,7 +426,7 @@ class TestApi(unittest.TestCase):
     def test_stop_run(self):
         run_id = new_run(self, add_tasks=1)
         with self.assertRaises(HTTPUnauthorized):
-            response = WorkerApi(self.invalid_password_request()).stop_run()
+            response = WorkerApi(self.invalid_api_key_request()).stop_run()
             self.assertTrue("error" in response)
             print(response["error"])
 
@@ -397,7 +434,7 @@ class TestApi(unittest.TestCase):
         self.assertFalse(run["finished"])
 
         message = "/api/stop_run request"
-        request = self.correct_password_request(
+        request = self.correct_api_key_request(
             {"run_id": run_id, "task_id": 0, "message": message}
         )
         with self.assertRaises(HTTPUnauthorized):
@@ -424,7 +461,7 @@ class TestApi(unittest.TestCase):
                 filename=f"{run_id}-{task_id}.pgn.gz", mode="wb", fileobj=gz_buffer
             ) as gz:
                 gz.write(pgn_text.encode())
-            request = self.correct_password_request(
+            request = self.correct_api_key_request(
                 {
                     "run_id": run_id,
                     "task_id": task_id,
@@ -455,7 +492,7 @@ class TestApi(unittest.TestCase):
                 {"name": "param name", "a": 1, "c": 1, "theta": 1, "min": 0, "max": 100}
             ],
         }
-        request = self.correct_password_request({"run_id": run_id, "task_id": 0})
+        request = self.correct_api_key_request({"run_id": run_id, "task_id": 0})
         response = WorkerApi(request).request_spsa()
         self.assertTrue(response["task_alive"])
         self.assertTrue(response["w_params"] is not None)
@@ -463,22 +500,47 @@ class TestApi(unittest.TestCase):
 
     def test_request_version(self):
         with self.assertRaises(HTTPUnauthorized):
-            response = WorkerApi(self.invalid_password_request()).request_version()
+            response = WorkerApi(
+                self.invalid_password_request(
+                    route_name="api_request_version", route_path="/api/request_version"
+                )
+            ).request_version()
             self.assertTrue("error" in response)
             print(response["error"])
 
-        response = WorkerApi(self.correct_password_request()).request_version()
+        with self.assertRaises(HTTPUnauthorized):
+            response = WorkerApi(
+                self.invalid_api_key_request(
+                    route_name="api_request_version", route_path="/api/request_version"
+                )
+            ).request_version()
+            self.assertTrue("error" in response)
+            print(response["error"])
+
+        response = WorkerApi(
+            self.correct_password_request(
+                route_name="api_request_version", route_path="/api/request_version"
+            )
+        ).request_version()
+        self.assertEqual(WORKER_VERSION, response["version"])
+        self.assertTrue("api_key" in response)
+
+        response = WorkerApi(
+            self.correct_api_key_request(
+                route_name="api_request_version", route_path="/api/request_version"
+            )
+        ).request_version()
         self.assertEqual(WORKER_VERSION, response["version"])
 
     def test_beat(self):
         run_id = new_run(self, add_tasks=1)
 
         with self.assertRaises(HTTPUnauthorized):
-            response = WorkerApi(self.invalid_password_request()).beat()
+            response = WorkerApi(self.invalid_api_key_request()).beat()
             self.assertTrue("error" in response)
             print(response["error"])
 
-        request = self.correct_password_request({"run_id": run_id, "task_id": 0})
+        request = self.correct_api_key_request({"run_id": run_id, "task_id": 0})
         response = WorkerApi(request).beat()
         response.pop("duration", None)
         self.assertEqual(response, {"task_alive": True})
@@ -532,6 +594,8 @@ class TestRunFinished(unittest.TestCase):
         user["machine_limit"] = 50
         cls.rundb.userdb.save_user(user)
 
+        cls.api_key = cls.rundb.userdb.get_user(cls.username).get("api_key")
+
         cls.rundb.userdb.user_cache.insert_one(
             {"username": cls.username, "cpu_hours": 0}
         )
@@ -563,17 +627,26 @@ class TestRunFinished(unittest.TestCase):
             }
         )
 
+    def correct_api_key_request(self, json_body={}):
+        return self.build_json_request(
+            {
+                "api_key": self.api_key,
+                "worker_info": copy.deepcopy(self.worker_info),
+                **json_body,
+            }
+        )
+
     def test_duplicate_workers(self):
         stop_all_runs(self)
         run_id = new_run(self)
         run = self.rundb.get_run(run_id)
         self.rundb.buffer(run, priority=Prio.SAVE_NOW)
         # Request task 1 of 2
-        request = self.correct_password_request()
+        request = self.correct_api_key_request()
         response = WorkerApi(request).request_task()
         self.assertFalse("error" in response)
         # Request task 2 of 2
-        request = self.correct_password_request()
+        request = self.correct_api_key_request()
         response = WorkerApi(request).request_task()
         self.assertFalse("error" in response)
         # TODO Add test for a different worker connecting
@@ -587,7 +660,7 @@ class TestRunFinished(unittest.TestCase):
         self.rundb.buffer(run, priority=Prio.SAVE_NOW)
 
         # Request task 1 of 2
-        request = self.correct_password_request()
+        request = self.correct_api_key_request()
         response = WorkerApi(request).request_task()
         self.assertEqual(response["run"]["_id"], str(run["_id"]))
         self.assertEqual(response["task_id"], 0)
@@ -599,7 +672,7 @@ class TestRunFinished(unittest.TestCase):
         n_losses = task_size1 // 5
         n_draws = task_size1 - n_wins - n_losses
 
-        request = self.correct_password_request(
+        request = self.correct_api_key_request(
             {
                 "run_id": run_id,
                 "task_id": 0,
@@ -619,7 +692,7 @@ class TestRunFinished(unittest.TestCase):
         self.assertFalse(run["finished"])
 
         # Request task 2 of 2
-        request = self.correct_password_request()
+        request = self.correct_api_key_request()
         response = WorkerApi(request).request_task()
         self.assertEqual(response["run"]["_id"], str(run["_id"]))
         self.assertEqual(response["task_id"], 1)
@@ -634,7 +707,7 @@ class TestRunFinished(unittest.TestCase):
         n_losses = 2 * ((task_size2 // 5) // 2)
         n_draws = task_size2 - n_wins - n_losses
 
-        request = self.correct_password_request(
+        request = self.correct_api_key_request(
             {
                 "run_id": run_id,
                 "task_id": 1,
