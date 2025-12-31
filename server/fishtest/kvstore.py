@@ -59,6 +59,7 @@ class KeyValueStore(MutableMapping):
     def close(self):
         """Close the db connection if we own it
         but keep the underlying collection"""
+        self.__kvstore = None
         if self.conn is not None:
             self.conn.close()
             self.conn = None
