@@ -9,7 +9,7 @@ class LRUCache(MutableMapping):
         self.__size = size
         self.__expiration = expiration
         self.__dict = OrderedDict()
-        self.__lock = threading.Lock()
+        self.__lock = threading.RLock()
 
     def __getitem__(self, key):
         with self.__lock:
@@ -54,10 +54,10 @@ class LRUCache(MutableMapping):
         for v in self.__dict.values():
             yield v[0]
 
-    # not thread safe        
+    # not thread safe
     def items(self):
         self.__purge()
-        for k,v in self.__dict.items():
+        for k, v in self.__dict.items():
             yield k, v[0]
 
     def __purge(self):

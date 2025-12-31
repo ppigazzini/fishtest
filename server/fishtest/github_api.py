@@ -384,8 +384,10 @@ normalize_repo_cache = LRUCache(size=128, expiration=600)
 
 def normalize_repo(repo):
     global normalize_repo_cache
-    if repo in normalize_repo_cache:
+    try:
         return normalize_repo_cache[repo]
+    except KeyError:
+        pass
     r = call(
         repo,
         _method="HEAD",

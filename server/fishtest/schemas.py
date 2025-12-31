@@ -6,7 +6,9 @@
 
 import copy
 import math
-import threading
+
+# threading.RLock is not a type
+from _thread import RLock as _RLock
 from datetime import UTC, datetime
 
 import fishtest.stats.stat_util
@@ -19,6 +21,7 @@ from vtjson import (
     div,
     email,
     fields,
+    filter,
     ge,
     glob,
     gt,
@@ -868,13 +871,13 @@ unfinished_runs_schema = {
     run_id,
 }
 
-active_runs_schema = {
-    "purge_count?": uint,
-    run_id: {
-        "time": timestamp,
-        "lock": threading.RLock,
+
+active_runs_schema = filter(
+    dict,
+    {
+        run_id: _RLock,
     },
-}
+)
 
 worker_runs_schema = {
     short_worker_name: {

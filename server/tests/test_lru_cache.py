@@ -17,7 +17,7 @@ class CreateLRUCacheTest(unittest.TestCase):
     def tearDown(self):
         self.lru_cache.clear()
 
-    def test_size(self):
+    def test_lru_cache_size(self):
         self.assertEqual(self.lru_cache.size, self.size)
 
     def test_lru_cache_clear(self):
@@ -93,13 +93,13 @@ class CreateLRUCacheTest(unittest.TestCase):
         self.lru_cache["b"] = 2
         self.assertEqual(set(self.lru_cache.items()), {("a", 1), ("b", 2)})
 
-    def test_insertion(self):
+    def test_lru_cache_insertion(self):
         for i in range(0, self.size + 1):
             self.lru_cache[str(i)] = i
         self.assertEqual(len(self.lru_cache), self.size)
         self.assertEqual(list(self.lru_cache.values()), list(range(1, self.size + 1)))
 
-    def test_reordering_get(self):
+    def test_lru_cache_reordering_get(self):
         for i in range(0, self.size + 1):
             self.lru_cache[str(i)] = i
         self.lru_cache["5"]
@@ -108,7 +108,7 @@ class CreateLRUCacheTest(unittest.TestCase):
         result.append(5)
         self.assertEqual(list(self.lru_cache.values()), result)
 
-    def test_reordering_set(self):
+    def test_lru_cache_reordering_set(self):
         for i in range(0, self.size + 1):
             self.lru_cache[str(i)] = i
         self.lru_cache["5"] = 11
@@ -117,7 +117,7 @@ class CreateLRUCacheTest(unittest.TestCase):
         result.append(11)
         self.assertEqual(list(self.lru_cache.values()), result)
 
-    def test_expiration(self):
+    def test_lru_cache_expiration(self):
         self.lru_cache.expiration = 0
         self.lru_cache["a"] = 1
         self.assertNotIn("a", self.lru_cache)
@@ -132,7 +132,7 @@ class CreateLRUCacheTest(unittest.TestCase):
         self.assertNotIn("a", self.lru_cache)
         self.assertEqual(len(self.lru_cache), 0)
 
-    def test_expiration_timing(self):
+    def test_lru_cache_expiration_timing(self):
         self.lru_cache.expiration = 0.1
         self.lru_cache["a"] = 1
         time.sleep(0.2)
