@@ -141,3 +141,11 @@ class CreateLRUCacheTest(unittest.TestCase):
         self.assertEqual(list(self.lru_cache.items()), [("b", 2), ("c", 3)])
         time.sleep(0.2)
         self.assertEqual(list(self.lru_cache.items()), [])
+
+    def test_lru_cache_expiration_get(self):
+        self.lru_cache.expiration = 0.1
+        self.lru_cache["a"] = 1
+        self.lru_cache["a"]
+        time.sleep(0.2)
+        with self.assertRaises(KeyError):
+            self.lru_cache["a"]

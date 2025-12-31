@@ -18,16 +18,17 @@ class Prio(IntEnum):
 
 class RunLock:
     def __init__(self):
-        self.active_runs = LRUCache(expiration=100000)
+        self.active_runs = LRUCache(expiration=10000)
 
     def active_run_lock(self, run_id):
         run_id = str(run_id)
-        try:
-            active_lock = self.active_runs[run_id]
-        except KeyError:
-            active_lock = threading.RLock()
-        self.active_runs[run_id] = active_lock
-        return active_lock
+        with self.active_runs.lock:
+            try:
+                active_lock = self.active_runs[run_id]
+            except KeyError:
+                active_lock = threading.RLock()
+                self.active_runs[run_id] = active_lock
+            return active_lock
 
     def validate(self):
         with self.active_runs.lock:
