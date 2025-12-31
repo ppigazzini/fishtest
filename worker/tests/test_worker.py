@@ -52,6 +52,25 @@ class WorkerTest(unittest.TestCase):
         self.assertTrue(config.has_option("parameters", "port"))
         self.assertTrue(config.has_option("parameters", "concurrency"))
 
+    def test_config_setup_omits_password_when_api_key_set(self):
+        sys.argv = [
+            sys.argv[0],
+            "user",
+            "pass",
+            "--api_key",
+            "k",
+            "--no_validation",
+        ]
+        worker.CONFIGFILE = str(self.tempdir / "foo.txt")
+        worker.setup_parameters(self.tempdir)
+        config = ConfigParser(inline_comment_prefixes=";", interpolation=None)
+        config.read(worker.CONFIGFILE)
+        self.assertTrue(config.has_section("login"))
+        self.assertTrue(config.has_option("login", "username"))
+        self.assertTrue(config.has_option("login", "api_key"))
+        self.assertEqual(config.get("login", "api_key", raw=True), "k")
+        self.assertFalse(config.has_option("login", "password"))
+
     def test_worker_script_with_bad_args(self):
         self.assertFalse((self.worker_dir / "fishtest.cfg").exists())
         p = subprocess.run([sys.executable, "worker.py", "--no-validation"])

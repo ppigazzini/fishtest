@@ -370,11 +370,11 @@ def get_credentials(config, options, args):
     print(f"Worker version {WORKER_VERSION} connecting to {remote}.")
 
     username = config.get("login", "username")
-    password = config.get("login", "password", raw=True)
+    password = config.get("login", "password", raw=True, fallback="")
     api_key = (
         options.api_key
         if options.api_key is not None
-        else config.get("login", "api_key", raw=True)
+        else config.get("login", "api_key", raw=True, fallback="")
     )
     cached = True
     if len(args) == 2:
@@ -670,11 +670,15 @@ def setup_parameters(worker_dir):
     else:
         default_compiler = "g++"
 
+    existing_api_key = ""
+    if config.has_section("login") and config.has_option("login", "api_key"):
+        existing_api_key = config.get("login", "api_key", raw=True, fallback="").strip()
+
     schema = [
         # (<section>, <option>, <default>, <type>, <preprocessor>),
         ("login", "username", "", str, None),
-        ("login", "password", "", str, None),
         ("login", "api_key", "", str, None),
+        ("login", "password", "", str, None),
         ("parameters", "protocol", "https", ["http", "https"], None),
         ("parameters", "host", "tests.stockfishchess.org", str, None),
         ("parameters", "port", "443", int, None),
@@ -699,6 +703,9 @@ def setup_parameters(worker_dir):
         ("parameters", "compiler", default_compiler, compiler_names, None),
         ("private", "hw_seed", str(random.randint(0, 0xFFFFFFFF)), int, None),
     ]
+
+    if existing_api_key:
+        schema = [v for v in schema if v[:2] != ("login", "password")]
 
     validate(config, schema)
 
@@ -898,8 +905,12 @@ def setup_parameters(worker_dir):
 
     # Step 7: write command line parameters to the config file.
     config.set("login", "username", options.username)
-    config.set("login", "password", options.password)
     config.set("login", "api_key", options.api_key)
+    if options.api_key:
+        # If we have an API key, don't store a password line at all.
+        config.remove_option("login", "password")
+    else:
+        config.set("login", "password", options.password)
     config.set("parameters", "protocol", options.protocol)
     config.set("parameters", "host", options.host)
     config.set("parameters", "port", str(options.port))
