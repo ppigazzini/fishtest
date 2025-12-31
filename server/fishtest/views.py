@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import copy
 import gzip
 import hashlib
@@ -5,6 +7,7 @@ import html
 import json
 import os
 import re
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -41,8 +44,13 @@ from vtjson import ValidationError, union, validate
 
 HTTP_TIMEOUT = 15.0
 
+type JsonDict = dict[str, object]
+type JsonList = list[object]
 
-def pagination(page_idx, num, page_size, query_params):
+
+def pagination(
+    page_idx: int, num: int, page_size: int, query_params: str
+) -> list[JsonDict]:
     pages = [
         {
             "idx": "Prev",
@@ -78,7 +86,7 @@ def pagination(page_idx, num, page_size, query_params):
 
 
 @notfound_view_config(renderer="notfound.mak")
-def notfound_view(request):
+def notfound_view(request: object) -> JsonDict | object:
     request.response.status = 404
     if request.exception:
         try:
@@ -94,11 +102,11 @@ def notfound_view(request):
 
 
 @view_config(route_name="home")
-def home(request):
+def home(request: object) -> object:
     return HTTPFound(location=request.route_url("tests"))
 
 
-def ensure_logged_in(request):
+def ensure_logged_in(request: object) -> str:
     userid = request.authenticated_userid
     if not userid:
         request.session.flash("Please login")
@@ -115,7 +123,7 @@ def ensure_logged_in(request):
     request_method=("GET", "POST"),
 )
 @forbidden_view_config(renderer="login.mak")
-def login(request):
+def login(request: object) -> JsonDict | object:
     userid = request.authenticated_userid
     if userid:
         return home(request)
@@ -154,7 +162,13 @@ def login(request):
 # limited.
 
 
-def worker_email(worker_name, blocker_name, message, host_url, blocked):
+def worker_email(
+    worker_name: str,
+    blocker_name: str,
+    message: str,
+    host_url: str,
+    blocked: bool,
+) -> str:
     owner_name = worker_name.split("-")[0]
     body = f"""\
 Dear {owner_name},
@@ -175,13 +189,13 @@ Enjoy your day,
     return body
 
 
-def normalize_lf(m):
+def normalize_lf(m: str) -> str:
     m = m.replace("\r\n", "\n").replace("\r", "\n")
     return m.rstrip()
 
 
 @view_config(route_name="workers", renderer="workers.mak", require_csrf=True)
-def workers(request):
+def workers(request: object) -> JsonDict | object:
     is_approver = request.has_permission("approve_run")
 
     blocked_workers = request.rundb.workerdb.get_blocked_workers()
@@ -269,7 +283,7 @@ def workers(request):
 
 
 @view_config(route_name="nn_upload", renderer="nn_upload.mak", require_csrf=True)
-def upload(request):
+def upload(request: object) -> JsonDict | object:
     ensure_logged_in(request)
 
     if request.method != "POST":
@@ -344,7 +358,7 @@ def upload(request):
 
 
 @view_config(route_name="logout", require_csrf=True, request_method="POST")
-def logout(request):
+def logout(request: object) -> object:
     session = request.session
     headers = forget(request)
     session.invalidate()
@@ -357,7 +371,7 @@ def logout(request):
     require_csrf=True,
     request_method=("GET", "POST"),
 )
-def signup(request):
+def signup(request: object) -> JsonDict | object:
     if request.authenticated_userid:
         return home(request)
     if request.method != "POST":
@@ -437,7 +451,7 @@ def signup(request):
 
 
 @view_config(route_name="nns", renderer="nns.mak")
-def nns(request):
+def nns(request: object) -> JsonDict:
     user = request.params.get("user", "")
     network_name = request.params.get("network_name", "")
     master_only = request.params.get("master_only", False)
@@ -472,12 +486,12 @@ def nns(request):
 
 
 @view_config(route_name="sprt_calc", renderer="sprt_calc.mak")
-def sprt_calc(request):
+def sprt_calc(request: object) -> JsonDict:
     return {}
 
 
 @view_config(route_name="rate_limits", renderer="rate_limits.mak")
-def rate_limits(request):
+def rate_limits(request: object) -> JsonDict:
     return {}
 
 
@@ -505,12 +519,12 @@ quotation_marks = "".join(chr(c) for c in quotation_marks)
 quotation_marks_translation = str.maketrans(quotation_marks, len(quotation_marks) * '"')
 
 
-def sanitize_quotation_marks(text):
+def sanitize_quotation_marks(text: str) -> str:
     return text.translate(quotation_marks_translation)
 
 
 @view_config(route_name="actions", renderer="actions.mak")
-def actions(request):
+def actions(request: object) -> JsonDict:
     search_action = request.params.get("action", "")
     username = request.params.get("user", "")
     text = sanitize_quotation_marks(request.params.get("text", ""))
@@ -565,7 +579,7 @@ def actions(request):
     }
 
 
-def get_idle_users(users, request):
+def get_idle_users(users: Iterable[JsonDict], request: object) -> list[JsonDict]:
     idle = {}
     for u in users:
         idle[u["username"]] = u
@@ -576,7 +590,7 @@ def get_idle_users(users, request):
 
 
 @view_config(route_name="user_management", renderer="user_management.mak")
-def user_management(request):
+def user_management(request: object) -> JsonDict | object:
     if not request.has_permission("approve_run"):
         request.session.flash("You cannot view user management", "error")
         return home(request)
@@ -596,7 +610,7 @@ def user_management(request):
 
 @view_config(route_name="user", renderer="user.mak")
 @view_config(route_name="profile", renderer="user.mak")
-def user(request):
+def user(request: object) -> JsonDict | object:
     userid = ensure_logged_in(request)
 
     user_name = request.matchdict.get("username", userid)
@@ -712,7 +726,7 @@ def user(request):
 
 
 @view_config(route_name="contributors", renderer="contributors.mak")
-def contributors(request):
+def contributors(request: object) -> JsonDict:
     users_list = list(request.userdb.user_cache.find())
     users_list.sort(key=lambda k: k["cpu_hours"], reverse=True)
     return {
@@ -722,7 +736,7 @@ def contributors(request):
 
 
 @view_config(route_name="contributors_monthly", renderer="contributors.mak")
-def contributors_monthly(request):
+def contributors_monthly(request: object) -> JsonDict:
     users_list = list(request.userdb.top_month.find())
     users_list.sort(key=lambda k: k["cpu_hours"], reverse=True)
     return {
@@ -732,8 +746,10 @@ def contributors_monthly(request):
 
 
 def get_master_info(
-    user="official-stockfish", repo="Stockfish", ignore_rate_limit=False
-):
+    user: str = "official-stockfish",
+    repo: str = "Stockfish",
+    ignore_rate_limit: bool = False,
+) -> JsonDict | None:
     try:
         commits = gh.get_commits(
             user=user, repo=repo, ignore_rate_limit=ignore_rate_limit
@@ -766,7 +782,7 @@ def get_master_info(
     return latest_bench_match
 
 
-def get_sha(branch, repo_url):
+def get_sha(branch: str, repo_url: str) -> tuple[str, str]:
     """Resolves the git branch to sha commit"""
     user, repo = gh.parse_repo(repo_url)
     try:
@@ -779,7 +795,7 @@ def get_sha(branch, repo_url):
         return "", ""
 
 
-def get_nets(commit_sha, repo_url):
+def get_nets(commit_sha: str, repo_url: str) -> list[str]:
     """Get the nets from evaluate.h or ucioption.cpp in the repo"""
     try:
         nets = []
@@ -811,7 +827,7 @@ def get_nets(commit_sha, repo_url):
         raise Exception(f"Unable to access developer repository {repo_url}: {str(e)}")
 
 
-def parse_spsa_params(spsa):
+def parse_spsa_params(spsa: JsonDict) -> list[JsonDict]:
     raw = spsa["raw_params"]
     params = []
     for line in raw.split("\n"):
@@ -836,7 +852,7 @@ def parse_spsa_params(spsa):
     return params
 
 
-def validate_modify(request, run):
+def validate_modify(request: object, run: JsonDict) -> None:
     now = datetime.now(UTC)
     if "start_time" not in run or (now - run["start_time"]).days > 30:
         request.session.flash("Run too old to be modified", "error")
@@ -883,7 +899,7 @@ def validate_modify(request, run):
         raise home(request)
 
 
-def sanitize_options(options):
+def sanitize_options(options: str) -> str:
     try:
         options.encode("ascii")
     except UnicodeEncodeError:
@@ -899,7 +915,7 @@ def sanitize_options(options):
     return " ".join(tokens)
 
 
-def validate_form(request):
+def validate_form(request: object) -> JsonDict:
     data = {
         "base_tag": request.POST["base-branch"],
         "new_tag": request.POST["test-branch"],
@@ -972,7 +988,7 @@ def validate_form(request):
     if request.POST.get("rescheduled_from"):
         data["rescheduled_from"] = request.POST["rescheduled_from"]
 
-    def strip_message(m):
+    def strip_message(m: str) -> str:
         lines = m.strip().split("\n")
         bench_search = re.compile(r"(^|\s)[Bb]ench[ :]+([1-9]\d{5,7})(?!\d)")
         for i, line in enumerate(reversed(lines)):
@@ -1135,14 +1151,14 @@ def validate_form(request):
     return data
 
 
-def del_tasks(run):
+def del_tasks(run: JsonDict) -> JsonDict:
     run = copy.copy(run)
     run.pop("tasks", None)
     run = copy.deepcopy(run)
     return run
 
 
-def update_nets(request, run):
+def update_nets(request: object, run: JsonDict) -> None:
     run_id = str(run["_id"])
     data = run["args"]
     base_nets, new_nets, missing_nets = [], [], []
@@ -1184,7 +1200,7 @@ def update_nets(request, run):
         request.rundb.update_nn(net)
 
 
-def new_run_message(request, run):
+def new_run_message(request: object, run: JsonDict) -> str:
     if "sprt" in run["args"]:
         sprt = run["args"]["sprt"]
         elo_model = sprt.get("elo_model")
@@ -1210,7 +1226,7 @@ def new_run_message(request, run):
 
 
 @view_config(route_name="tests_run", renderer="tests_run.mak", require_csrf=True)
-def tests_run(request):
+def tests_run(request: object) -> JsonDict | object:
     user_id = ensure_logged_in(request)
 
     if request.method == "POST":
@@ -1264,16 +1280,16 @@ def tests_run(request):
     }
 
 
-def is_same_user(request, run):
+def is_same_user(request: object, run: JsonDict) -> bool:
     return run["args"]["username"] == request.authenticated_userid
 
 
-def can_modify_run(request, run):
+def can_modify_run(request: object, run: JsonDict) -> bool:
     return is_same_user(request, run) or request.has_permission("approve_run")
 
 
 @view_config(route_name="tests_modify", require_csrf=True, request_method="POST")
-def tests_modify(request):
+def tests_modify(request: object) -> object:
     userid = ensure_logged_in(request)
 
     run = request.rundb.get_run(request.POST["run"])
@@ -1358,7 +1374,7 @@ def tests_modify(request):
 
 
 @view_config(route_name="tests_stop", require_csrf=True, request_method="POST")
-def tests_stop(request):
+def tests_stop(request: object) -> object:
     if not request.authenticated_userid:
         request.session.flash("Please login")
         return HTTPFound(location=request.route_url("login"))
@@ -1379,7 +1395,7 @@ def tests_stop(request):
 
 
 @view_config(route_name="tests_approve", require_csrf=True, request_method="POST")
-def tests_approve(request):
+def tests_approve(request: object) -> object:
     if not request.authenticated_userid:
         return HTTPFound(location=request.route_url("login"))
     if not request.has_permission("approve_run"):
@@ -1401,7 +1417,7 @@ def tests_approve(request):
 
 
 @view_config(route_name="tests_purge", require_csrf=True, request_method="POST")
-def tests_purge(request):
+def tests_purge(request: object) -> object:
     run = request.rundb.get_run(request.POST["run-id"])
     if not request.has_permission("approve_run") and not is_same_user(request, run):
         request.session.flash(
@@ -1429,7 +1445,7 @@ def tests_purge(request):
 
 
 @view_config(route_name="tests_delete", require_csrf=True, request_method="POST")
-def tests_delete(request):
+def tests_delete(request: object) -> object:
     if not request.authenticated_userid:
         request.session.flash("Please login")
         return HTTPFound(location=request.route_url("login"))
@@ -1463,7 +1479,7 @@ def tests_delete(request):
     return home(request)
 
 
-def get_page_title(run):
+def get_page_title(run: JsonDict) -> str:
     if run["args"].get("sprt"):
         page_title = "SPRT {} vs {}".format(
             run["args"]["new_tag"], run["args"]["base_tag"]
@@ -1478,7 +1494,7 @@ def get_page_title(run):
 
 
 @view_config(route_name="tests_live_elo", renderer="tests_live_elo.mak")
-def tests_live_elo(request):
+def tests_live_elo(request: object) -> JsonDict:
     run = request.rundb.get_run(request.matchdict["id"])
     if run is None or "sprt" not in run["args"]:
         raise HTTPNotFound()
@@ -1486,7 +1502,7 @@ def tests_live_elo(request):
 
 
 @view_config(route_name="tests_stats", renderer="tests_stats.mak")
-def tests_stats(request):
+def tests_stats(request: object) -> JsonDict:
     run = request.rundb.get_run(request.matchdict["id"])
     if run is None:
         raise HTTPNotFound()
@@ -1494,7 +1510,7 @@ def tests_stats(request):
 
 
 @view_config(route_name="tests_tasks", renderer="tasks.mak")
-def tests_tasks(request):
+def tests_tasks(request: object) -> JsonDict:
     run = request.rundb.get_run(request.matchdict["id"])
     if run is None:
         raise HTTPNotFound()
@@ -1516,12 +1532,12 @@ def tests_tasks(request):
 
 
 @view_config(route_name="tests_machines", http_cache=10, renderer="machines.mak")
-def tests_machines(request):
+def tests_machines(request: object) -> JsonDict:
     return {"machines_list": request.rundb.get_machines()}
 
 
 @view_config(route_name="tests_view", renderer="tests_view.mak")
-def tests_view(request):
+def tests_view(request: object) -> JsonDict:
     run = request.rundb.get_run(request.matchdict["id"])
     if run is None:
         raise HTTPNotFound()
@@ -1702,7 +1718,7 @@ def tests_view(request):
             "the developer repository is not forked from official-stockfish/Stockfish"
         )
 
-    def allow_github_api_calls():
+    def allow_github_api_calls() -> bool:
         # Avoid making pointless GitHub api calls on behalf of
         # crawlers
         if "master_repo" in run["args"]:  # if present then it is non-standard
@@ -1793,7 +1809,7 @@ def tests_view(request):
     }
 
 
-def get_paginated_finished_runs(request):
+def get_paginated_finished_runs(request: object) -> JsonDict:
     username = request.matchdict.get("username", "")
     success_only = request.params.get("success_only", False)
     yellow_only = request.params.get("yellow_only", False)
@@ -1838,12 +1854,12 @@ def get_paginated_finished_runs(request):
 
 
 @view_config(route_name="tests_finished", renderer="tests_finished.mak")
-def tests_finished(request):
+def tests_finished(request: object) -> JsonDict:
     return get_paginated_finished_runs(request)
 
 
 @view_config(route_name="tests_user", renderer="tests_user.mak")
-def tests_user(request):
+def tests_user(request: object) -> JsonDict:
     request.response.headerlist.extend(
         (
             ("Cache-Control", "no-store"),
@@ -1869,7 +1885,7 @@ def tests_user(request):
     return response
 
 
-def homepage_results(request):
+def homepage_results(request: object) -> JsonDict:
     # Get updated results for unfinished runs + finished runs
 
     (
@@ -1892,7 +1908,7 @@ def homepage_results(request):
 
 
 @view_config(route_name="tests", renderer="tests.mak")
-def tests(request):
+def tests(request: object) -> JsonDict:
     request.response.headerlist.extend(
         (
             ("Cache-Control", "no-store"),

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import unittest
 from datetime import UTC, datetime
 
@@ -7,18 +9,18 @@ from pyramid import testing
 
 
 class Create10UsersTest(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.rundb = util.get_rundb()
         self.config = testing.setUp()
         self.config.add_route("login", "/login")
         self.config.add_route("signup", "/signup")
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         self.rundb.userdb.users.delete_many({"username": "JoeUser"})
         self.rundb.userdb.user_cache.delete_many({"username": "JoeUser"})
         testing.tearDown()
 
-    def test_create_user(self):
+    def test_create_user(self) -> None:
         request = testing.DummyRequest(
             userdb=self.rundb.userdb,
             method="POST",
@@ -36,7 +38,7 @@ class Create10UsersTest(unittest.TestCase):
 
 
 class Create50LoginTest(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.rundb = util.get_rundb()
         self.rundb.userdb.create_user(
             "JoeUser",
@@ -47,12 +49,12 @@ class Create50LoginTest(unittest.TestCase):
         self.config = testing.setUp()
         self.config.add_route("login", "/login")
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         self.rundb.userdb.users.delete_many({"username": "JoeUser"})
         self.rundb.userdb.user_cache.delete_many({"username": "JoeUser"})
         testing.tearDown()
 
-    def test_login(self):
+    def test_login(self) -> None:
         request = testing.DummyRequest(
             userdb=self.rundb.userdb,
             method="POST",
@@ -80,7 +82,7 @@ class Create50LoginTest(unittest.TestCase):
 
 
 class Create90APITest(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.rundb = util.get_rundb()
         self.run_id = self.rundb.new_run(
             "master",
@@ -103,7 +105,7 @@ class Create90APITest(unittest.TestCase):
         self.config = testing.setUp()
         self.config.add_route("api_stop_run", "/api/stop_run")
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         self.rundb.userdb.users.delete_many({"username": "JoeUser"})
         self.rundb.userdb.user_cache.delete_many({"username": "JoeUser"})
         testing.tearDown()

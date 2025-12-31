@@ -1,17 +1,17 @@
-from __future__ import division
+from __future__ import annotations, division
 
 import math
 
 import scipy.stats
 
 
-def Phi(x):
+def Phi(x: float) -> float:
     """
     Cumulative standard normal distribution."""
     return scipy.stats.norm.cdf(x)
 
 
-def U(n, gamma, A, y):
+def U(n: int, gamma: float, A: float, y: float) -> float:
     """
     This is a primitive function of e^(gamma y)sin ((n pi y)/A),
     multiplied by 2/A*exp(-gamma*y)."""
@@ -22,14 +22,16 @@ def U(n, gamma, A, y):
 
 
 class Brownian:
-    def __init__(self, a=-1.0, b=1.0, mu=0.0, sigma=0.005):
+    def __init__(
+        self, a: float = -1.0, b: float = 1.0, mu: float = 0.0, sigma: float = 0.005
+    ) -> None:
         self.a = a
         self.b = b
         self.mu = mu
         self.sigma = sigma
         self.sigma2 = sigma**2
 
-    def outcome_cdf(self, T=None, y=None):
+    def outcome_cdf(self, T: float, y: float) -> float:
         # in case of slow convergence use Siegmund approximation.
         sigma2 = self.sigma2
         mu = self.mu
@@ -42,7 +44,7 @@ class Brownian:
         assert -1e-3 <= ret <= 1 + 1e-3
         return ret
 
-    def outcome_cdf_alt1(self, T=None, y=None):
+    def outcome_cdf_alt1(self, T: float, y: float) -> float:
         """
         Computes the probability that the particle passes to the
         right of (T,y), the time axis being vertically oriented.
@@ -75,7 +77,7 @@ class Brownian:
             pre = (1 - math.exp(2 * gamma * (A - x))) / (1 - math.exp(2 * gamma * A))
         return pre + t0 * s
 
-    def outcome_cdf_alt2(self, T=None, y=None):
+    def outcome_cdf_alt2(self, T: float, y: float) -> float:
         """
         Siegmund's approximation. We use it as backup if our
         exact formula converges too slowly. To make the evaluation

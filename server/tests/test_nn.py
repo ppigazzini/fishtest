@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import unittest
 from datetime import UTC, datetime
 
@@ -5,13 +7,13 @@ from util import get_rundb
 from vtjson import ValidationError
 
 
-def show(mc):
+def show(mc: object) -> None:
     exception = mc.exception
     print(f"{exception.__class__.__name__}: {str(mc.exception)}")
 
 
 class TestNN(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.rundb = get_rundb()
         self.name = "nn-0000000000a0.nnue"
         self.user = "user00"
@@ -20,10 +22,10 @@ class TestNN(unittest.TestCase):
         self.last_test_old = datetime(2023, 3, 24, tzinfo=UTC)
         self.run_id = "64e74776a170cb1f26fa3930"
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         self.rundb.nndb.delete_many({})
 
-    def test_nn(self):
+    def test_nn(self) -> None:
         self.rundb.upload_nn(self.user, self.name)
         net = self.rundb.get_nn(self.name)
         del net["_id"]

@@ -1,36 +1,37 @@
-from __future__ import division
+from __future__ import annotations, division
 
 import math
+from collections.abc import Mapping, Sequence
 
 import scipy.stats
 from fishtest.stats import LLRcalc, sprt
 
 
-def Phi(q):
+def Phi(q: float) -> float:
     """
     Cumulative distribution function for the standard Gaussian law: quantile -> probability
     """
     return scipy.stats.norm.cdf(q)
 
 
-def Phi_inv(p):
+def Phi_inv(p: float) -> float:
     """
     Quantile function for the standard Gaussian law: probability -> quantile"""
     return scipy.stats.norm.ppf(p)
 
 
-def elo(x):
+def elo(x: float) -> float:
     epsilon = 1e-3
     x = max(x, epsilon)
     x = min(x, 1 - epsilon)
     return -400 * math.log10(1 / x - 1)
 
 
-def L(x):
+def L(x: float) -> float:
     return 1 / (1 + 10 ** (-x / 400.0))
 
 
-def stats(results):
+def stats(results: Sequence[int]) -> tuple[float, float, float]:
     """
     "results" is an array of length 2*n+1 with aggregated frequencies
     for n games."""
@@ -48,7 +49,7 @@ def stats(results):
     return games, mu, var
 
 
-def get_elo(results):
+def get_elo(results: Sequence[int]) -> tuple[float, float, float]:
     """
     "results" is an array of length 2*n+1 with aggregated frequencies
     for n games."""
@@ -67,7 +68,7 @@ def get_elo(results):
     return el, elo95, los
 
 
-def bayeselo_to_proba(elo, drawelo):
+def bayeselo_to_proba(elo: float, drawelo: float) -> list[float]:
     """
     elo is expressed in BayesELO (relative to the choice drawelo).
     Returns a probability, P[2], P[0], P[1] (win,loss,draw)."""
@@ -78,7 +79,7 @@ def bayeselo_to_proba(elo, drawelo):
     return P
 
 
-def proba_to_bayeselo(P):
+def proba_to_bayeselo(P: Sequence[float]) -> tuple[float, float]:
     """
     Takes a probability: P[2], P[0]
     Returns elo, drawelo."""
@@ -88,7 +89,7 @@ def proba_to_bayeselo(P):
     return elo, drawelo
 
 
-def draw_elo_calc(R):
+def draw_elo_calc(R: Sequence[int]) -> float:
     """
     Takes trinomial frequencies R[0],R[1],R[2]
     (loss,draw,win) and returns the corresponding
@@ -99,12 +100,12 @@ def draw_elo_calc(R):
     return drawelo
 
 
-def bayeselo_to_elo(belo, drawelo):
+def bayeselo_to_elo(belo: float, drawelo: float) -> float:
     P = bayeselo_to_proba(belo, drawelo)
     return elo(P[2] + 0.5 * P[1])
 
 
-def elo_to_bayeselo(elo, draw_ratio):
+def elo_to_bayeselo(elo: float, draw_ratio: float) -> tuple[float, float]:
     assert draw_ratio >= 0
     s = L(elo)
     P = 3 * [0]
@@ -116,7 +117,15 @@ def elo_to_bayeselo(elo, draw_ratio):
     return proba_to_bayeselo(P)
 
 
-def SPRT_elo(R, alpha=0.05, beta=0.05, p=0.05, elo0=None, elo1=None, elo_model=None):
+def SPRT_elo(
+    R: Mapping[str, object],
+    alpha: float = 0.05,
+    beta: float = 0.05,
+    p: float = 0.05,
+    elo0: float | None = None,
+    elo1: float | None = None,
+    elo_model: str | None = None,
+) -> dict[str, object]:
     """
     Calculate an elo estimate from an SPRT test."""
     assert elo_model in ["BayesElo", "logistic", "normalized"]
@@ -153,7 +162,7 @@ def SPRT_elo(R, alpha=0.05, beta=0.05, p=0.05, elo0=None, elo1=None, elo_model=N
     return a
 
 
-def LLRlegacy(belo0, belo1, results):
+def LLRlegacy(belo0: float, belo1: float, results: Sequence[int]) -> float:
     """
     LLR calculation using the BayesElo model where
     drawelo is estimated "out of sample"."""
@@ -165,8 +174,13 @@ def LLRlegacy(belo0, belo1, results):
 
 
 def SPRT(
-    alpha=0.05, beta=0.05, elo0=None, elo1=None, elo_model="logistic", batch_size=1
-):
+    alpha: float = 0.05,
+    beta: float = 0.05,
+    elo0: float | None = None,
+    elo1: float | None = None,
+    elo_model: str = "logistic",
+    batch_size: int = 1,
+) -> dict[str, object]:
     """Constructor for the "sprt object" """
     return {
         "alpha": alpha,
@@ -192,7 +206,7 @@ def SPRT(
     }
 
 
-def update_SPRT(R, sprt):
+def update_SPRT(R: Mapping[str, object], sprt: dict[str, object]) -> None:
     """Sequential Probability Ratio Test
 
     sprt is a dictionary with fixed fields

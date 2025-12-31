@@ -1,34 +1,37 @@
+from __future__ import annotations
+
 from datetime import UTC, datetime
 
 from bson.objectid import ObjectId
+from fishtest._types import RunDoc
 from fishtest.schemas import ACTION_MESSAGE_SIZE, action_schema
 from fishtest.util import hex_print, worker_name
 from pymongo import DESCENDING
 from vtjson import ValidationError, validate
 
 
-def run_name(run):
+def run_name(run: RunDoc) -> str:
     run_id = str(run["_id"])
     run = run["args"]["new_tag"]
     return run[:23] + "-" + hex_print(run_id)[0:7]
 
 
 class ActionDb:
-    def __init__(self, db):
-        self.db = db
+    def __init__(self, db: object) -> None:
+        self.db: object = db
         self.actions = self.db["actions"]
 
     def get_actions(
         self,
-        username=None,
-        action=None,
-        text=None,
-        limit=0,
-        skip=0,
-        utc_before=None,
-        run_id=None,
-        max_actions=None,
-    ):
+        username: str | None = None,
+        action: str | None = None,
+        text: str | None = None,
+        limit: int = 0,
+        skip: int = 0,
+        utc_before: float | None = None,
+        run_id: str | None = None,
+        max_actions: int | None = None,
+    ) -> tuple[object, int]:
         q = {}
         if action:
             # update_stats is no longer used, but included for backward compatibility
@@ -59,7 +62,13 @@ class ActionDb:
 
         return actions_list, count
 
-    def failed_task(self, username=None, run=None, task_id=None, message=None):
+    def failed_task(
+        self,
+        username: str | None = None,
+        run: RunDoc | None = None,
+        task_id: int | None = None,
+        message: str | None = None,
+    ) -> None:
         task = run["tasks"][task_id]
         self.insert_action(
             action="failed_task",
@@ -71,7 +80,13 @@ class ActionDb:
             message=message[:ACTION_MESSAGE_SIZE],
         )
 
-    def crash_or_time(self, username=None, run=None, task_id=None, message=None):
+    def crash_or_time(
+        self,
+        username: str | None = None,
+        run: RunDoc | None = None,
+        task_id: int | None = None,
+        message: str | None = None,
+    ) -> None:
         task = run["tasks"][task_id]
         self.insert_action(
             action="crash_or_time",
@@ -83,7 +98,13 @@ class ActionDb:
             message=message[:ACTION_MESSAGE_SIZE],
         )
 
-    def stop_run(self, username=None, run=None, task_id=None, message=None):
+    def stop_run(
+        self,
+        username: str | None = None,
+        run: RunDoc | None = None,
+        task_id: int | None = None,
+        message: str | None = None,
+    ) -> None:
         if task_id is not None:
             task = run["tasks"][task_id]
             self.insert_action(
@@ -104,7 +125,12 @@ class ActionDb:
                 message=message[:ACTION_MESSAGE_SIZE],
             )
 
-    def dead_task(self, username=None, run=None, task_id=None):
+    def dead_task(
+        self,
+        username: str | None = None,
+        run: RunDoc | None = None,
+        task_id: int | None = None,
+    ) -> None:
         task = run["tasks"][task_id]
         self.insert_action(
             action="dead_task",
@@ -115,14 +141,19 @@ class ActionDb:
             task_id=task_id,
         )
 
-    def system_event(self, message=None):
+    def system_event(self, message: str | None = None) -> None:
         self.insert_action(
             action="system_event",
             username="fishtest.system",
             message=message,
         )
 
-    def new_run(self, username=None, run=None, message=None):
+    def new_run(
+        self,
+        username: str | None = None,
+        run: RunDoc | None = None,
+        message: str | None = None,
+    ) -> None:
         self.insert_action(
             action="new_run",
             username=username,
@@ -131,7 +162,12 @@ class ActionDb:
             message=message,
         )
 
-    def finished_run(self, username=None, run=None, message=None):
+    def finished_run(
+        self,
+        username: str | None = None,
+        run: RunDoc | None = None,
+        message: str | None = None,
+    ) -> None:
         self.insert_action(
             action="finished_run",
             username=username,
@@ -140,14 +176,19 @@ class ActionDb:
             message=message,
         )
 
-    def upload_nn(self, username=None, nn=None):
+    def upload_nn(self, username: str | None = None, nn: str | None = None) -> None:
         self.insert_action(
             action="upload_nn",
             username=username,
             nn=nn,
         )
 
-    def modify_run(self, username=None, run=None, message=None):
+    def modify_run(
+        self,
+        username: str | None = None,
+        run: RunDoc | None = None,
+        message: str | None = None,
+    ) -> None:
         self.insert_action(
             action="modify_run",
             username=username,
@@ -156,7 +197,9 @@ class ActionDb:
             message=message,
         )
 
-    def delete_run(self, username=None, run=None):
+    def delete_run(
+        self, username: str | None = None, run: RunDoc | None = None
+    ) -> None:
         self.insert_action(
             action="delete_run",
             username=username,
@@ -164,7 +207,12 @@ class ActionDb:
             run=run_name(run),
         )
 
-    def approve_run(self, username=None, run=None, message=None):
+    def approve_run(
+        self,
+        username: str | None = None,
+        run: RunDoc | None = None,
+        message: str | None = None,
+    ) -> None:
         self.insert_action(
             action="approve_run",
             username=username,
@@ -173,7 +221,12 @@ class ActionDb:
             message=message,
         )
 
-    def purge_run(self, username=None, run=None, message=None):
+    def purge_run(
+        self,
+        username: str | None = None,
+        run: RunDoc | None = None,
+        message: str | None = None,
+    ) -> None:
         self.insert_action(
             action="purge_run",
             username=username,
@@ -182,7 +235,12 @@ class ActionDb:
             message=message,
         )
 
-    def block_user(self, username=None, user=None, message=None):
+    def block_user(
+        self,
+        username: str | None = None,
+        user: str | None = None,
+        message: str | None = None,
+    ) -> None:
         self.insert_action(
             action="block_user",
             username=username,
@@ -190,7 +248,12 @@ class ActionDb:
             message=message,
         )
 
-    def accept_user(self, username=None, user=None, message=None):
+    def accept_user(
+        self,
+        username: str | None = None,
+        user: str | None = None,
+        message: str | None = None,
+    ) -> None:
         self.insert_action(
             action="accept_user",
             username=username,
@@ -198,7 +261,12 @@ class ActionDb:
             message=message,
         )
 
-    def block_worker(self, username=None, worker=None, message=None):
+    def block_worker(
+        self,
+        username: str | None = None,
+        worker: str | None = None,
+        message: str | None = None,
+    ) -> None:
         self.insert_action(
             action="block_worker",
             username=username,
@@ -206,7 +274,12 @@ class ActionDb:
             message=message,
         )
 
-    def log_message(self, username=None, worker=None, message=None):
+    def log_message(
+        self,
+        username: str | None = None,
+        worker: str | None = None,
+        message: str | None = None,
+    ) -> None:
         if worker is None:
             self.insert_action(
                 action="log_message",
@@ -221,7 +294,7 @@ class ActionDb:
                 message=message,
             )
 
-    def insert_action(self, **action):
+    def insert_action(self, **action: object) -> None:
         if "run_id" in action:
             action["run_id"] = str(action["run_id"])
         action["time"] = datetime.now(UTC).timestamp()

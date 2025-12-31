@@ -1,7 +1,8 @@
-from __future__ import division
+from __future__ import annotations, division
 
 import argparse
 import math
+from collections.abc import Sequence
 
 import scipy.optimize
 from fishtest.stats import LLRcalc
@@ -9,7 +10,14 @@ from fishtest.stats.brownian import Brownian
 
 
 class sprt:
-    def __init__(self, alpha=0.05, beta=0.05, elo0=0, elo1=5, elo_model="logistic"):
+    def __init__(
+        self,
+        alpha: float = 0.05,
+        beta: float = 0.05,
+        elo0: float = 0,
+        elo1: float = 5,
+        elo_model: str = "logistic",
+    ) -> None:
         assert elo_model in ("logistic", "normalized")
         self.elo_model = elo_model
         self.a = math.log(beta / (1 - alpha))
@@ -19,7 +27,7 @@ class sprt:
         self.clamped = False
         self.LLR_drift_variance = LLRcalc.LLR_drift_variance_alt2
 
-    def elo_to_score(self, elo):
+    def elo_to_score(self, elo: float) -> float:
         """
         "elo" is expressed in our current elo_model."""
         if self.elo_model == "normalized":
@@ -28,7 +36,7 @@ class sprt:
         else:
             return LLRcalc.L_(elo)
 
-    def lelo_to_elo(self, lelo):
+    def lelo_to_elo(self, lelo: float) -> float:
         """
         For external use. "elo" is expressed in our current elo_model.
         "lelo" is logistic."""
@@ -38,7 +46,7 @@ class sprt:
         nt = (score - 0.5) / self.sigma_pg
         return nt * LLRcalc.nelo_divided_by_nt
 
-    def set_state(self, results):
+    def set_state(self, results: Sequence[int]) -> None:
         N, self.pdf = LLRcalc.results_to_pdf(results)
         if self.elo_model == "normalized":
             mu, var = LLRcalc.stats(self.pdf)  # code duplication with LLRcalc
@@ -68,7 +76,7 @@ class sprt:
             self.T = self.b / slope
             self.llr = self.b
 
-    def outcome_prob(self, elo):
+    def outcome_prob(self, elo: float) -> float:
         """
         The probability of a test with the given elo with worse outcome
         (faster fail, slower pass or a pass changed into a fail)."""
@@ -79,7 +87,7 @@ class sprt:
             T=self.T, y=self.llr
         )
 
-    def lower_cb(self, p):
+    def lower_cb(self, p: float) -> float:
         """
         Maximal elo value such that the observed outcome of the test has probability
         less than p."""
@@ -111,7 +119,7 @@ class sprt:
             break
         return sol
 
-    def analytics(self, p=0.05):
+    def analytics(self, p: float = 0.05) -> dict[str, object]:
         ret = {}
         ret["clamped"] = self.clamped
         ret["a"] = self.a

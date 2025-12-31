@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import base64
 import copy
 import io
@@ -40,7 +42,9 @@ WORKER_VERSION = 305
 
 
 @exception_view_config(HTTPException)
-def exception_handler(error, request):
+def exception_handler(
+    error: HTTPException, request: object
+) -> Response | HTTPException:
     if request.exception.code < 400:
         return request.exception
     if not isinstance(error.detail, dict):
@@ -51,18 +55,22 @@ def exception_handler(error, request):
 
 
 class GenericApi:
-    def __init__(self, request):
-        self.request = request
+    def __init__(self, request: object) -> None:
+        self.request: object = request
         self.__t0 = datetime.now(UTC)
 
-    def timestamp(self):
+    def timestamp(self) -> datetime:
         return self.__t0
 
-    def add_time(self, result):
+    def add_time(self, result: dict[str, object]) -> dict[str, object]:
         result["duration"] = (datetime.now(UTC) - self.timestamp()).total_seconds()
         return result
 
-    def handle_error(self, error, exception=HTTPBadRequest):
+    def handle_error(
+        self,
+        error: str,
+        exception: type[HTTPException] = HTTPBadRequest,
+    ) -> None:
         if error != "":
             full_url = self.request.route_url(
                 self.request.matched_route.name, **self.request.matchdict
@@ -77,7 +85,7 @@ class GenericApi:
 class WorkerApi(GenericApi):
     """All API endpoints that require authentication are used by workers"""
 
-    def __init__(self, request):
+    def __init__(self, request: object) -> None:
         super().__init__(request)
         # is the request valid json?
         try:
@@ -85,7 +93,7 @@ class WorkerApi(GenericApi):
         except Exception:
             self.handle_error("request is not json encoded")
 
-    def validate_username_password(self):
+    def validate_username_password(self) -> None:
         # Is the request syntactically correct?
         try:
             validate(api_access_schema, self.request_body, "request")
@@ -103,7 +111,7 @@ class WorkerApi(GenericApi):
                 exception=HTTPUnauthorized,
             )
 
-    def validate_request(self):
+    def validate_request(self) -> None:
         """
         This function will load the run from the cache or the db,
         depending on the type of instance it runs on (primary or
@@ -155,40 +163,40 @@ class WorkerApi(GenericApi):
 
             self.__task = task
 
-    def get_username(self):
+    def get_username(self) -> str:
         return self.request_body["worker_info"]["username"]
 
-    def run(self):
+    def run(self) -> dict[str, object]:
         if self.__run is not None:
             return self.__run
 
         self.handle_error("Missing run_id")
 
-    def run_id(self):
+    def run_id(self) -> str:
         if "run_id" in self.request_body:
             return self.request_body["run_id"]
 
         self.handle_error("Missing run_id")
 
-    def task(self):
+    def task(self) -> dict[str, object]:
         if self.__task is not None:
             return self.__task
 
         self.handle_error("Missing task_id")
 
-    def task_id(self):
+    def task_id(self) -> int:
         if "task_id" in self.request_body:
             return self.request_body["task_id"]
 
         self.handle_error("Missing task_id")
 
-    def pgn(self):
+    def pgn(self) -> str:
         if "pgn" in self.request_body:
             return self.request_body["pgn"]
 
         self.handle_error("Missing pgn content")
 
-    def worker_info(self):
+    def worker_info(self) -> dict[str, object]:
         worker_info = self.request_body["worker_info"]
         if self.__task is None:
             worker_info["remote_addr"] = self.request.remote_addr
@@ -197,29 +205,29 @@ class WorkerApi(GenericApi):
         worker_info["country_code"] = self.get_country_code()
         return worker_info
 
-    def worker_name(self):
+    def worker_name(self) -> str:
         return worker_name(self.worker_info())
 
-    def cpu_hours(self):
+    def cpu_hours(self) -> int:
         username = self.get_username()
         user = self.request.userdb.user_cache.find_one({"username": username})
         return -1 if user is None else user["cpu_hours"]
 
-    def message(self):
+    def message(self) -> str:
         return self.request_body.get("message", "")
 
-    def stats(self):
+    def stats(self) -> dict[str, object]:
         return self.request_body.get("stats", {})
 
-    def spsa(self):
+    def spsa(self) -> dict[str, object]:
         return self.request_body.get("spsa", {})
 
-    def get_country_code(self):
+    def get_country_code(self) -> str:
         country_code = self.request.headers.get("X-Country-Code")
         return "?" if country_code in (None, "ZZ") else country_code
 
     @view_config(route_name="api_request_task")
-    def request_task(self):
+    def request_task(self) -> dict[str, object]:
         self.validate_request()
         worker_info = self.worker_info()
         # rundb.request_task() needs this for an error message...
@@ -247,7 +255,7 @@ class WorkerApi(GenericApi):
         return self.add_time(result)
 
     @view_config(route_name="api_update_task")
-    def update_task(self):
+    def update_task(self) -> dict[str, object]:
         self.validate_request()
         result = self.request.rundb.update_task(
             worker_info=self.worker_info(),
@@ -259,7 +267,7 @@ class WorkerApi(GenericApi):
         return self.add_time(result)
 
     @view_config(route_name="api_failed_task")
-    def failed_task(self):
+    def failed_task(self) -> dict[str, object]:
         self.validate_request()
         result = self.request.rundb.failed_task(
             self.run_id(), self.task_id(), self.message()
@@ -267,7 +275,7 @@ class WorkerApi(GenericApi):
         return self.add_time(result)
 
     @view_config(route_name="api_worker_log")
-    def worker_log(self):
+    def worker_log(self) -> dict[str, object]:
         self.validate_request()
         self.request.actiondb.log_message(
             username=self.get_username(),
@@ -277,7 +285,7 @@ class WorkerApi(GenericApi):
         return self.add_time({})
 
     @view_config(route_name="api_upload_pgn")
-    def upload_pgn(self):
+    def upload_pgn(self) -> dict[str, object]:
         self.validate_request()
         try:
             pgn_zip = base64.b64decode(self.pgn())
@@ -291,7 +299,7 @@ class WorkerApi(GenericApi):
         return self.add_time(result)
 
     @view_config(route_name="api_stop_run")
-    def stop_run(self):
+    def stop_run(self) -> dict[str, object]:
         self.validate_request()
         error = ""
         if self.cpu_hours() < 1000:
@@ -322,14 +330,14 @@ class WorkerApi(GenericApi):
         return self.add_time({})
 
     @view_config(route_name="api_request_version")
-    def request_version(self):
+    def request_version(self) -> dict[str, object]:
         # By being more lax here, we can be more strict
         # elsewhere since the worker will upgrade.
         self.validate_username_password()
         return self.add_time({"version": WORKER_VERSION})
 
     @view_config(route_name="api_beat")
-    def beat(self):
+    def beat(self) -> dict[str, object]:
         self.validate_request()
         run = self.run()
         task = self.task()
@@ -340,7 +348,7 @@ class WorkerApi(GenericApi):
             return self.add_time({"task_alive": task["active"]})
 
     @view_config(route_name="api_request_spsa")
-    def request_spsa(self):
+    def request_spsa(self) -> dict[str, object]:
         self.validate_request()
         result = self.request.rundb.spsa_handler.request_spsa_data(
             self.run_id(), self.task_id()
@@ -351,11 +359,11 @@ class WorkerApi(GenericApi):
 @view_defaults(renderer="json")
 class UserApi(GenericApi):
     @view_config(route_name="api_rate_limit")
-    def rate_limit(self):
+    def rate_limit(self) -> object:
         return gh.rate_limit()
 
     @view_config(route_name="api_active_runs")
-    def active_runs(self):
+    def active_runs(self) -> dict[str, object]:
         runs = self.request.rundb.runs.find(
             {"finished": False},
             {"tasks": 0, "bad_tasks": 0, "args.spsa.param_history": 0},
@@ -369,7 +377,7 @@ class UserApi(GenericApi):
         return active
 
     @view_config(route_name="api_finished_runs")
-    def finished_runs(self):
+    def finished_runs(self) -> dict[str, object]:
         username = self.request.params.get("username", "")
         success_only = self.request.params.get("success_only", False)
         yellow_only = self.request.params.get("yellow_only", False)
@@ -409,7 +417,7 @@ class UserApi(GenericApi):
         return finished
 
     @view_config(route_name="api_actions")
-    def actions(self):
+    def actions(self) -> list[dict[str, object]]:
         try:
             query = self.request.json_body
             actions = self.request.rundb.db["actions"].find(query).limit(200)
@@ -424,7 +432,7 @@ class UserApi(GenericApi):
         return ret
 
     @view_config(route_name="api_get_run")
-    def get_run(self):
+    def get_run(self) -> dict[str, object]:
         run_id = self.request.matchdict["id"]
         run = self.request.rundb.get_run(run_id)
         if run is None:
@@ -436,7 +444,7 @@ class UserApi(GenericApi):
         return strip_run(run)
 
     @view_config(route_name="api_get_task")
-    def get_task(self):
+    def get_task(self) -> dict[str, object]:
         try:
             run_id = self.request.matchdict["id"]
             run = self.request.rundb.get_run(run_id)
@@ -475,7 +483,7 @@ class UserApi(GenericApi):
         return task
 
     @view_config(route_name="api_get_elo")
-    def get_elo(self):
+    def get_elo(self) -> dict[str, object]:
         run_id = self.request.matchdict["id"]
         run = self.request.rundb.get_run(run_id)
         if run is None:
@@ -500,7 +508,7 @@ class UserApi(GenericApi):
         return run
 
     @view_config(route_name="api_calc_elo")
-    def calc_elo(self):
+    def calc_elo(self) -> dict[str, object]:
         W = self.request.params.get("W")
         D = self.request.params.get("D")
         L = self.request.params.get("L")
@@ -606,7 +614,7 @@ class UserApi(GenericApi):
             )
 
     @view_config(route_name="api_download_pgn", renderer="string")
-    def download_pgn(self):
+    def download_pgn(self) -> Response:
         zip_name = self.request.matchdict["id"]
         run_id = zip_name.split(".")[0]  # strip .pgn
         pgn_zip, size = self.request.rundb.get_pgn(run_id)
@@ -620,7 +628,7 @@ class UserApi(GenericApi):
         return response
 
     @view_config(route_name="api_download_run_pgns")
-    def download_run_pgns(self):
+    def download_run_pgns(self) -> Response:
         pgns_name = self.request.matchdict["id"]
         match = re.match(r"^([a-zA-Z0-9]+)\.pgn\.gz$", pgns_name)
         if not match:
@@ -638,7 +646,7 @@ class UserApi(GenericApi):
         return response
 
     @view_config(route_name="api_download_nn")
-    def download_nn(self):
+    def download_nn(self) -> HTTPFound:
         nn_id = self.request.matchdict["id"]
         nn = self.request.rundb.get_nn(nn_id)
         if nn is None:

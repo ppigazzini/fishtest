@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import copy
 import threading
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from random import uniform
 
@@ -29,7 +32,12 @@ When the second task is scheduled, the scheduler will interrupt the
 """
 
 
-def _execute(worker, *args, _background=False, **kwargs):
+def _execute(
+    worker: Callable[..., object],
+    *args: object,
+    _background: bool = False,
+    **kwargs: object,
+) -> None:
     if not _background:
         try:
             worker(*args, **kwargs)
@@ -49,17 +57,17 @@ class Task:
 
     def __init__(
         self,
-        period,
-        worker,
-        initial_delay=None,
-        min_delay=0.0,
-        one_shot=False,
-        jitter=0.0,
-        scheduler=None,
-        background=False,
-        args=(),
-        kwargs={},
-    ):
+        period: float,
+        worker: Callable[..., object],
+        initial_delay: float | None = None,
+        min_delay: float = 0.0,
+        one_shot: bool = False,
+        jitter: float = 0.0,
+        scheduler: Scheduler | None = None,
+        background: bool = False,
+        args: Sequence[object] = (),
+        kwargs: Mapping[str, object] | None = None,
+    ) -> None:
         self.period = timedelta(seconds=period)
         self.worker = worker
         if initial_delay is None:
@@ -78,10 +86,10 @@ class Task:
         self.__scheduler = scheduler
         self.__lock = threading.Lock()
         self.__background = background
-        self.args = args
-        self.kwargs = kwargs
+        self.args = tuple(args)
+        self.kwargs = dict(kwargs or {})
 
-    def _do_work(self):
+    def _do_work(self) -> None:
         if not self.__expired:
             _execute(
                 self.worker, *self.args, _background=self.__background, **self.kwargs
@@ -99,24 +107,24 @@ class Task:
             else:
                 self.__expired = True
 
-    def _next_schedule(self):
+    def _next_schedule(self) -> datetime:
         return self.__next_schedule
 
-    def schedule_now(self):
+    def schedule_now(self) -> None:
         """Schedule the task now. Note that this happens asynchronously."""
         if not self.__expired:
             with self.__lock:
                 self.__next_schedule = datetime.now(UTC)
             self.__scheduler._refresh()
 
-    def expired(self):
+    def expired(self) -> bool:
         """Indicates if the task has stopped
 
         :rtype: bool
         """
         return self.__expired
 
-    def stop(self):
+    def stop(self) -> None:
         """This stops the task"""
         if self.__expired:
             return
@@ -131,10 +139,10 @@ class Scheduler:
     :type jitter: float, optional
     """
 
-    def __init__(self, jitter=0.0):
+    def __init__(self, jitter: float = 0.0) -> None:
         """Constructor method"""
         self.jitter = jitter
-        self.__tasks = []
+        self.__tasks: list[Task] = []
         self.__event = threading.Event()
         self.__thread_stopped = False
         self.__worker_thread = threading.Thread(target=self.__next_schedule)
@@ -142,16 +150,16 @@ class Scheduler:
 
     def create_task(
         self,
-        period,
-        worker,
-        initial_delay=None,
-        min_delay=0.0,
-        one_shot=False,
-        jitter=None,
-        background=False,
-        args=(),
-        kwargs={},
-    ):
+        period: float,
+        worker: Callable[..., object],
+        initial_delay: float | None = None,
+        min_delay: float = 0.0,
+        one_shot: bool = False,
+        jitter: float | None = None,
+        background: bool = False,
+        args: Sequence[object] = (),
+        kwargs: Mapping[str, object] | None = None,
+    ) -> Task:
         """This schedules a new task.
 
         :param period: The period after which the task will repeat
@@ -198,33 +206,34 @@ class Scheduler:
         self._refresh()
         return task
 
-    def join(self):
+    def join(self) -> None:
         """Join worker thread - if possible"""
         if threading.current_thread() != self.__worker_thread:
             self.__worker_thread.join()
 
-    def stop(self):
+    def stop(self) -> None:
         """This stops the scheduler"""
         self.__thread_stopped = True
         self._refresh()
         self.join()
 
-    def _refresh(self):
+    def _refresh(self) -> None:
         self.__event.set()
 
-    def _del_task(self, task):
+    def _del_task(self, task: Task) -> None:
         self.__del_task(task)
         self._refresh()
 
-    def __del_task(self, task):
+    def __del_task(self, task: Task) -> None:
         try:
             self.__tasks.remove(task)
         except Exception:
             pass
 
-    def __next_schedule(self):
+    def __next_schedule(self) -> None:
         while not self.__thread_stopped:
             next_schedule = None
+            next_task: Task | None = None
             for task in copy.copy(self.__tasks):
                 if task.expired():
                     self.__del_task(task)
@@ -236,7 +245,8 @@ class Scheduler:
                 delay = (next_schedule - datetime.now(UTC)).total_seconds()
                 self.__event.wait(delay)
                 if not self.__event.is_set():
-                    next_task._do_work()
+                    if next_task is not None:
+                        next_task._do_work()
             else:
                 self.__event.wait()
             self.__event.clear()

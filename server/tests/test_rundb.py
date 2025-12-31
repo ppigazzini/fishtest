@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import random
 import sys
 import unittest
@@ -9,15 +11,15 @@ from fishtest.run_cache import Prio
 from fishtest.spsa_handler import _pack_flips, _unpack_flips
 from pymongo import DESCENDING
 
-run_id = None
+run_id: str | None = None
 
 
 class CreateRunDBTest(unittest.TestCase):
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         cls.rundb = util.get_rundb()
 
-    def setUp(self):
+    def setUp(self) -> None:
         random.seed()
         self.remote_addr = "127.0.0.1"
         self.rundb.runs.create_index(
@@ -55,10 +57,10 @@ class CreateRunDBTest(unittest.TestCase):
             "remote_addr": self.remote_addr,
         }
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         self.rundb.runs.delete_many({"args.username": "travis"})
 
-    def test_10_create_run(self):
+    def test_10_create_run(self) -> None:
         global run_id
         # STC
         num_tasks = 4
@@ -149,7 +151,8 @@ class CreateRunDBTest(unittest.TestCase):
             if run["args"]["username"] == "travis":
                 print(run["args"])
 
-    def test_20_update_task(self):
+    def test_20_update_task(self) -> None:
+        assert run_id is not None
         run = self.rundb.get_run(run_id)
         run["tasks"][0]["active"] = True
         run["tasks"][0]["worker_info"] = self.worker_info
@@ -221,18 +224,19 @@ class CreateRunDBTest(unittest.TestCase):
         )
         self.assertEqual(run, {"task_alive": False})
 
-    def test_30_finish(self):
+    def test_30_finish(self) -> None:
+        assert run_id is not None
         print("run_id: {}".format(run_id))
         run = self.rundb.get_run(run_id)
         run["finished"] = True
         self.rundb.buffer(run, priority=Prio.SAVE_NOW)
 
-    def test_40_list_LTC(self):
+    def test_40_list_LTC(self) -> None:
         finished_runs = self.rundb.get_finished_runs(limit=3, ltc_only=True)[0]
         for run in finished_runs:
             print(run["args"]["tc"])
 
-    def test_90_delete_runs(self):
+    def test_90_delete_runs(self) -> None:
         for run in self.rundb.runs.find():
             if run["args"]["username"] == "travis" and "deleted" not in run:
                 print("del ")
@@ -242,7 +246,7 @@ class CreateRunDBTest(unittest.TestCase):
                     w["pending"] = False
                 self.rundb.buffer(run, priority=Prio.SAVE_NOW)
 
-    def test_flips(self):
+    def test_flips(self) -> None:
         random.seed(0)
         for _ in range(0, 100):
             L = random.randint(0, 1000)

@@ -1,10 +1,13 @@
+from __future__ import annotations
+
 import random
 import zlib
+from collections.abc import Mapping
 
 import numpy as np
 
 
-def _pack_flips(flips):
+def _pack_flips(flips: list[int]) -> bytes:
     """
     This transforms a list of +-1 into a sequence of bytes
     with the meaning of the individual bits being 1:1, 0:-1.
@@ -12,7 +15,7 @@ def _pack_flips(flips):
     return np.packbits(np.array(flips, dtype=np.int8) == 1).tobytes() if flips else b""
 
 
-def _unpack_flips(packed_flips, length=None):
+def _unpack_flips(packed_flips: bytes, length: int | None = None) -> list[int]:
     """
     The inverse function.
     """
@@ -23,11 +26,14 @@ def _unpack_flips(packed_flips, length=None):
     return flips.tolist() if length is None else flips[:length].tolist()
 
 
-def _param_clip(param, increment):
+def _param_clip(param: Mapping[str, float], increment: float) -> float:
     return min(max(param["theta"] + increment, param["min"]), param["max"])
 
 
-def _generate_data(spsa, iter=None):
+def _generate_data(
+    spsa: Mapping[str, object],
+    iter: int | None = None,
+) -> dict[str, list[dict[str, object]]]:
     result = {"w_params": [], "b_params": []}
 
     if iter is None:
@@ -58,7 +64,11 @@ def _generate_data(spsa, iter=None):
     return result
 
 
-def _add_to_history(spsa, num_games, w_params):
+def _add_to_history(
+    spsa: dict[str, object],
+    num_games: int,
+    w_params: list[dict[str, object]],
+) -> None:
     # Compute the update frequency so that the required storage does not depend
     # on the the number of parameters. We have to recompute this every time since
     # the user may have modified the run.
@@ -78,17 +88,17 @@ def _add_to_history(spsa, num_games, w_params):
 
 
 class SPSAHandler:
-    def __init__(self, rundb):
+    def __init__(self, rundb: object) -> None:
         self.get_run = rundb.get_run
         if rundb.is_primary_instance():
             self.buffer = rundb.buffer
         self.active_run_lock = rundb.active_run_lock
 
-    def request_spsa_data(self, run_id, task_id):
+    def request_spsa_data(self, run_id: str, task_id: int) -> dict[str, object]:
         with self.active_run_lock(run_id):
             return self.__request_spsa_data(run_id, task_id)
 
-    def __request_spsa_data(self, run_id, task_id):
+    def __request_spsa_data(self, run_id: str, task_id: int) -> dict[str, object]:
         run = self.get_run(run_id)
         task = run["tasks"][task_id]
         spsa = run["args"]["spsa"]
@@ -111,11 +121,21 @@ class SPSAHandler:
         result["task_alive"] = True
         return result
 
-    def update_spsa_data(self, run_id, task_id, spsa_results):
+    def update_spsa_data(
+        self,
+        run_id: str,
+        task_id: int,
+        spsa_results: Mapping[str, object],
+    ) -> None:
         with self.active_run_lock(run_id):
             return self.__update_spsa_data(run_id, task_id, spsa_results)
 
-    def __update_spsa_data(self, run_id, task_id, spsa_results):
+    def __update_spsa_data(
+        self,
+        run_id: str,
+        task_id: int,
+        spsa_results: Mapping[str, object],
+    ) -> None:
         run = self.get_run(run_id)
         task = run["tasks"][task_id]
         spsa = run["args"]["spsa"]
@@ -162,6 +182,6 @@ class SPSAHandler:
 
         self.buffer(run)
 
-    def get_spsa_data(self, run_id):
+    def get_spsa_data(self, run_id: str) -> dict[str, object]:
         run = self.get_run(run_id)
         return run["args"].get("spsa", {})

@@ -1,18 +1,22 @@
+from __future__ import annotations
+
 from datetime import UTC, datetime
 
 from fishtest.schemas import worker_schema
 from vtjson import validate
 
+type WorkerDoc = dict[str, object]
+
 
 class WorkerDb:
-    def __init__(self, db):
-        self.db = db
+    def __init__(self, db: object) -> None:
+        self.db: object = db
         self.workers = self.db["workers"]
 
     def get_worker(
         self,
-        worker_name,
-    ):
+        worker_name: str,
+    ) -> WorkerDoc:
         q = {"worker_name": worker_name}
         r = self.workers.find_one(
             q,
@@ -27,7 +31,9 @@ class WorkerDb:
         else:
             return r
 
-    def update_worker(self, worker_name, blocked=None, message=None):
+    def update_worker(
+        self, worker_name: str, blocked: bool | None = None, message: str | None = None
+    ) -> None:
         r = {
             "worker_name": worker_name,
             "blocked": blocked,
@@ -37,6 +43,6 @@ class WorkerDb:
         validate(worker_schema, r, "worker")  # may throw exception
         self.workers.replace_one({"worker_name": worker_name}, r, upsert=True)
 
-    def get_blocked_workers(self):
+    def get_blocked_workers(self) -> list[WorkerDoc]:
         q = {"blocked": True}
         return list(self.workers.find(q))

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import base64
 import copy
 import gzip
@@ -14,17 +16,17 @@ from util import get_rundb
 
 
 class DummyRoute:
-    def __init__(self, name):
+    def __init__(self, name: str) -> None:
         self.name = name
 
 
-def cleanup(request):
+def cleanup(request: object) -> object:
     request.json_body["worker_info"].pop("remote_addr", None)
     request.json_body["worker_info"].pop("country_code", None)
     return request
 
 
-def new_run(self, add_tasks=0):
+def new_run(self: TestApi, add_tasks: int = 0) -> str:
     num_tasks = 4
     num_games = num_tasks * self.chunk_size
     run_id = self.rundb.new_run(
@@ -83,7 +85,7 @@ def new_run(self, add_tasks=0):
     return str(run_id)
 
 
-def stop_all_runs(self):
+def stop_all_runs(self: TestApi) -> list[str]:
     runs = self.rundb.runs.find({})
     stopped = []
     for run in runs:
@@ -98,7 +100,7 @@ def stop_all_runs(self):
 
 class TestApi(unittest.TestCase):
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         cls.chunk_size = 200
         cls.rundb = get_rundb()
         # Set up an API user (a worker)
@@ -152,7 +154,7 @@ class TestApi(unittest.TestCase):
         cls.rundb.schedule_tasks()
 
     @classmethod
-    def tearDownClass(cls):
+    def tearDownClass(cls) -> None:
         cls.rundb.scheduler.stop()
         cls.rundb.runs.delete_many({})
         cls.rundb.userdb.users.delete_many({"username": cls.username})
@@ -160,7 +162,7 @@ class TestApi(unittest.TestCase):
         cls.rundb.userdb.user_cache.delete_many({"username": cls.username})
         cls.rundb.runs.drop()
 
-    def build_json_request(self, json_body):
+    def build_json_request(self, json_body: dict[str, object]) -> DummyRequest:
         return DummyRequest(
             rundb=self.rundb,
             userdb=self.rundb.userdb,
@@ -171,7 +173,7 @@ class TestApi(unittest.TestCase):
             route_url=lambda x: "/api/foo",
         )
 
-    def invalid_password_request(self):
+    def invalid_password_request(self) -> DummyRequest:
         return self.build_json_request(
             {
                 "password": "wrong password",
@@ -179,7 +181,11 @@ class TestApi(unittest.TestCase):
             }
         )
 
-    def correct_password_request(self, json_body={}):
+    def correct_password_request(
+        self, json_body: dict[str, object] | None = None
+    ) -> DummyRequest:
+        if json_body is None:
+            json_body = {}
         return self.build_json_request(
             {
                 "password": self.password,
@@ -188,26 +194,26 @@ class TestApi(unittest.TestCase):
             }
         )
 
-    def test_get_active_runs(self):
+    def test_get_active_runs(self) -> None:
         run_id = new_run(self)
         request = DummyRequest(rundb=self.rundb)
         response = UserApi(request).active_runs()
         self.assertTrue(run_id in response)
 
-    def test_get_run(self):
+    def test_get_run(self) -> None:
         run_id = new_run(self)
         request = DummyRequest(rundb=self.rundb, matchdict={"id": run_id})
         response = UserApi(request).get_run()
         self.assertEqual(run_id, response["_id"])
 
-    def test_get_elo(self):
+    def test_get_elo(self) -> None:
         run_id = new_run(self)
         request = DummyRequest(rundb=self.rundb, matchdict={"id": run_id})
         response = UserApi(request).get_elo()
         # /api/get_elo only works for SPRT
         self.assertFalse(response)
 
-    def test_request_task(self):
+    def test_request_task(self) -> None:
         stop_all_runs(self)
 
         runs = [new_run(self), new_run(self), new_run(self)]
@@ -234,7 +240,7 @@ class TestApi(unittest.TestCase):
         task = run["tasks"][task_id]
         self.assertTrue(task["active"])
 
-    def test_update_task(self):
+    def test_update_task(self) -> None:
         stop_all_runs(self)
         run_id = new_run(self)
         run = self.rundb.get_run(run_id)
@@ -364,7 +370,7 @@ class TestApi(unittest.TestCase):
         task = run["tasks"][0]
         self.assertFalse(task["active"])
 
-    def test_failed_task(self):
+    def test_failed_task(self) -> None:
         stop_all_runs(self)
         run_id = new_run(self)
         run = self.rundb.get_run(run_id)
@@ -386,7 +392,7 @@ class TestApi(unittest.TestCase):
         print(response["info"])
         self.assertFalse(run["tasks"][0]["active"])
 
-    def test_stop_run(self):
+    def test_stop_run(self) -> None:
         run_id = new_run(self, add_tasks=1)
         with self.assertRaises(HTTPUnauthorized):
             response = WorkerApi(self.invalid_password_request()).stop_run()
@@ -415,7 +421,7 @@ class TestApi(unittest.TestCase):
 
         self.assertTrue(run["finished"])
 
-    def test_upload_pgn(self):
+    def test_upload_pgn(self) -> None:
         run_id = new_run(self, add_tasks=1)
         task_id = 0
         pgn_text = "1. e4 e5 2. d4 d5"
@@ -442,7 +448,7 @@ class TestApi(unittest.TestCase):
         self.assertEqual(pgn, pgn_text)
         self.rundb.pgndb.delete_one({"run_id": pgn_filename_prefix})
 
-    def test_request_spsa(self):
+    def test_request_spsa(self) -> None:
         run_id = new_run(self, add_tasks=1)
         run = self.rundb.get_run(run_id)
         run["args"]["spsa"] = {
@@ -461,7 +467,7 @@ class TestApi(unittest.TestCase):
         self.assertTrue(response["w_params"] is not None)
         self.assertTrue(response["b_params"] is not None)
 
-    def test_request_version(self):
+    def test_request_version(self) -> None:
         with self.assertRaises(HTTPUnauthorized):
             response = WorkerApi(self.invalid_password_request()).request_version()
             self.assertTrue("error" in response)
@@ -470,7 +476,7 @@ class TestApi(unittest.TestCase):
         response = WorkerApi(self.correct_password_request()).request_version()
         self.assertEqual(WORKER_VERSION, response["version"])
 
-    def test_beat(self):
+    def test_beat(self) -> None:
         run_id = new_run(self, add_tasks=1)
 
         with self.assertRaises(HTTPUnauthorized):
@@ -486,7 +492,7 @@ class TestApi(unittest.TestCase):
 
 class TestRunFinished(unittest.TestCase):
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         cls.chunk_size = 200
         cls.rundb = get_rundb()
         # Set up an API user (a worker)
@@ -538,14 +544,14 @@ class TestRunFinished(unittest.TestCase):
         cls.rundb.schedule_tasks()
 
     @classmethod
-    def tearDownClass(cls):
+    def tearDownClass(cls) -> None:
         cls.rundb.scheduler.stop()
         cls.rundb.userdb.users.delete_many({"username": cls.username})
         cls.rundb.userdb.clear_cache()
         cls.rundb.userdb.user_cache.delete_many({"username": cls.username})
         cls.rundb.runs.drop()
 
-    def build_json_request(self, json_body):
+    def build_json_request(self, json_body: dict[str, object]) -> DummyRequest:
         return DummyRequest(
             rundb=self.rundb,
             userdb=self.rundb.userdb,
@@ -554,7 +560,11 @@ class TestRunFinished(unittest.TestCase):
             json_body=json_body,
         )
 
-    def correct_password_request(self, json_body={}):
+    def correct_password_request(
+        self, json_body: dict[str, object] | None = None
+    ) -> DummyRequest:
+        if json_body is None:
+            json_body = {}
         return self.build_json_request(
             {
                 "password": self.password,
@@ -563,7 +573,7 @@ class TestRunFinished(unittest.TestCase):
             }
         )
 
-    def test_duplicate_workers(self):
+    def test_duplicate_workers(self) -> None:
         stop_all_runs(self)
         run_id = new_run(self)
         run = self.rundb.get_run(run_id)
@@ -578,7 +588,7 @@ class TestRunFinished(unittest.TestCase):
         self.assertFalse("error" in response)
         # TODO Add test for a different worker connecting
 
-    def test_auto_purge_runs(self):
+    def test_auto_purge_runs(self) -> None:
         stop_all_runs(self)
         run_id = new_run(self)
         run = self.rundb.get_run(run_id)

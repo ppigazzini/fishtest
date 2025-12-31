@@ -1,8 +1,13 @@
+from __future__ import annotations
+
 import os
 import signal
 import sys
 import threading
 import traceback
+from collections.abc import Mapping
+from types import FrameType
+from typing import Any
 
 import fishtest.github_api as gh
 from fishtest.routes import setup_routes
@@ -16,7 +21,7 @@ from pyramid.security import forget
 from pyramid.session import SignedCookieSessionFactory
 
 
-def thread_stack_dump(sig, frame):
+def thread_stack_dump(sig: int, frame: FrameType | None) -> None:
     for th in threading.enumerate():
         print("=================== ", th, " ======================", flush=True)
         try:
@@ -25,7 +30,7 @@ def thread_stack_dump(sig, frame):
             print("Failed to print traceback, the thread is probably gone", flush=True)
 
 
-def main(global_config, **settings):
+def main(global_config: Mapping[str, Any], **settings: Any) -> Any:
     """This function returns a Pyramid WSGI application."""
 
     # Register handler, will list the stack traces of all active threads
@@ -49,16 +54,16 @@ def main(global_config, **settings):
 
     rundb = RunDb(port=port, is_primary_instance=is_primary_instance)
 
-    def add_rundb(event):
+    def add_rundb(event: Any) -> None:
         event.request.rundb = rundb
         event.request.userdb = rundb.userdb
         event.request.actiondb = rundb.actiondb
         event.request.workerdb = rundb.workerdb
 
-    def add_renderer_globals(event):
+    def add_renderer_globals(event: Any) -> None:
         pass
 
-    def check_blocked_user(event):
+    def check_blocked_user(event: Any) -> None:
         request = event.request
         if request.authenticated_userid is not None:
             auth_user_id = request.authenticated_userid
@@ -68,18 +73,18 @@ def main(global_config, **settings):
                 session.invalidate()
                 raise HTTPFound(location=request.route_url("tests"), headers=headers)
 
-    def check_shutdown(event):
+    def check_shutdown(event: Any) -> None:
         if rundb._shutdown:
             raise HTTPServiceUnavailable()
 
-    def is_user_blocked(auth_user_id, userdb):
+    def is_user_blocked(auth_user_id: str, userdb: Any) -> bool:
         blocked_users = userdb.get_blocked()
         for user in blocked_users:
             if user["username"] == auth_user_id and user["blocked"]:
                 return True
         return False
 
-    def init_app(event):
+    def init_app(event: Any) -> None:
         if rundb.is_primary_instance():
             # Some initialization stuff that
             # - uses the network;
@@ -96,7 +101,7 @@ def main(global_config, **settings):
         signal.signal(signal.SIGINT, rundb.exit_run)
         signal.signal(signal.SIGTERM, rundb.exit_run)
 
-    def set_default_base_url(event):
+    def set_default_base_url(event: Any) -> None:
         if not rundb._base_url_set:
             rundb.base_url = f"{event.request.scheme}://{event.request.host}"
             rundb._base_url_set = True
@@ -109,7 +114,7 @@ def main(global_config, **settings):
     config.add_subscriber(set_default_base_url, NewRequest)
 
     # Authentication
-    def group_finder(username, request):
+    def group_finder(username: str, request: Any) -> list[str] | None:
         return request.userdb.get_user_groups(username)
 
     secret = os.environ.get("FISHTEST_AUTHENTICATION_SECRET", "")

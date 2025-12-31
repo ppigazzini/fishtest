@@ -1,11 +1,15 @@
+from __future__ import annotations
+
 import base64
 import hashlib
+from collections.abc import Mapping
 
+from pyramid.config import Configurator
 from pyramid.path import AssetResolver
 from pyramid.static import QueryStringCacheBuster
 
 
-def setup_routes(config):
+def setup_routes(config: Configurator) -> None:
     config.add_static_view("static", "static", cache_max_age=3600)
 
     config.add_cache_buster(
@@ -71,13 +75,18 @@ def setup_routes(config):
 
 
 class FileHashCacheBuster(QueryStringCacheBuster):
-    def __init__(self, package, base_path, param="x") -> None:
+    def __init__(
+        self,
+        package: object,
+        base_path: str,
+        param: str = "x",
+    ) -> None:
         super().__init__(param)
         self.asset_resolver = AssetResolver(package)
         self.base_path = base_path
-        self.token_cache = {}
+        self.token_cache: dict[str, str] = {}
 
-    def tokenize(self, request, pathspec, kw):
+    def tokenize(self, request: object, pathspec: str, kw: Mapping[str, object]) -> str:
         cached = self.token_cache.get(pathspec)
         if cached:
             return cached
@@ -87,9 +96,9 @@ class FileHashCacheBuster(QueryStringCacheBuster):
 
         return token
 
-    def _resolve_asset(self, pathspec):
+    def _resolve_asset(self, pathspec: str) -> object:
         return self.asset_resolver.resolve(self.base_path + pathspec)
 
-    def _hash_asset(self, asset):
+    def _hash_asset(self, asset: object) -> str:
         content = asset.stream().read()
         return base64.b64encode(hashlib.sha384(content).digest()).decode("utf8")

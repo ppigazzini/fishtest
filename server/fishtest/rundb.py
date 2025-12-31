@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import copy
 import json
 import math
@@ -8,6 +10,7 @@ import sys
 import textwrap
 import threading
 import time
+from collections.abc import Iterable, Iterator, Mapping
 from datetime import UTC, datetime
 
 import fishtest.github_api as gh
@@ -59,7 +62,12 @@ from vtjson import ValidationError, validate
 
 
 class RunDb:
-    def __init__(self, db_name="fishtest_new", port=-1, is_primary_instance=True):
+    def __init__(
+        self,
+        db_name: str = "fishtest_new",
+        port: int = -1,
+        is_primary_instance: bool = True,
+    ) -> None:
         # MongoDB server is assumed to be on the same machine, if not user should
         # use ssh with port forwarding to access the remote host.
         self.conn = MongoClient("localhost")
@@ -73,17 +81,17 @@ class RunDb:
         self.runs = self.db["runs"]
         self.deltas = self.db["deltas"]
         self.kvstore = KeyValueStore(self.db)
-        self.port = port
-        self.unfinished_runs = set()
+        self.port: int = port
+        self.unfinished_runs: set[str] = set()
         self.unfinished_runs_lock = threading.Lock()
-        self.wtt_map = {}
+        self.wtt_map: dict[str, tuple[str, int]] = {}
         self.wtt_lock = threading.RLock()
 
-        self.connections_counter = {}
+        self.connections_counter: dict[str, int] = {}
         self.connections_lock = threading.Lock()
 
-        self.books = self.kvstore.get("books", {})
-        self.worker_runs = self.kvstore.get("worker_runs", {})
+        self.books: dict[str, object] = self.kvstore.get("books", {})
+        self.worker_runs: dict[str, object] = self.kvstore.get("worker_runs", {})
 
         self.task_duration = 1800  # 30 minutes
         self.ltc_lower_bound = 40  # Beware: this is used as a filter in an index!
@@ -109,18 +117,18 @@ class RunDb:
         self.worker_runs_lock = threading.Lock()
 
         self.request_task_lock = threading.Lock()
-        self.scheduler = None
+        self.scheduler: Scheduler | None = None
         self._shutdown = False
 
         self.spsa_handler = fishtest.spsa_handler.SPSAHandler(self)
 
-    def get_run(self, run_id):
+    def get_run(self, run_id: str) -> dict[str, object] | None:
         if self.__is_primary_instance:
             return self.run_cache.get_run(run_id)
         else:
             return self.runs.find_one({"_id": ObjectId(run_id)})
 
-    def schedule_tasks(self):
+    def schedule_tasks(self) -> None:
         if self.scheduler is None:
             self.scheduler = Scheduler(jitter=0.05)
         self.scheduler.create_task(1.0, self.run_cache.flush_buffers, min_delay=1.0)
@@ -142,7 +150,7 @@ class RunDb:
             900.0, gh.update_official_master_sha, initial_delay=60.0, background=True
         )
 
-    def clean_worker_runs(self):
+    def clean_worker_runs(self) -> None:
         with self.worker_runs_lock:
             for v in self.worker_runs.values():
                 run_ids = copy.copy(v)
@@ -157,7 +165,7 @@ class RunDb:
 
         self.kvstore["worker_runs"] = self.worker_runs
 
-    def update_books(self):
+    def update_books(self) -> None:
         books = None
         try:
             books = json.loads(
@@ -176,7 +184,7 @@ class RunDb:
 
         self.books = books
 
-    def update_nps_gpm(self):
+    def update_nps_gpm(self) -> None:
         with self.unfinished_runs_lock:
             unfinished_runs = [self.get_run(run_id) for run_id in self.unfinished_runs]
         for run in unfinished_runs:
@@ -206,7 +214,7 @@ class RunDb:
                     run["games_per_minute"] = games_per_minute
                     self.buffer(run)
 
-    def validate_data_structures(self):
+    def validate_data_structures(self) -> None:
         # The main purpose of task is to ensure that the schemas
         # in schemas.py are kept up-to-date.
         print(
@@ -252,7 +260,7 @@ class RunDb:
                 message=message,
             )
 
-    def update_itp(self):
+    def update_itp(self) -> None:
         with self.unfinished_runs_lock:
             unfinished_runs = [self.get_run(run_id) for run_id in self.unfinished_runs]
 
@@ -264,7 +272,7 @@ class RunDb:
             self.calc_itp(run, user_active.count(run["args"].get("username")))
             self.buffer(run)
 
-    def clean_wtt_map(self):
+    def clean_wtt_map(self) -> None:
         with self.wtt_lock:
             for short_worker_name in list(self.wtt_map):
                 run_id, task_id = self.wtt_map[short_worker_name]
@@ -275,7 +283,7 @@ class RunDb:
         print(f"Clean_wtt_map: {len(self.wtt_map)} active workers...", flush=True)
 
     # Do not use this while holding an active_run_lock!
-    def insert_in_wtt_map(self, run_id, task_id):
+    def insert_in_wtt_map(self, run_id: str, task_id: int) -> None:
         run = self.get_run(run_id)
         task = run["tasks"][task_id]
         if not task["active"]:
@@ -293,7 +301,7 @@ class RunDb:
                         )
             self.wtt_map[short_worker_name] = run_id, task_id
 
-    def validate_random_run(self):
+    def validate_random_run(self) -> None:
         with self.unfinished_runs_lock:
             if len(self.unfinished_runs) == 0:
                 return
@@ -318,7 +326,7 @@ class RunDb:
                     flush=True,
                 )
 
-    def set_inactive_run(self, run):
+    def set_inactive_run(self, run: dict[str, object]) -> None:
         run_id = str(run["_id"])
         with self.active_run_lock(run_id):
             for task_id in range(len(run["tasks"])):
@@ -331,7 +339,7 @@ class RunDb:
             run.update(flags)
         self.buffer(run, priority=Prio.SAVE_NOW)
 
-    def set_active_run(self, run):
+    def set_active_run(self, run: dict[str, object]) -> None:
         run_id = str(run["_id"])
         with self.active_run_lock(run_id):
             self.unfinished_runs.add(run_id)
@@ -342,7 +350,7 @@ class RunDb:
             run["finished"] = False
         self.buffer(run, priority=Prio.SAVE_NOW)
 
-    def set_inactive_task(self, task_id, run):
+    def set_inactive_task(self, task_id: int, run: dict[str, object]) -> None:
         run_id = run["_id"]
         with self.active_run_lock(run_id):
             task = run["tasks"][task_id]
@@ -376,7 +384,13 @@ class RunDb:
 
         self.buffer(run, priority=Prio.MEDIUM)
 
-    def set_bad_task(self, task_id, run, residual=None, residual_color=None):
+    def set_bad_task(
+        self,
+        task_id: int,
+        run: dict[str, object],
+        residual: float | None = None,
+        residual_color: str | None = None,
+    ) -> None:
         zero_stats = {
             "wins": 0,
             "losses": 0,
@@ -418,7 +432,7 @@ class RunDb:
             self.buffer(run, priority=Prio.MEDIUM)
 
     # Do not run two copies of this function in parallel!
-    def update_aggregated_data(self):
+    def update_aggregated_data(self) -> None:
         with self.wtt_lock:
             self.wtt_map = {}
         with self.connections_lock:
@@ -523,37 +537,37 @@ class RunDb:
 
     def new_run(
         self,
-        base_tag,
-        new_tag,
-        num_games,
-        tc,
-        new_tc,
-        book,
-        book_depth,
-        threads,
-        base_options,
-        new_options,
-        info="",
-        resolved_base="",
-        resolved_new="",
-        msg_base="",
-        msg_new="",
-        base_signature="",
-        new_signature="",
-        base_nets=None,
-        new_nets=None,
-        rescheduled_from=None,
-        start_time=None,
-        sprt=None,
-        spsa=None,
-        username=None,
-        tests_repo=None,
-        master_repo=None,
-        auto_purge=False,
-        throughput=100,
-        priority=0,
-        adjudication=True,
-    ):
+        base_tag: str,
+        new_tag: str,
+        num_games: int,
+        tc: str,
+        new_tc: str,
+        book: str,
+        book_depth: str,
+        threads: int,
+        base_options: str,
+        new_options: str,
+        info: str = "",
+        resolved_base: str = "",
+        resolved_new: str = "",
+        msg_base: str = "",
+        msg_new: str = "",
+        base_signature: str = "",
+        new_signature: str = "",
+        base_nets: list[str] | None = None,
+        new_nets: list[str] | None = None,
+        rescheduled_from: str | None = None,
+        start_time: datetime | None = None,
+        sprt: dict[str, object] | None = None,
+        spsa: dict[str, object] | None = None,
+        username: str | None = None,
+        tests_repo: str | None = None,
+        master_repo: str | None = None,
+        auto_purge: bool = False,
+        throughput: int = 100,
+        priority: int = 0,
+        adjudication: bool = True,
+    ) -> str:
         if start_time is None:
             start_time = datetime.now(UTC)
 
@@ -678,10 +692,10 @@ class RunDb:
             self.unfinished_runs.add(run_id)
         return run_id
 
-    def is_primary_instance(self):
+    def is_primary_instance(self) -> bool:
         return self.__is_primary_instance
 
-    def upload_pgn(self, run_id, pgn_zip):
+    def upload_pgn(self, run_id: str, pgn_zip: bytes) -> dict[str, object]:
         record = {"run_id": run_id, "pgn_zip": pgn_zip, "size": len(pgn_zip)}
         try:
             validate(pgns_schema, record)
@@ -697,11 +711,11 @@ class RunDb:
         )
         return {}
 
-    def get_pgn(self, run_id):
+    def get_pgn(self, run_id: str) -> tuple[bytes | None, int]:
         pgn = self.pgndb.find_one({"run_id": run_id})
         return (pgn["pgn_zip"], pgn["size"]) if pgn else (None, 0)
 
-    def get_run_pgns(self, run_id):
+    def get_run_pgns(self, run_id: str) -> tuple[GeneratorAsFileReader | None, int]:
         # Compute the total size using MongoDB's aggregation framework
         pgns_query = {"run_id": {"$regex": f"^{run_id}-\\d+"}}
         total_size_agg = self.pgndb.aggregate(
@@ -736,29 +750,36 @@ class RunDb:
 
         return pgns_reader, total_size
 
-    def write_nn(self, net):
+    def write_nn(self, net: dict[str, object]) -> None:
         validate(nn_schema, net, "net")
         self.nndb.replace_one({"name": net["name"]}, net, upsert=True)
 
-    def get_nn(self, name):
+    def get_nn(self, name: str) -> dict[str, object] | None:
         return self.nndb.find_one({"name": name}, {"nn": 0})
 
-    def upload_nn(self, userid, name):
+    def upload_nn(self, userid: str, name: str) -> None:
         self.write_nn({"user": userid, "name": name, "downloads": 0})
 
-    def update_nn(self, net):
+    def update_nn(self, net: Mapping[str, object]) -> None:
         net = copy.copy(net)  # avoid side effects
         net.pop("downloads", None)
         old_net = self.get_nn(net["name"])
         old_net.update(net)
         self.write_nn(old_net)
 
-    def increment_nn_downloads(self, name):
+    def increment_nn_downloads(self, name: str) -> None:
         net = self.get_nn(name)
         net["downloads"] += 1
         self.write_nn(net)
 
-    def get_nns(self, user="", network_name="", master_only=False, limit=0, skip=0):
+    def get_nns(
+        self,
+        user: str = "",
+        network_name: str = "",
+        master_only: bool = False,
+        limit: int = 0,
+        skip: int = 0,
+    ) -> tuple[Iterator[dict[str, object]], int]:
         q = {}
         if user:
             q["user"] = {"$regex": ".*{}.*".format(user), "$options": "i"}
@@ -776,13 +797,13 @@ class RunDb:
         )
         return nns_list, count
 
-    def save_persistent_data(self):
+    def save_persistent_data(self) -> None:
         self.kvstore["books"] = self.books
         self.kvstore["worker_runs"] = self.worker_runs
         gh.save()
 
     # handle termination
-    def exit_run(self, signum, frame):
+    def exit_run(self, signum: int, frame: object | None) -> None:
         if os.isatty(sys.stdout.fileno()):
             print("\n", flush=True, end="")
         print("Stop handling requests... ", flush=True)
@@ -802,7 +823,7 @@ class RunDb:
         print("Quitting...", flush=True)
         sys.exit(0)
 
-    def scavenge_dead_tasks(self):
+    def scavenge_dead_tasks(self) -> None:
         with self.unfinished_runs_lock:
             unfinished_runs = [
                 (run_id, self.get_run(run_id)) for run_id in self.unfinished_runs
@@ -833,13 +854,15 @@ class RunDb:
             )
             self.set_inactive_task(task_id, run)
 
-    def get_unfinished_runs_id(self):
+    def get_unfinished_runs_id(self) -> object:
         unfinished_runs = self.runs.find(
             {"finished": False}, {"_id": 1}, sort=[("last_updated", DESCENDING)]
         )
         return unfinished_runs
 
-    def get_unfinished_runs(self, username=None):
+    def get_unfinished_runs(
+        self, username: str | None = None
+    ) -> Iterable[dict[str, object]]:
         # Note: the result can be only used once.
 
         unfinished_runs = self.runs.find({"finished": False}, {"_id": 1, "tasks": 0})
@@ -849,7 +872,7 @@ class RunDb:
             )
         return unfinished_runs
 
-    def get_machines(self):
+    def get_machines(self) -> Iterable[dict[str, object]]:
         active_runs = self.runs.find({"finished": False}, {"tasks": 1, "args": 1})
         machines = (
             task["worker_info"]
@@ -867,7 +890,17 @@ class RunDb:
         )
         return machines
 
-    def aggregate_unfinished_runs(self, username=None):
+    def aggregate_unfinished_runs(
+        self,
+        username: str | None = None,
+    ) -> tuple[
+        dict[str, list[dict[str, object]]],
+        float,
+        int,
+        float,
+        float,
+        int,
+    ]:
         unfinished_runs = self.get_unfinished_runs(username=username)
         runs = {"pending": [], "active": []}
         for run in unfinished_runs:
@@ -917,14 +950,14 @@ class RunDb:
 
     def get_finished_runs(
         self,
-        skip=0,
-        limit=0,
-        username="",
-        success_only=False,
-        yellow_only=False,
-        ltc_only=False,
-        last_updated=None,
-    ):
+        skip: int = 0,
+        limit: int = 0,
+        username: str = "",
+        success_only: bool = False,
+        yellow_only: bool = False,
+        ltc_only: bool = False,
+        last_updated: datetime | None = None,
+    ) -> list[object]:
         q = {"finished": True}
         projection = {"tasks": 0, "bad_tasks": 0, "args.spsa.param_history": 0}
         if username:
@@ -952,7 +985,7 @@ class RunDb:
         runs_list = [run for run in c if not run.get("deleted")]
         return [runs_list, count]
 
-    def calc_itp(self, run, count):
+    def calc_itp(self, run: dict[str, object], count: int) -> None:
         # Tests default to 100% base throughput, but we have several adjustments behind the scenes to get internal throughput.
         base_tp = run["args"]["throughput"]
         itp = base_tp = max(min(base_tp, 500), 1)  # Sanity check
@@ -991,7 +1024,9 @@ class RunDb:
 
     task_semaphore = threading.Semaphore(5)
 
-    def worker_cap(self, run, worker_info):
+    def worker_cap(
+        self, run: dict[str, object], worker_info: Mapping[str, object]
+    ) -> int:
         # Estimate how many games a worker will be able to run
         # during the time interval determined by "self.task_duration".
         # Make sure the result is properly quantized and not zero.
@@ -1007,7 +1042,9 @@ class RunDb:
             games = max(2, 2 * int(games / 2 + 1 / 2))
         return games
 
-    def blocked_worker_message(self, worker_name, message, host_url):
+    def blocked_worker_message(
+        self, worker_name: str, message: str, host_url: str
+    ) -> str:
         wrapped_message = textwrap.fill("Message: " + message, width=70)
         return f"""
 
@@ -1023,7 +1060,7 @@ After fixing the issues you can unblock the worker at
 **********************************************************************
 """
 
-    def request_task(self, worker_info):
+    def request_task(self, worker_info: Mapping[str, object]) -> dict[str, object]:
         if self.task_semaphore.acquire(False):
             try:
                 with self.request_task_lock:
@@ -1035,7 +1072,7 @@ After fixing the issues you can unblock the worker at
             print(message, flush=True)
             return {"task_waiting": False, "info": message}
 
-    def sync_request_task(self, worker_info):
+    def sync_request_task(self, worker_info: Mapping[str, object]) -> dict[str, object]:
         # We check if the worker has not been blocked.
         my_name = worker_name(worker_info, short=True)
         host_url = worker_info.get("host_url", "<host_url>")
@@ -1095,7 +1132,9 @@ After fixing the issues you can unblock the worker at
         # Now we sort the list of unfinished runs according to priority.
         last_run_id = self.worker_runs.get(my_name, {}).get("last_run", None)
 
-        def priority(run):  # lower is better
+        def priority(
+            run: Mapping[str, object],
+        ) -> tuple[int, bool, bool, float]:  # lower is better
             return (
                 # Always consider the higher priority runs first
                 -run["args"]["priority"],
@@ -1267,7 +1306,7 @@ After fixing the issues you can unblock the worker at
 
         return {"run": run, "task_id": task_id}
 
-    def finished_run_message(self, run):
+    def finished_run_message(self, run: dict[str, object]) -> str:
         if "spsa" in run["args"]:
             return "SPSA tune finished"
         result = "unknown"
@@ -1317,7 +1356,7 @@ After fixing the issues you can unblock the worker at
         ret += f" Games:{total} Ptnml:{str(pentanomial).replace(' ', '')}"
         return ret
 
-    def handle_crash_or_time(self, run, task_id):
+    def handle_crash_or_time(self, run: dict[str, object], task_id: int) -> None:
         task = run["tasks"][task_id]
         if crash_or_time(task):
             stats = task.get("stats", {})
@@ -1336,14 +1375,28 @@ After fixing the issues you can unblock the worker at
                 message=message,
             )
 
-    def update_task(self, worker_info, run_id, task_id, stats, spsa_results):
+    def update_task(
+        self,
+        worker_info: Mapping[str, object],
+        run_id: str,
+        task_id: int,
+        stats: Mapping[str, object],
+        spsa_results: Mapping[str, object],
+    ) -> dict[str, object]:
         lock = self.active_run_lock(run_id)
         with lock:
             return self.sync_update_task(
                 worker_info, run_id, task_id, stats, spsa_results
             )
 
-    def sync_update_task(self, worker_info, run_id, task_id, stats, spsa_results):
+    def sync_update_task(
+        self,
+        worker_info: Mapping[str, object],
+        run_id: str,
+        task_id: int,
+        stats: Mapping[str, object],
+        spsa_results: Mapping[str, object],
+    ) -> dict[str, object]:
         run = self.get_run(run_id)
         task = run["tasks"][task_id]
         update_time = datetime.now(UTC)
@@ -1456,7 +1509,12 @@ After fixing the issues you can unblock the worker at
 
         return ret
 
-    def failed_task(self, run_id, task_id, message="Unknown reason"):
+    def failed_task(
+        self,
+        run_id: str,
+        task_id: int,
+        message: str = "Unknown reason",
+    ) -> dict[str, object]:
         run = self.get_run(run_id)
         task = run["tasks"][task_id]
         # Check if the worker is still working on this task.
@@ -1486,7 +1544,7 @@ After fixing the issues you can unblock the worker at
         )
         return {}
 
-    def stop_run(self, run_id):
+    def stop_run(self, run_id: str) -> None:
         """Stops a run and runs auto-purge if it was enabled
         - Used by the website and API for manually stopping runs
         - Called during /api/update_task:
@@ -1534,7 +1592,9 @@ After fixing the issues you can unblock the worker at
                     flush=True,
                 )
 
-    def approve_run(self, run_id, approver):
+    def approve_run(
+        self, run_id: str, approver: str
+    ) -> tuple[dict[str, object] | None, str]:
         run = self.get_run(run_id)
         if run is None:
             return None, f"Run {str(run_id)} not found!"
@@ -1551,7 +1611,13 @@ After fixing the issues you can unblock the worker at
             else:
                 return None, f"Run {str(run_id)} already approved!"
 
-    def purge_run(self, run, p=0.001, res=7.0, iters=1):
+    def purge_run(
+        self,
+        run: dict[str, object],
+        p: float = 0.001,
+        res: float = 7.0,
+        iters: int = 1,
+    ) -> str:
         # Only purge finished runs
         if not run["finished"]:
             return "Can only purge completed run"

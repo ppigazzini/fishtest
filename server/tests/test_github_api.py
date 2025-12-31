@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import os
 import re
@@ -14,7 +16,7 @@ from vtjson import validate
 
 class CreateGitHubApiTest(unittest.TestCase):
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         cls.rundb = util.get_rundb()
         cls.actiondb = cls.rundb.actiondb
         gh.init(cls.rundb.kvstore, cls.rundb.actiondb)
@@ -30,7 +32,7 @@ class CreateGitHubApiTest(unittest.TestCase):
         cls.official_master_hathat_sha = commits[2]["sha"]
         cls.saved_official_master_sha = gh.official_master_sha
 
-    def test_get_bench(self):
+    def test_get_bench(self) -> None:
         self.assertTrue(
             re.match(
                 r"[1-9]\d{5,7}|None",
@@ -43,13 +45,13 @@ class CreateGitHubApiTest(unittest.TestCase):
             )
         )
 
-    def test_rate_limit(self):
+    def test_rate_limit(self) -> None:
         rate_limit = gh.rate_limit()
         # GH_TOKEN is set to GITHUB_TOKEN during ci.
         if "GH_TOKEN" in os.environ:
             self.assertTrue(rate_limit["limit"] == 5000)
 
-    def test_kvstore(self):
+    def test_kvstore(self) -> None:
         self.assertTrue(
             gh.official_master_sha == self.rundb.kvstore["official_master_sha"]
         )
@@ -57,7 +59,7 @@ class CreateGitHubApiTest(unittest.TestCase):
         self.assertTrue(self.rundb.books == self.rundb.kvstore["books"])
         # No need to manually delete kvstore or books; tearDown will handle restoration
 
-    def test_download(self):
+    def test_download(self) -> None:
         books = json.loads(
             gh.download_from_github(
                 "books.json",
@@ -80,7 +82,7 @@ class CreateGitHubApiTest(unittest.TestCase):
         )
         self.assertTrue(books == books1)
 
-    def test_sha(self):
+    def test_sha(self) -> None:
         # hard coded sha since the sf_10 tag is frozen forever
         self.assertTrue(self.sf10_sha == "b4c239b625285307c5871f1104dc3fb80aa6d5d2")
 
@@ -99,7 +101,7 @@ class CreateGitHubApiTest(unittest.TestCase):
         self.assertTrue(gh.is_master(master_sha))
         self.assertTrue(gh.is_master(self.sf10_sha))
 
-    def test_github_not_found(self):
+    def test_github_not_found(self) -> None:
         with self.assertRaises(requests.HTTPError):
             gh.compare_sha(sha1=self.dummy_sha, sha2=self.dummy_sha)
         self.assertTrue(
@@ -131,8 +133,8 @@ class CreateGitHubApiTest(unittest.TestCase):
             r == gh._lru_cache[("compare_sha", self.sf10_sha, self.sf10_sha)]
         )
 
-    def test_is_master(self):
-        def inputs(sha):
+    def test_is_master(self) -> None:
+        def inputs(sha: str) -> tuple[str, str]:
             return ("is_master", sha)
 
         # fake official_master_sha
@@ -158,7 +160,7 @@ class CreateGitHubApiTest(unittest.TestCase):
         # this one may still become "master"
         self.assertFalse(inputs(self.saved_official_master_sha) in gh._lru_cache)
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         if hasattr(self.rundb, "books"):
             del self.rundb.books
         self.rundb.kvstore.pop("books", None)
@@ -166,7 +168,7 @@ class CreateGitHubApiTest(unittest.TestCase):
         gh.official_master_sha = self.saved_official_master_sha
 
     @classmethod
-    def tearDownClass(cls):
+    def tearDownClass(cls) -> None:
         cls.rundb.db.kvstore.drop()
 
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import sys
 import threading
 import time
@@ -10,7 +12,10 @@ from vtjson import ValidationError, validate
 DEFAULT_MACHINE_LIMIT = 16
 
 
-def validate_user(user):
+type UserDoc = dict[str, object]
+
+
+def validate_user(user: UserDoc) -> None:
     try:
         validate(user_schema, user, "user")
     except ValidationError as e:
@@ -20,34 +25,34 @@ def validate_user(user):
 
 
 class UserDb:
-    def __init__(self, db):
-        self.db = db
+    def __init__(self, db: object) -> None:
+        self.db: object = db
         self.users = self.db["users"]
         self.user_cache = self.db["user_cache"]
         self.top_month = self.db["top_month"]
 
     # Cache user lookups for 120s
     user_lock = threading.Lock()
-    cache = {}
+    cache: dict[str, dict[str, object]] = {}
 
-    def find_by_username(self, name):
+    def find_by_username(self, name: str) -> UserDoc | None:
         with self.user_lock:
             user = self.cache.get(name)
             if user and time.time() < user["time"] + 120:
-                return user["user"]
+                return user["user"]  # type: ignore[return-value]
             user = self.users.find_one({"username": name})
             if user is not None:
                 self.cache[name] = {"user": user, "time": time.time()}
             return user
 
-    def find_by_email(self, email):
+    def find_by_email(self, email: str) -> UserDoc | None:
         return self.users.find_one({"email": email})
 
-    def clear_cache(self):
+    def clear_cache(self) -> None:
         with self.user_lock:
             self.cache.clear()
 
-    def authenticate(self, username, password):
+    def authenticate(self, username: str, password: str) -> dict[str, object]:
         user = self.get_user(username)
         if not user or user["password"] != password:
             sys.stderr.write("Invalid login: '{}' '{}'\n".format(username, password))
@@ -61,7 +66,7 @@ class UserDb:
 
         return {"username": username, "authenticated": True}
 
-    def get_users(self):
+    def get_users(self) -> object:
         return self.users.find(sort=[("_id", ASCENDING)])
 
     # Cache pending for 1s
@@ -71,7 +76,7 @@ class UserDb:
     pending_lock = threading.Lock()
     blocked_lock = threading.Lock()
 
-    def get_pending(self):
+    def get_pending(self) -> list[UserDoc] | None:
         with self.pending_lock:
             if time.time() > self.last_pending_time + 1:
                 self.last_pending = list(
@@ -80,7 +85,7 @@ class UserDb:
                 self.last_pending_time = time.time()
             return self.last_pending
 
-    def get_blocked(self):
+    def get_blocked(self) -> list[UserDoc] | None:
         with self.blocked_lock:
             if time.time() > self.last_blocked_time + 1:
                 self.last_blocked = list(
@@ -89,23 +94,26 @@ class UserDb:
                 self.last_blocked_time = time.time()
             return self.last_blocked
 
-    def get_user(self, username):
+    def get_user(self, username: str) -> UserDoc | None:
         return self.find_by_username(username)
 
-    def get_user_groups(self, username):
+    def get_user_groups(self, username: str) -> list[str] | None:
         user = self.get_user(username)
         if user is not None:
             groups = user["groups"]
-            return groups
+            return groups  # type: ignore[return-value]
+        return None
 
-    def add_user_group(self, username, group):
+    def add_user_group(self, username: str, group: str) -> None:
         user = self.get_user(username)
         user["groups"].append(group)
         validate_user(user)
         self.users.replace_one({"_id": user["_id"]}, user)
         self.clear_cache()
 
-    def create_user(self, username, password, email, tests_repo):
+    def create_user(
+        self, username: str, password: str, email: str, tests_repo: str
+    ) -> bool | None:
         try:
             if self.find_by_username(username) or self.find_by_email(email):
                 return False
@@ -130,14 +138,14 @@ class UserDb:
         except Exception:
             return None
 
-    def save_user(self, user):
+    def save_user(self, user: UserDoc) -> None:
         validate_user(user)
         self.users.replace_one({"_id": user["_id"]}, user)
         self.last_pending_time = 0
         self.last_blocked_time = 0
         self.clear_cache()
 
-    def remove_user(self, user, rejector):
+    def remove_user(self, user: UserDoc, rejector: str) -> bool:
         result = self.users.delete_one({"_id": user["_id"]})
         if result.deleted_count > 0:
             # User successfully deleted
@@ -153,8 +161,8 @@ class UserDb:
             # User not found
             return False
 
-    def get_machine_limit(self, username):
+    def get_machine_limit(self, username: str) -> int:
         user = self.get_user(username)
         if user and "machine_limit" in user:
-            return user["machine_limit"]
+            return user["machine_limit"]  # type: ignore[return-value]
         return DEFAULT_MACHINE_LIMIT

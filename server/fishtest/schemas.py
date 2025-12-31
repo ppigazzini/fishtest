@@ -4,9 +4,12 @@
 #
 # See https://github.com/vdbergh/vtjson for a description of the schema format.
 
+from __future__ import annotations
+
 import copy
 import math
 import threading
+from collections.abc import Mapping
 from datetime import UTC, datetime
 
 import fishtest.stats.stat_util
@@ -83,7 +86,7 @@ task_id = set_name(uint, "task_id")
 timestamp = set_name(ufloat, "timestamp")
 
 
-def size_is_length(pgn_doc):
+def size_is_length(pgn_doc: Mapping[str, object]) -> bool:
     return pgn_doc["size"] == len(pgn_doc["pgn_zip"])
 
 
@@ -124,7 +127,7 @@ worker_schema = {
 }
 
 
-def first_test_before_last(net_doc):
+def first_test_before_last(net_doc: Mapping[str, object]) -> bool:
     first = net_doc["first_test"]["date"]
     last = net_doc["last_test"]["date"]
     if first <= last:
@@ -192,7 +195,7 @@ action_name = set_name(
 )
 
 
-def action_is(action_name):
+def action_is(action_name: str) -> object:
     return lax({"action": action_name})
 
 
@@ -428,7 +431,7 @@ worker_info_schema_runs.update(
 )
 
 
-def valid_results(stats):
+def valid_results(stats: Mapping[str, object]) -> bool:
     losses, draws, wins = stats["losses"], stats["draws"], stats["wins"]
     pentas = stats["pentanomial"]
     return (
@@ -451,7 +454,7 @@ results_schema = intersect(
 )
 
 
-def valid_spsa_results(stats):
+def valid_spsa_results(stats: Mapping[str, object]) -> bool:
     return stats["wins"] + stats["losses"] + stats["draws"] == stats["num_games"]
 
 
@@ -491,7 +494,7 @@ zero_results = {
 }
 
 
-def compute_results(run):
+def compute_results(run: Mapping[str, object]) -> dict[str, object]:
     results = copy.deepcopy(zero_results)
     for task in run["tasks"]:
         stats = task["stats"]
@@ -504,7 +507,7 @@ def compute_results(run):
     return results
 
 
-def compute_cores(run):
+def compute_cores(run: Mapping[str, object]) -> int:
     cores = 0
     for task in run["tasks"]:
         if task["active"]:
@@ -512,7 +515,7 @@ def compute_cores(run):
     return cores
 
 
-def compute_workers(run):
+def compute_workers(run: Mapping[str, object]) -> int:
     workers = 0
     for task in run["tasks"]:
         if task["active"]:
@@ -520,7 +523,7 @@ def compute_workers(run):
     return workers
 
 
-def compute_committed_games(run):
+def compute_committed_games(run: Mapping[str, object]) -> int:
     committed_games = 0
     for task in run["tasks"]:
         if not task["active"]:
@@ -532,14 +535,14 @@ def compute_committed_games(run):
     return committed_games
 
 
-def compute_total_games(run):
+def compute_total_games(run: Mapping[str, object]) -> int:
     total_games = 0
     for task in run["tasks"]:
         total_games += task["num_games"]
     return total_games
 
 
-def compute_flags(run):
+def compute_flags(run: Mapping[str, object]) -> dict[str, bool]:
     no_flags = {"is_green": False, "is_yellow": False}
     green_flag = {"is_green": True, "is_yellow": False}
     yellow_flag = {"is_green": False, "is_yellow": True}
@@ -569,7 +572,7 @@ def compute_flags(run):
         return no_flags
 
 
-def final_results_must_match(run):
+def final_results_must_match(run: Mapping[str, object]) -> bool:
     results = compute_results(run)
     if results != run["results"]:
         raise Exception(
@@ -579,7 +582,7 @@ def final_results_must_match(run):
     return True
 
 
-def cores_must_match(run):
+def cores_must_match(run: Mapping[str, object]) -> bool:
     cores = compute_cores(run)
     if cores != run["cores"]:
         raise Exception(f"Cores from tasks: {cores}. Cores from run: {run['cores']}")
@@ -587,7 +590,7 @@ def cores_must_match(run):
     return True
 
 
-def workers_must_match(run):
+def workers_must_match(run: Mapping[str, object]) -> bool:
     workers = compute_workers(run)
     if workers != run["workers"]:
         raise Exception(
@@ -598,7 +601,7 @@ def workers_must_match(run):
     return True
 
 
-def committed_games_must_match(run):
+def committed_games_must_match(run: Mapping[str, object]) -> bool:
     committed_games = compute_committed_games(run)
     if committed_games != run["committed_games"]:
         raise Exception(
@@ -609,7 +612,7 @@ def committed_games_must_match(run):
     return True
 
 
-def total_games_must_match(run):
+def total_games_must_match(run: Mapping[str, object]) -> bool:
     total_games = compute_total_games(run)
     if total_games != run["total_games"]:
         raise Exception(
@@ -620,7 +623,7 @@ def total_games_must_match(run):
     return True
 
 
-def flags_must_match(run):
+def flags_must_match(run: Mapping[str, object]) -> bool:
     flags = compute_flags(run)
     run_flags = {"is_green": run["is_green"], "is_yellow": run["is_yellow"]}
     if flags != run_flags:
@@ -630,7 +633,7 @@ def flags_must_match(run):
     return True
 
 
-def is_undecided(run):
+def is_undecided(run: Mapping[str, object]) -> bool:
     completed_games = (
         run["results"]["wins"] + run["results"]["losses"] + run["results"]["draws"]
     )
@@ -884,7 +887,7 @@ worker_runs_schema = {
 }
 
 
-def total_is_white_plus_black(book):
+def total_is_white_plus_black(book: Mapping[str, object]) -> bool:
     return book["total"] == book["white"] + book["black"]
 
 

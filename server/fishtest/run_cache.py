@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import threading
 import time
 from enum import IntEnum
 
 from bson.errors import InvalidId
 from bson.objectid import ObjectId
+from fishtest._types import RunDoc
 from fishtest.schemas import active_runs_schema, cache_schema
 from vtjson import validate
 
@@ -16,11 +19,11 @@ class Prio(IntEnum):
 
 
 class RunLock:
-    def __init__(self):
+    def __init__(self) -> None:
         self.run_lock = threading.Lock()
-        self.active_runs = {}
+        self.active_runs: dict[str, object] = {}
 
-    def active_run_lock(self, run_id):
+    def active_run_lock(self, run_id: object) -> threading.RLock:
         run_id = str(run_id)
         with self.run_lock:
             if "purge_count" not in self.active_runs:
@@ -42,7 +45,7 @@ class RunLock:
                 self.active_runs[run_id] = {"time": time.time(), "lock": active_lock}
             return active_lock
 
-    def validate(self):
+    def validate(self) -> None:
         with self.run_lock:
             validate(
                 active_runs_schema,
@@ -52,17 +55,23 @@ class RunLock:
 
 
 class RunCache:
-    def __init__(self, runs):
+    def __init__(self, runs: object) -> None:
         # For documentation of the cache format see "cache_schema" in schemas.py.
-        self.runs = runs
+        self.runs: object = runs
         self.run_lock = RunLock()
         self.run_cache_lock = threading.Lock()
-        self.run_cache = {}
+        self.run_cache: dict[str, dict[str, object]] = {}
 
-    def active_run_lock(self, run_id):
+    def active_run_lock(self, run_id: object) -> threading.RLock:
         return self.run_lock.active_run_lock(run_id)
 
-    def buffer(self, run, *, priority=Prio.NORMAL, create=False):
+    def buffer(
+        self,
+        run: RunDoc,
+        *,
+        priority: Prio = Prio.NORMAL,
+        create: bool = False,
+    ) -> None:
         """
         Guidelines for priority
         =======================
@@ -110,7 +119,7 @@ class RunCache:
                 if not create and r.matched_count == 0:
                     print(f"Buffer: update of {run_id} failed", flush=True)
 
-    def get_run(self, run_id):
+    def get_run(self, run_id: object) -> RunDoc | None:
         run_id = str(run_id)
         try:
             run_id_obj = ObjectId(run_id)
@@ -133,7 +142,7 @@ class RunCache:
                 return run
         return None
 
-    def flush_buffers(self):
+    def flush_buffers(self) -> None:
         oldest_entry = None
         old = float("inf")
         with self.run_cache_lock:
@@ -155,7 +164,7 @@ class RunCache:
             with self.active_run_lock(str(oldest_run_id)):
                 self.runs.replace_one({"_id": oldest_run_id}, oldest_run)
 
-    def flush_all(self):
+    def flush_all(self) -> None:
         flush_list = []
         with self.run_cache_lock:
             for run_id, entry in self.run_cache.items():
@@ -168,7 +177,7 @@ class RunCache:
             with self.active_run_lock(run_id):
                 self.runs.replace_one({"_id": ObjectId(run_id)}, entry["run"])
 
-    def clean_cache(self):
+    def clean_cache(self) -> None:
         now = time.time()
         with self.run_cache_lock:
             # We make this a list to be able to change run_cache during iteration
@@ -183,7 +192,7 @@ class RunCache:
                 ):
                     del self.run_cache[run_id]
 
-    def validate(self):
+    def validate(self) -> None:
         self.run_lock.validate()
         with self.run_cache_lock:
             validate(

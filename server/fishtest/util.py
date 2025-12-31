@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import copy
 import hashlib
 import math
 import re
+from collections.abc import Iterable, Iterator, Mapping
 from datetime import UTC, datetime
 from functools import cache
 
@@ -14,11 +17,11 @@ from zxcvbn import zxcvbn
 
 
 class GeneratorAsFileReader:
-    def __init__(self, generator):
-        self.generator = generator
+    def __init__(self, generator: Iterator[bytes]) -> None:
+        self.generator: Iterator[bytes] = generator
         self.buffer = b""
 
-    def read(self, size=-1):
+    def read(self, size: int = -1) -> bytes:
         while size < 0 or len(self.buffer) < size:
             try:
                 self.buffer += next(self.generator)
@@ -27,15 +30,15 @@ class GeneratorAsFileReader:
         result, self.buffer = self.buffer[:size], self.buffer[size:]
         return result
 
-    def close(self):
+    def close(self) -> None:
         pass  # No cleanup needed, but method is required
 
 
-def hex_print(run_id):
+def hex_print(run_id: object) -> str:
     return hashlib.md5(str(run_id).encode("utf-8")).digest().hex()
 
 
-def worker_name(worker_info, short=False):
+def worker_name(worker_info: Mapping[str, object], short: bool = False) -> str:
     # A user friendly name for the worker.
     username = worker_info["username"]
     cores = str(worker_info["concurrency"])
@@ -53,8 +56,14 @@ def worker_name(worker_info, short=False):
     return name
 
 
-def get_chi2(tasks, exclude_workers=set()):
+def get_chi2(
+    tasks: Iterable[Mapping[str, object]],
+    exclude_workers: set[str] | None = None,
+) -> dict[str, object]:
     """Perform chi^2 test on the stats from each worker."""
+
+    if exclude_workers is None:
+        exclude_workers = set()
 
     default_results = {
         "chi2": float("nan"),
@@ -172,7 +181,7 @@ def get_chi2(tasks, exclude_workers=set()):
     }
 
 
-def crash_or_time(task):
+def crash_or_time(task: Mapping[str, object]) -> bool:
     stats = task.get("stats", {})
     total = stats.get("wins", 0) + stats.get("losses", 0) + stats.get("draws", 0)
     crashes = stats.get("crashes", 0)
@@ -180,7 +189,13 @@ def crash_or_time(task):
     return crashes > 3 or (total > 20 and time_losses / total > 0.1)
 
 
-def get_bad_workers(tasks, cached_chi2=None, p=0.001, res=7.0, iters=1):
+def get_bad_workers(
+    tasks: Iterable[Mapping[str, object]],
+    cached_chi2: Mapping[str, object] | None = None,
+    p: float = 0.001,
+    res: float = 7.0,
+    iters: int = 1,
+) -> set[str]:
     # If we have an up-to-date result of get_chi2() we can pass
     # it as cached_chi2 to avoid needless recomputation.
     bad_workers = set()
@@ -206,7 +221,7 @@ def get_bad_workers(tasks, cached_chi2=None, p=0.001, res=7.0, iters=1):
     return bad_workers
 
 
-def residual_to_color(residual, chi2):
+def residual_to_color(residual: float, chi2: Mapping[str, object]) -> str:
     if abs(residual) < chi2["z_95"]:
         return "green"
     elif abs(residual) < chi2["z_99"]:
@@ -215,7 +230,10 @@ def residual_to_color(residual, chi2):
         return "red"
 
 
-def display_residual(task, chi2):
+def display_residual(
+    task: Mapping[str, object],
+    chi2: Mapping[str, object],
+) -> dict[str, object]:
     if "bad" in task and "residual" in task:
         residual = task["residual"]
         residual_color = task["residual_color"]
@@ -246,14 +264,14 @@ def display_residual(task, chi2):
     }
 
 
-def format_bounds(elo_model, elo0, elo1):
+def format_bounds(elo_model: str, elo0: float, elo1: float) -> str:
     seps = {"BayesElo": r"[]", "logistic": r"{}", "normalized": r"<>"}
     return "{}{:.2f},{:.2f}{}".format(
         seps[elo_model][0], elo0, elo1, seps[elo_model][1]
     )
 
 
-def format_results(run):
+def format_results(run: Mapping[str, object]) -> dict[str, object]:
     run_results = run["results"]
 
     result = {"style": "", "info": []}
@@ -327,7 +345,7 @@ def format_results(run):
 
 
 @cache  # A single hash lookup should be much cheaper than parsing a string
-def estimate_game_duration(tc):
+def estimate_game_duration(tc: str) -> float:
     # Total time for a game is assumed to be the double of tc for each player
     # reduced for 92% because on average a game is stopped earlier (LTC fishtest result).
     scale = 2 * 0.92
@@ -357,23 +375,23 @@ def estimate_game_duration(tc):
     return (time_tc + (increment * game_moves)) * scale
 
 
-def get_tc_ratio(tc, threads=1, base="10+0.1"):
+def get_tc_ratio(tc: str, threads: int = 1, base: str = "10+0.1") -> float:
     """Get TC ratio relative to the `base`, which defaults to standard STC.
     Example: standard LTC is 6x, SMP-STC is 4x."""
     return threads * estimate_game_duration(tc) / estimate_game_duration(base)
 
 
-def is_sprt_ltc_data(args):
+def is_sprt_ltc_data(args: Mapping[str, object]) -> bool:
     return (
         "sprt" in args and get_tc_ratio(args["tc"], args["threads"]) > 4
     )  # SMP-STC ratio is 4
 
 
-def is_active_sprt_ltc(run):
+def is_active_sprt_ltc(run: Mapping[str, object]) -> bool:
     return not run["finished"] and is_sprt_ltc_data(run["args"])
 
 
-def format_date(date):
+def format_date(date: datetime | str | None) -> str:
     if not date or date == "Unknown":
         return "Unknown"
 
@@ -415,7 +433,7 @@ def format_date(date):
     return formatted_date
 
 
-def remaining_hours(run):
+def remaining_hours(run: Mapping[str, object]) -> float:
     if "sprt" in run["args"]:
         # Current average number of games. The number should be regularly updated.
         average_total_games = 95000
@@ -459,11 +477,11 @@ def remaining_hours(run):
     return game_secs * remaining_games * int(run["args"].get("threads", 1)) / (60 * 60)
 
 
-def plural(quantity, word):
+def plural(quantity: int, word: str) -> str:
     return word if quantity == 1 else word + "s"
 
 
-def format_time_ago(date):
+def format_time_ago(date: datetime) -> str:
     if date == datetime.min.replace(tzinfo=UTC):
         return "Never"
     elapsed_time = datetime.now(UTC) - date
@@ -480,7 +498,7 @@ def format_time_ago(date):
     return "seconds ago"
 
 
-def format_group(groups):
+def format_group(groups: list[str] | None) -> str:
     return (
         ", ".join([group.replace("group:", "") for group in groups])
         if groups and len(groups) > 0
@@ -488,7 +506,7 @@ def format_group(groups):
     )
 
 
-def password_strength(password, *args):
+def password_strength(password: str, *args: str) -> tuple[bool, str]:
     if len(password) < 1:
         return False, "Non-empty password required"
 
@@ -505,7 +523,7 @@ def password_strength(password, *args):
         return False, suggestions + " " + warning
 
 
-def get_cookie(request, name):
+def get_cookie(request: object, name: str) -> str | None:
     """Workaround for a bug in pyramid.request.cookies.
     Chrome may send different cookies with the same name.
     The one that applies is the first one
@@ -525,7 +543,7 @@ def get_cookie(request, name):
             return v.strip()
 
 
-def email_valid(email):
+def email_valid(email: str) -> tuple[bool, str]:
     try:
         resolver = caching_resolver(timeout=10)
         valid = validate_email(email, dns_resolver=resolver)
@@ -534,12 +552,12 @@ def email_valid(email):
         return False, str(e)
 
 
-def get_hash(engine_options):
+def get_hash(engine_options: str) -> int:
     match = re.search("Hash=([0-9]+)", engine_options)
     return int(match.group(1)) if match else 0
 
 
-def strip_run(run):
+def strip_run(run: dict[str, object]) -> dict[str, object]:
     """Expose only non-sensitive workers data and skip deepcopying some heavy data."""
 
     stripped = {}
@@ -566,11 +584,11 @@ def strip_run(run):
     return stripped
 
 
-def count_games(stats):
+def count_games(stats: Mapping[str, int]) -> int:
     return stats["wins"] + stats["losses"] + stats["draws"]
 
 
-def tests_repo(run):
+def tests_repo(run: Mapping[str, object]) -> str:
     tests_repo = run["args"]["tests_repo"]
     if tests_repo != "":
         return tests_repo
@@ -580,7 +598,7 @@ def tests_repo(run):
         return "https://github.com/official-stockfish/Stockfish"
 
 
-def diff_url(run, master_check=True):
+def diff_url(run: Mapping[str, object], master_check: bool = True) -> str:
     tests_repo_ = tests_repo(run)
     user2, repo = gh.parse_repo(tests_repo_)
     sha2 = run["args"]["resolved_new"]
@@ -607,7 +625,7 @@ def diff_url(run, master_check=True):
     return gh.compare_branches_url(user1=user1, branch1=sha1, user2=user2, branch2=sha2)
 
 
-def ok_hash(tc_ratio, hash):
+def ok_hash(tc_ratio: float, hash: int) -> bool:
     # for historical reasons hash doesn't scale linearly between tc ratios 1-6, so only check 5+.
     if tc_ratio < 5:
         return (
@@ -618,7 +636,7 @@ def ok_hash(tc_ratio, hash):
     return 0.6 <= hash / target_hash <= 1.5
 
 
-def reasonable_run_hashes(run):
+def reasonable_run_hashes(run: Mapping[str, object]) -> bool:
     # if this func returns false, then emit warning to user to verify hashes
     base_hash = get_hash(run["args"]["base_options"])
     new_hash = get_hash(run["args"]["new_options"])

@@ -1,7 +1,8 @@
-from __future__ import division
+from __future__ import annotations, division
 
 import copy
 import math
+from collections.abc import Sequence
 
 import scipy.optimize
 
@@ -21,7 +22,7 @@ the game pairs LL,LD+DL,LW+DD+WL,DW+WD,WW.
 nelo_divided_by_nt = 800 / math.log(10)  # 347.43558552260146
 
 
-def secular(pdf):
+def secular(pdf: Sequence[tuple[float, float]]) -> float:
     """
     Solve the secular equation sum_i pi*ai/(1+x*ai)=0.
     """
@@ -34,7 +35,7 @@ def secular(pdf):
     lower_bound = -1 / w
     upper_bound = -1 / v
 
-    def f(x):
+    def f(x: float) -> float:
         return sum([pi * ai / (1 + x * ai) for ai, pi in pdf])
 
     x, res = scipy.optimize.brentq(
@@ -44,12 +45,15 @@ def secular(pdf):
     return x
 
 
-def uniform(pdf):
+def uniform(pdf: Sequence[tuple[float, float]]) -> list[tuple[float, float]]:
     n = len(pdf)
     return [(ai, 1 / n) for ai, pi in pdf]
 
 
-def MLE_expected(pdfhat, s):
+def MLE_expected(
+    pdfhat: Sequence[tuple[float, float]],
+    s: float,
+) -> list[tuple[float, float]]:
     """
     Compute the maximum likelihood estimate for
     a discrete distribution with expectation value s,
@@ -69,7 +73,11 @@ def MLE_expected(pdfhat, s):
     return pdf_MLE
 
 
-def MLE_t_value(pdfhat, ref, s):
+def MLE_t_value(
+    pdfhat: Sequence[tuple[float, float]],
+    ref: float,
+    s: float,
+) -> list[tuple[float, float]]:
     """
     Compute the maximum likelihood estimate for
     a discrete distribution with t-value ((mu-ref)/sigma),
@@ -102,7 +110,7 @@ def MLE_t_value(pdfhat, ref, s):
     return pdf_MLE
 
 
-def stats(pdf):
+def stats(pdf: Sequence[tuple[float, float]]) -> tuple[float, float]:
     epsilon = 1e-6
     for i in range(0, len(pdf)):
         assert -epsilon <= pdf[i][1] <= 1 + epsilon
@@ -113,7 +121,7 @@ def stats(pdf):
     return s, var
 
 
-def stats_ex(pdf):
+def stats_ex(pdf: Sequence[tuple[float, float]]) -> tuple[float, float, float, float]:
     """
     Computes expectation value, variance, skewness and excess
     kurtosis for a discrete distribution."""
@@ -125,7 +133,13 @@ def stats_ex(pdf):
     return s, var, skewness, exkurt
 
 
-def LLRjumps(pdf, s0, s1, ref=None, statistic="expectation"):
+def LLRjumps(
+    pdf: Sequence[tuple[float, float]],
+    s0: float,
+    s1: float,
+    ref: float | None = None,
+    statistic: str = "expectation",
+) -> list[tuple[float, float]]:
     if statistic == "expectation":
         pdf0, pdf1 = [MLE_expected(pdf, s) for s in (s0, s1)]
     elif statistic == "t_value":
@@ -138,7 +152,13 @@ def LLRjumps(pdf, s0, s1, ref=None, statistic="expectation"):
     ]
 
 
-def LLR(pdf, s0, s1, ref=None, statistic="expectation"):
+def LLR(
+    pdf: Sequence[tuple[float, float]],
+    s0: float,
+    s1: float,
+    ref: float | None = None,
+    statistic: str = "expectation",
+) -> float:
     """
     Compute the generalized log likelihood ratio (divided by N)
     for s=s1 versus s=s0 where pdf is an empirical
@@ -147,7 +167,7 @@ def LLR(pdf, s0, s1, ref=None, statistic="expectation"):
     return stats(LLRjumps(pdf, s0, s1, ref=ref, statistic=statistic))[0]
 
 
-def LLR_alt(pdf, s0, s1):
+def LLR_alt(pdf: Sequence[tuple[float, float]], s0: float, s1: float) -> float:
     """
     Compute the approximate generalized log likelihood ratio
     (divided by N) for s=s1 versus s=s0 where pdf is an empirical
@@ -160,7 +180,7 @@ def LLR_alt(pdf, s0, s1):
     return 1 / 2 * math.log(r0 / r1)
 
 
-def LLR_alt2(pdf, s0, s1):
+def LLR_alt2(pdf: Sequence[tuple[float, float]], s0: float, s1: float) -> float:
     """
     Compute the approximate generalized log likelihood ratio
     (divided by N) for s=s1 versus s=s0 where pdf is an empirical
@@ -173,7 +193,12 @@ def LLR_alt2(pdf, s0, s1):
     return (s1 - s0) * (2 * s - s0 - s1) / var / 2.0
 
 
-def LLR_drift_variance(pdf, s0, s1, s=None):
+def LLR_drift_variance(
+    pdf: Sequence[tuple[float, float]],
+    s0: float,
+    s1: float,
+    s: float | None = None,
+) -> tuple[float, float]:
     """
     Compute the drift and variance of the LLR for a test s=s0 against
     s=s0 when the empirical distribution is pdf, but the true value of s
@@ -185,7 +210,12 @@ def LLR_drift_variance(pdf, s0, s1, s=None):
     return stats(jumps)
 
 
-def LLR_drift_variance_alt2(pdf, s0, s1, s=None):
+def LLR_drift_variance_alt2(
+    pdf: Sequence[tuple[float, float]],
+    s0: float,
+    s1: float,
+    s: float | None = None,
+) -> tuple[float, float]:
     """
     Compute the approximated drift and variance of the LLR for a test
     s=s0 against s=s0 approximated by a Brownian motion, when the
@@ -203,11 +233,11 @@ def LLR_drift_variance_alt2(pdf, s0, s1, s=None):
     return mu, var
 
 
-def L_(x):
+def L_(x: float) -> float:
     return 1 / (1 + 10 ** (-x / 400))
 
 
-def regularize(results):
+def regularize(results: Sequence[float]) -> list[float]:
     """
     If necessary mix in a small prior for regularization."""
     epsilon = 1e-3
@@ -218,14 +248,16 @@ def regularize(results):
     return results
 
 
-def results_to_pdf(results):
+def results_to_pdf(
+    results: Sequence[float],
+) -> tuple[float, list[tuple[float, float]]]:
     results = regularize(results)
     N = sum(results)
     count = len(results)
     return N, [(i / (count - 1), results[i] / N) for i in range(0, count)]
 
 
-def LLR_logistic(elo0, elo1, results):
+def LLR_logistic(elo0: float, elo1: float, results: Sequence[float]) -> float:
     """
     Compute the generalized log-likelihood ratio for "results"
     using the statistic "expectation". elo0,elo1 are in logistic elo."""
@@ -234,7 +266,7 @@ def LLR_logistic(elo0, elo1, results):
     return N * LLR(pdf, s0, s1, statistic="expectation")
 
 
-def LLR_normalized_alt(nelo0, nelo1, results):
+def LLR_normalized_alt(nelo0: float, nelo1: float, results: Sequence[float]) -> float:
     """
     Compute the generalized log-likelihood ratio for "results"
     using the approximation in
@@ -262,7 +294,7 @@ def LLR_normalized_alt(nelo0, nelo1, results):
     )
 
 
-def LLR_normalized(nelo0, nelo1, results):
+def LLR_normalized(nelo0: float, nelo1: float, results: Sequence[float]) -> float:
     """
     Compute the generalized log-likelihood ratio for "results"
     using the statistic "t_value". nelo0,nelo1 are in normalized elo."""
