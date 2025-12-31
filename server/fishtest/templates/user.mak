@@ -179,7 +179,7 @@
           class="form-control"
           id="github_token"
           autocomplete="off"
-         placeholder="GitHub personal access token"
+          placeholder="GitHub personal access token"
         />
       <label for="github_token" class="d-flex align-items-end">GitHub personal access token</label>
       </div>

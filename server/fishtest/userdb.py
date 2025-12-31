@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import secrets
 import sys
 import threading
@@ -11,7 +13,7 @@ from vtjson import ValidationError, validate
 DEFAULT_MACHINE_LIMIT = 16
 
 
-def validate_user(user):
+def validate_user(user: dict[str, object]) -> None:
     try:
         validate(user_schema, user, "user")
     except ValidationError as e:
@@ -21,7 +23,7 @@ def validate_user(user):
 
 
 class UserDb:
-    def __init__(self, db):
+    def __init__(self, db: object):
         self.db = db
         self.users = self.db["users"]
         self.user_cache = self.db["user_cache"]
@@ -31,7 +33,7 @@ class UserDb:
     user_lock = threading.Lock()
     cache = {}
 
-    def find_by_username(self, name):
+    def find_by_username(self, name: str) -> dict[str, object] | None:
         with self.user_lock:
             user = self.cache.get(name)
             if user and time.time() < user["time"] + 120:
@@ -41,16 +43,16 @@ class UserDb:
                 self.cache[name] = {"user": user, "time": time.time()}
             return user
 
-    def find_by_email(self, email):
+    def find_by_email(self, email: str) -> dict[str, object] | None:
         return self.users.find_one({"email": email})
 
-    def clear_cache(self):
+    def clear_cache(self) -> None:
         with self.user_lock:
             self.cache.clear()
 
-    def authenticate(self, username, password):
+    def authenticate(self, username: str, password: str) -> dict[str, object]:
         user = self.get_user(username)
-        if not user or user["password"] != password:
+        if not user or not secrets.compare_digest(user["password"], password):
             sys.stderr.write("Invalid login: '{}' '{}'\n".format(username, password))
             return {"error": "Invalid password for user: {}".format(username)}
 
@@ -65,7 +67,7 @@ class UserDb:
 
         return {"username": username, "authenticated": True}
 
-    def is_account_restricted(self, user):
+    def is_account_restricted(self, user: dict[str, object]) -> str | None:
         if "blocked" in user and user["blocked"]:
             return "blocked"
         if "pending" in user and user["pending"]:
@@ -100,23 +102,25 @@ class UserDb:
                 self.last_blocked_time = time.time()
             return self.last_blocked
 
-    def get_user(self, username):
+    def get_user(self, username: str) -> dict[str, object] | None:
         return self.find_by_username(username)
 
-    def get_user_groups(self, username):
+    def get_user_groups(self, username: str):
         user = self.get_user(username)
         if user is not None:
             groups = user["groups"]
             return groups
 
-    def add_user_group(self, username, group):
+    def add_user_group(self, username: str, group: str) -> None:
         user = self.get_user(username)
         user["groups"].append(group)
         validate_user(user)
         self.users.replace_one({"_id": user["_id"]}, user)
         self.clear_cache()
 
-    def create_user(self, username, password, email, tests_repo):
+    def create_user(
+        self, username: str, password: str, email: str, tests_repo: str
+    ) -> bool | None:
         try:
             if self.find_by_username(username) or self.find_by_email(email):
                 return False
@@ -142,20 +146,26 @@ class UserDb:
         except Exception:
             return None
 
-    def save_user(self, user):
+    def save_user(self, user: dict[str, object]) -> None:
         validate_user(user)
         self.users.replace_one({"_id": user["_id"]}, user)
         self.last_pending_time = 0
         self.last_blocked_time = 0
         self.clear_cache()
 
-    def generate_api_key(self):
+    def generate_api_key(self) -> str:
         return self._generate_api_key()
 
-    def _generate_api_key(self):
+    def _generate_api_key(self) -> str:
         return f"ft_{secrets.token_urlsafe(32)}"
 
-    def ensure_worker_api_key(self, username):
+    def ensure_worker_api_key(self, username: str) -> str | None:
+        """Ensure the given user has an API key.
+
+        Returns the existing API key if present.
+        If missing/empty, generates one and stores it using an atomic update to
+        avoid races between concurrent callers.
+        """
         user = self.get_user(username)
         if user is None:
             return None
@@ -163,9 +173,10 @@ class UserDb:
         if api_key:
             return api_key
 
-        # Generate a new API key and attempt to set it atomically, but only if
-        # the user still does not have an API key. This avoids a race where
-        # two workers concurrently create and save different API keys.
+        # Generate a new API key and attempt to store it atomically.
+        # The filter includes "still missing" predicates so that if another
+        # concurrent caller already set an api_key after our initial read,
+        # `find_one_and_update` returns None and we fall back to re-reading.
         new_api_key = self._generate_api_key()
         result = self.users.find_one_and_update(
             {
@@ -185,7 +196,7 @@ class UserDb:
         user = self.get_user(username)
         return user.get("api_key") if user else None
 
-    def remove_user(self, user, rejector):
+    def remove_user(self, user: dict[str, object], rejector: str) -> bool:
         result = self.users.delete_one({"_id": user["_id"]})
         if result.deleted_count > 0:
             # User successfully deleted
@@ -201,7 +212,7 @@ class UserDb:
             # User not found
             return False
 
-    def get_machine_limit(self, username):
+    def get_machine_limit(self, username: str) -> int:
         user = self.get_user(username)
         if user and "machine_limit" in user:
             return user["machine_limit"]

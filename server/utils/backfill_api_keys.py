@@ -10,8 +10,8 @@ Intended to be run while the web server is offline.
 Example:
   ./utils/backfill_api_keys.py --db fishtest_new
   ./utils/backfill_api_keys.py --db fishtest_new --dry-run
-    ./utils/backfill_api_keys.py --db fishtest_new --rotate-all --yes
-    ./utils/backfill_api_keys.py --db fishtest_new --drop-all --yes
+  ./utils/backfill_api_keys.py --db fishtest_new --rotate-all --yes
+  ./utils/backfill_api_keys.py --db fishtest_new --drop-all --yes
 """
 
 from __future__ import annotations

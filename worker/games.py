@@ -315,10 +315,14 @@ def send_api_post_request(api_url, payload, quiet=False):
 
 
 def add_auth(payload, auth):
-    if auth.get("api_key"):
-        payload["api_key"] = auth["api_key"]
+    api_key = auth.get("api_key") if auth else None
+    if api_key:
+        # Prefer API key auth; don't leak password alongside it.
+        payload.pop("password", None)
+        payload["api_key"] = api_key
     else:
-        payload["password"] = auth.get("password", "")
+        payload.pop("api_key", None)
+        payload["password"] = auth.get("password", "") if auth else ""
     return payload
 
 

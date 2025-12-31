@@ -419,6 +419,13 @@ def get_credentials(config, options, args):
     # If the server returned an API key, prefer it and stop using/storing the password.
     if new_api_key:
         return username, "", new_api_key
+
+    # Rollout invariant: password should only be used once to obtain an API key.
+    # If the server accepts the password but doesn't return an API key, refuse
+    # to continue in "password works forever" mode.
+    if ret:
+        return "", "", ""
+
     return username, password, api_key
 
 
@@ -1281,7 +1288,54 @@ def utcoffset():
     return f"{'+' if utcoffset >= 0 else '-'}{hh:02d}:{mm:02d}"
 
 
-def verify_worker_version(remote, username, auth, worker_lock):
+def auth_set_api_key(auth, api_key):
+    """Persist an API key and drop any password.
+
+    The worker only needs password for bootstrap; once an API key exists we
+    use it exclusively.
+    """
+    auth["api_key"] = api_key or ""
+    auth.pop("password", None)
+
+
+def persist_api_key_to_config(worker_dir, username, api_key):
+    if not api_key:
+        return False
+
+    config_file = worker_dir / CONFIGFILE
+    config = ConfigParser(inline_comment_prefixes=";", interpolation=None)
+    try:
+        config.read(config_file)
+    except Exception as e:
+        print(f"Exception reading configfile {config_file} for api_key update:\n{e}")
+        return False
+
+    if not config.has_section("login"):
+        config.add_section("login")
+
+    existing_api_key = config.get("login", "api_key", raw=True, fallback="")
+    has_password = config.has_option("login", "password")
+
+    # If nothing would change, avoid rewriting the config file.
+    if existing_api_key == api_key and not has_password:
+        return False
+
+    if username:
+        config.set("login", "username", username)
+    config.set("login", "api_key", api_key)
+    config.remove_option("login", "password")
+
+    try:
+        with open(config_file, "w") as f:
+            config.write(f)
+    except Exception as e:
+        print(f"Exception writing configfile {config_file} for api_key update:\n{e}")
+        return False
+
+    return True
+
+
+def verify_worker_version(remote, username, auth, worker_lock, worker_dir=None):
     # Returns:
     # True: we are the right version and have the correct credentials
     # False: incorrect credentials (the user may have been blocked in the meantime)
@@ -1298,7 +1352,11 @@ def verify_worker_version(remote, username, auth, worker_lock):
     if "error" in req:
         return False
     if "api_key" in req:
-        auth["api_key"] = req["api_key"]
+        prev_api_key = auth.get("api_key", "")
+        new_api_key = req["api_key"]
+        auth_set_api_key(auth, new_api_key)
+        if worker_dir is not None and new_api_key and new_api_key != prev_api_key:
+            persist_api_key_to_config(worker_dir, username, new_api_key)
     if req["version"] > WORKER_VERSION:
         print(f"Updating worker version to {req['version']}.")
         backup_log()
@@ -1335,7 +1393,9 @@ def fetch_and_handle_task(
     )
 
     # Check the worker version and upgrade if necessary
-    ret = verify_worker_version(remote, worker_info["username"], auth, worker_lock)
+    ret = verify_worker_version(
+        remote, worker_info["username"], auth, worker_lock, worker_dir=worker_dir
+    )
     if ret is False:
         current_state["alive"] = False
     if not ret:
@@ -1564,11 +1624,18 @@ def worker():
         return 0
 
     remote = f"{options.protocol}://{options.host}:{options.port}"
-    auth = {"password": options.password, "api_key": options.api_key}
+    auth = {"api_key": options.api_key or ""}
+    if options.password:
+        auth["password"] = options.password
 
     # Check the worker version and upgrade if necessary
     try:
-        if verify_worker_version(remote, options.username, auth, worker_lock) is False:
+        if (
+            verify_worker_version(
+                remote, options.username, auth, worker_lock, worker_dir=worker_dir
+            )
+            is False
+        ):
             return 1
     except Exception as e:
         print(f"Exception verifying worker version:\n{e}", file=sys.stderr)
