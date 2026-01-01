@@ -34,7 +34,7 @@ class RunLock:
         with self.active_runs.lock:
             validate(
                 active_runs_schema,
-                self.active_runs,
+                dict(self.active_runs.items()),
                 name="active_runs",
             )
 

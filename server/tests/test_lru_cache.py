@@ -20,6 +20,16 @@ class CreateLRUCacheTest(unittest.TestCase):
     def test_lru_cache_size(self):
         self.assertEqual(self.lru_cache.size, self.size)
 
+    def test_lru_cache_init_validation(self):
+        with self.assertRaises(ValueError):
+            LRUCache(size=-1)
+        with self.assertRaises(ValueError):
+            LRUCache(expiration="x")
+        with self.assertRaises(ValueError):
+            LRUCache(expiration=float("nan"))
+        with self.assertRaises(ValueError):
+            LRUCache(expiration=float("inf"))
+
     def test_lru_cache_clear(self):
         self.lru_cache["a"] = 1
         self.lru_cache.clear()
@@ -133,19 +143,19 @@ class CreateLRUCacheTest(unittest.TestCase):
         self.assertEqual(len(self.lru_cache), 0)
 
     def test_lru_cache_expiration_timing(self):
-        self.lru_cache.expiration = 0.1
+        self.lru_cache.expiration = 0.05
         self.lru_cache["a"] = 1
-        time.sleep(0.2)
+        time.sleep(0.25)
         self.lru_cache["b"] = 2
         self.lru_cache["c"] = 3
         self.assertEqual(list(self.lru_cache.items()), [("b", 2), ("c", 3)])
-        time.sleep(0.2)
+        time.sleep(0.25)
         self.assertEqual(list(self.lru_cache.items()), [])
 
     def test_lru_cache_expiration_get(self):
-        self.lru_cache.expiration = 0.1
+        self.lru_cache.expiration = 0.05
         self.lru_cache["a"] = 1
         self.lru_cache["a"]
-        time.sleep(0.2)
+        time.sleep(0.25)
         with self.assertRaises(KeyError):
             self.lru_cache["a"]

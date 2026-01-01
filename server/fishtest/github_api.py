@@ -383,22 +383,30 @@ normalize_repo_cache = LRUCache(size=128, expiration=600)
 
 
 def normalize_repo(repo):
-    # avoid spamming by different threads
+    # Check cache under lock, but don't hold the lock across network I/O.
     with normalize_repo_cache.lock:
         try:
             return normalize_repo_cache[repo]
         except KeyError:
             pass
-        r = call(
-            repo,
-            _method="HEAD",
-            timeout=TIMEOUT,
-            allow_redirects=True,
-            _ignore_rate_limit=True,
-        )
-        r.raise_for_status()
-        normalize_repo_cache[repo] = r.url
-        return r.url
+
+    r = call(
+        repo,
+        _method="HEAD",
+        timeout=TIMEOUT,
+        allow_redirects=True,
+        _ignore_rate_limit=True,
+    )
+    r.raise_for_status()
+    resolved = r.url
+
+    with normalize_repo_cache.lock:
+        # Another thread may have populated the cache while we were fetching.
+        try:
+            return normalize_repo_cache[repo]
+        except KeyError:
+            normalize_repo_cache[repo] = resolved
+            return resolved
 
 
 def compare_branches_url(
