@@ -51,8 +51,7 @@ class RunCache:
         return self.run_lock.active_run_lock(run_id)
 
     def buffer(self, run, *, priority=Prio.NORMAL, create=False):
-        """
-        Guidelines for priority
+        """Guidelines for priority
         =======================
         Prio.MEDIUM: finished task
         Prio.HIGH: new task

@@ -87,7 +87,7 @@ class RunDb:
         self.books = self.kvstore.get("books", {})
         self.worker_runs = self.kvstore.get("worker_runs", {})
 
-        self.task_duration = 1800  # 30 minutes
+        self.task_duration = 180  # 3 minutes
         self.ltc_lower_bound = 40  # Beware: this is used as a filter in an index!
         self.pt_info = {
             "pt_version": "SF_17",
@@ -131,8 +131,7 @@ class RunDb:
     def get_run(self, run_id):
         if self.__is_primary_instance:
             return self.run_cache.get_run(run_id)
-        else:
-            return self.runs.find_one({"_id": ObjectId(run_id)})
+        return self.runs.find_one({"_id": ObjectId(run_id)})
 
     def schedule_tasks(self):
         if self.scheduler is None:
@@ -145,15 +144,23 @@ class RunDb:
         self.scheduler.create_task(180.0, self.validate_random_run, initial_delay=60.0)
         self.scheduler.create_task(180.0, self.clean_wtt_map, initial_delay=60.0)
         self.scheduler.create_task(
-            900.0, self.validate_data_structures, initial_delay=60.0
+            900.0,
+            self.validate_data_structures,
+            initial_delay=60.0,
         )
         self.scheduler.create_task(60.0, self.update_nps_gpm)
         self.scheduler.create_task(300.0, self.clean_worker_runs, initial_delay=60.0)
         self.scheduler.create_task(
-            900.0, self.update_books, initial_delay=60.0, background=True
+            900.0,
+            self.update_books,
+            initial_delay=60.0,
+            background=True,
         )
         self.scheduler.create_task(
-            900.0, gh.update_official_master_sha, initial_delay=60.0, background=True
+            900.0,
+            gh.update_official_master_sha,
+            initial_delay=60.0,
+            background=True,
         )
 
     def clean_worker_runs(self):
@@ -176,11 +183,13 @@ class RunDb:
         try:
             books = json.loads(
                 gh.download_from_github(
-                    "books.json", repo="books", ignore_rate_limit=True
-                ).decode()
+                    "books.json",
+                    repo="books",
+                    ignore_rate_limit=True,
+                ).decode(),
             )
         except Exception as e:
-            print(f"Unable to download book metadata from GitHub: {str(e)}", flush=True)
+            print(f"Unable to download book metadata from GitHub: {e!s}", flush=True)
         if books is not None:
             self.kvstore["books"] = books
         else:
@@ -259,7 +268,7 @@ class RunDb:
                 name="books",
             )
         except ValidationError as e:
-            message = f"Validation of internal data structures failed: {str(e)}"
+            message = f"Validation of internal data structures failed: {e!s}"
             print(message, flush=True)
             self.actiondb.log_message(
                 username="fishtest.system",
@@ -303,7 +312,9 @@ class RunDb:
                 with self.active_run_lock(wtt_run_id):
                     if wtt_task["active"]:
                         self.failed_task(
-                            wtt_run_id, wtt_task_id, message="Stale active task"
+                            wtt_run_id,
+                            wtt_task_id,
+                            message="Stale active task",
                         )
             self.wtt_map[short_worker_name] = run_id, task_id
 
@@ -319,7 +330,7 @@ class RunDb:
                 print(f"Validating random run {run_id}...")
                 validate(runs_schema, run, "run")
         except ValidationError as e:
-            message = f"The run object {run_id} does not validate: {str(e)}"
+            message = f"The run object {run_id} does not validate: {e!s}"
             if "version" in run and run["version"] >= RUN_VERSION:
                 print(message, flush=True)
                 self.actiondb.log_message(
@@ -381,7 +392,7 @@ class RunDb:
                         if self.connections_counter[remote_addr] == 0:
                             del self.connections_counter[remote_addr]
                     except Exception as e:
-                        message = f"Error while deleting connection: {str(e)}"
+                        message = f"Error while deleting connection: {e!s}"
                         print(message, flush=True)
                         self.actiondb.log_message(
                             username="fishtest.system",
@@ -683,7 +694,7 @@ class RunDb:
         try:
             validate(runs_schema, new_run, "run")
         except ValidationError as e:
-            message = f"The new run object does not validate: {str(e)}"
+            message = f"The new run object does not validate: {e!s}"
             print(message, flush=True)
             raise Exception(message)
 
@@ -702,7 +713,7 @@ class RunDb:
         try:
             validate(pgns_schema, record)
         except ValidationError as e:
-            message = f"Internal Error. Pgn record has the wrong format: {str(e)}"
+            message = f"Internal Error. Pgn record has the wrong format: {e!s}"
             print(message, flush=True)
             self.actiondb.log_message(
                 username="fishtest.system",
@@ -725,7 +736,7 @@ class RunDb:
                 {"$match": pgns_query},
                 {"$project": {"size": 1, "_id": 0}},
                 {"$group": {"_id": None, "totalSize": {"$sum": "$size"}}},
-            ]
+            ],
         )
         total_size = total_size_agg.next()["totalSize"] if total_size_agg.alive else 0
 
@@ -737,10 +748,10 @@ class RunDb:
                     "$set": {
                         "task_id": {
                             "$toInt": {
-                                "$arrayElemAt": [{"$split": ["$run_id", "-"]}, 1]
-                            }
-                        }
-                    }
+                                "$arrayElemAt": [{"$split": ["$run_id", "-"]}, 1],
+                            },
+                        },
+                    },
                 },
                 {"$sort": {"task_id": 1}},
                 {"$project": {"pgn_zip": 1, "_id": 0}},
@@ -777,9 +788,9 @@ class RunDb:
     def get_nns(self, user="", network_name="", master_only=False, limit=0, skip=0):
         q = {}
         if user:
-            q["user"] = {"$regex": ".*{}.*".format(user), "$options": "i"}
+            q["user"] = {"$regex": f".*{user}.*", "$options": "i"}
         if network_name:
-            q["name"] = {"$regex": ".*{}.*".format(network_name), "$options": "i"}
+            q["name"] = {"$regex": f".*{network_name}.*", "$options": "i"}
         if master_only:
             q["is_master"] = True
 
@@ -787,7 +798,11 @@ class RunDb:
         nns_list = (
             dict(n, time=n["_id"].generation_time)
             for n in self.nndb.find(
-                q, {"nn": 0}, limit=limit, skip=skip, sort=[("_id", DESCENDING)]
+                q,
+                {"nn": 0},
+                limit=limit,
+                skip=skip,
+                sort=[("_id", DESCENDING)],
             )
         )
         return nns_list, count
@@ -851,7 +866,9 @@ class RunDb:
 
     def get_unfinished_runs_id(self):
         unfinished_runs = self.runs.find(
-            {"finished": False}, {"_id": 1}, sort=[("last_updated", DESCENDING)]
+            {"finished": False},
+            {"_id": 1},
+            sort=[("last_updated", DESCENDING)],
         )
         return unfinished_runs
 
@@ -893,7 +910,7 @@ class RunDb:
             key=lambda run: (
                 run["args"]["priority"],
                 run["args"]["itp"] if "itp" in run["args"] else 100,
-            )
+            ),
         )
         runs["active"].sort(
             reverse=True,
@@ -1059,7 +1076,9 @@ After fixing the issues you can unblock the worker at
         if w["blocked"]:
             # updates last_updated
             self.workerdb.update_worker(
-                my_name, blocked=w["blocked"], message=w["message"]
+                my_name,
+                blocked=w["blocked"],
+                message=w["message"],
             )
             error = self.blocked_worker_message(my_name, w["message"], host_url)
             return {"task_waiting": False, "error": error}
@@ -1084,7 +1103,7 @@ After fixing the issues you can unblock the worker at
                         if last_update <= 120:
                             error = (
                                 f'Request_task: There is already a worker running with name "{task_name_long}" '
-                                f"which {last_update} seconds ago sent an update for task {str(wtt_run['_id'])}/{wtt_task_id} "
+                                f"which {last_update} seconds ago sent an update for task {wtt_run['_id']!s}/{wtt_task_id} "
                                 f'(my name is "{my_name_long}")'
                             )
                             print(error, flush=True)
@@ -1097,7 +1116,7 @@ After fixing the issues you can unblock the worker at
             connections = self.connections_counter.get(worker_info["remote_addr"], 0)
             if connections >= connections_limit:
                 error = "Request_task: Machine limit reached for user {}".format(
-                    worker_info["username"]
+                    worker_info["username"],
                 )
                 print(error, flush=True)
                 return {"task_waiting": False, "error": error}
@@ -1257,7 +1276,7 @@ After fixing the issues you can unblock the worker at
             if "sprt" in run["args"]:
                 sprt_batch_size_games = 2 * run["args"]["sprt"]["batch_size"]
                 remaining = sprt_batch_size_games * math.ceil(
-                    remaining / sprt_batch_size_games
+                    remaining / sprt_batch_size_games,
                 )
 
             task_size = min(self.worker_cap(run, worker_info), remaining)
@@ -1336,12 +1355,12 @@ After fixing the issues you can unblock the worker at
             results = run["results"]
             if "pentanomial" in results:
                 elo, elo95, los = fishtest.stats.stat_util.get_elo(
-                    results["pentanomial"]
+                    results["pentanomial"],
                 )
             else:
                 WLD = [results["wins"], results["losses"], results["draws"]]
                 elo, elo95, los = fishtest.stats.stat_util.get_elo(
-                    [WLD[1], WLD[2], WLD[0]]
+                    [WLD[1], WLD[2], WLD[0]],
                 )
             if run["is_green"]:
                 result = "accepted"
@@ -1381,7 +1400,11 @@ After fixing the issues you can unblock the worker at
         lock = self.active_run_lock(run_id)
         with lock:
             return self.sync_update_task(
-                worker_info, run_id, task_id, stats, spsa_results
+                worker_info,
+                run_id,
+                task_id,
+                stats,
+                spsa_results,
             )
 
     def sync_update_task(self, worker_info, run_id, task_id, stats, spsa_results):
@@ -1403,7 +1426,7 @@ After fixing the issues you can unblock the worker at
         # are finished, or when the worker goes offline.
 
         if not task["active"]:
-            info = "Update_task: task {}/{} is not active".format(run_id, task_id)
+            info = f"Update_task: task {run_id}/{task_id} is not active"
             # Only log the case where the run is not yet finished,
             # otherwise it is expected behavior
             if not run["finished"]:
@@ -1417,23 +1440,18 @@ After fixing the issues you can unblock the worker at
             or (spsa_games > 0 and num_games <= 0)
             or (spsa_games > 0 and "stats" in task and num_games <= old_num_games)
         ) and error == "":
-            error = "Update_task: task {}/{} has incompatible stats. ".format(
-                run_id, task_id
-            ) + "Before {}. Now {}. SPSA_games {}.".format(
-                old_num_games, num_games, spsa_games
+            error = (
+                f"Update_task: task {run_id}/{task_id} has incompatible stats. "
+                f"Before {old_num_games}. Now {num_games}. SPSA_games {spsa_games}."
             )
         elif (
             num_games - old_num_games
         ) % 2 != 0 and error == "":  # the worker should only return game pairs
-            error = "Update_task: odd number of games received for task {}/{}. Before {}. Now {}.".format(
-                run_id, task_id, old_num_games, num_games
-            )
+            error = f"Update_task: odd number of games received for task {run_id}/{task_id}. Before {old_num_games}. Now {num_games}."
         elif "sprt" in run["args"] and error == "":
             batch_size = 2 * run["args"]["sprt"].get("batch_size", 1)
             if num_games % batch_size != 0:
-                error = "Update_task: the number of games received for task {}/{} is incompatible with the SPRT batch size".format(
-                    run_id, task_id
-                )
+                error = f"Update_task: the number of games received for task {run_id}/{task_id} is incompatible with the SPRT batch size"
 
         if error != "":
             print(error, flush=True)
@@ -1449,7 +1467,9 @@ After fixing the issues you can unblock the worker at
                 run["results"][key] = [
                     x + y - z
                     for x, y, z in zip(
-                        run["results"][key], value, task["stats"].get(key, [0] * 5)
+                        run["results"][key],
+                        value,
+                        task["stats"].get(key, [0] * 5),
                     )
                 ]
             else:
@@ -1502,7 +1522,7 @@ After fixing the issues you can unblock the worker at
         task = run["tasks"][task_id]
         # Check if the worker is still working on this task.
         if not task["active"]:
-            info = "Failed_task: task {}/{} is not active".format(run_id, task_id)
+            info = f"Failed_task: task {run_id}/{task_id} is not active"
             print(info, flush=True)
             return {"task_alive": False, "info": info}
         # Mark the task as inactive.
@@ -1540,7 +1560,7 @@ After fixing the issues you can unblock the worker at
         try:
             validate(runs_schema, run, "run")
         except ValidationError as e:
-            message = f"The run object {run_id} does not validate: {str(e)}"
+            message = f"The run object {run_id} does not validate: {e!s}"
             if "version" in run and run["version"] >= RUN_VERSION:
                 print(message, flush=True)
                 self.actiondb.log_message(
@@ -1566,31 +1586,28 @@ After fixing the issues you can unblock the worker at
                 ),
             )
             if message == "":
-                print("Run {} was auto-purged".format(str(run_id)), flush=True)
+                print(f"Run {run_id!s} was auto-purged", flush=True)
             else:
                 print(
-                    "Run {} was not auto-purged. Message: {}.".format(
-                        str(run_id), message
-                    ),
+                    f"Run {run_id!s} was not auto-purged. Message: {message}.",
                     flush=True,
                 )
 
     def approve_run(self, run_id, approver):
         run = self.get_run(run_id)
         if run is None:
-            return None, f"Run {str(run_id)} not found!"
+            return None, f"Run {run_id!s} not found!"
         # Can't self approve
         if run["args"]["username"] == approver:
-            return None, f"Run {str(run_id)}: Self approval is disabled!"
+            return None, f"Run {run_id!s}: Self approval is disabled!"
         # Only one approval per run
         with self.active_run_lock(run_id):
             if not run["approved"]:
                 run["approved"] = True
                 run["approver"] = approver
                 self.buffer(run, priority=Prio.SAVE_NOW)
-                return run, f"Run {str(run_id)} approved"
-            else:
-                return None, f"Run {str(run_id)} already approved!"
+                return run, f"Run {run_id!s} approved"
+            return None, f"Run {run_id!s} already approved!"
 
     def purge_run(self, run, p=0.001, res=7.0, iters=1):
         # Only purge finished runs
@@ -1631,11 +1648,15 @@ After fixing the issues you can unblock the worker at
             if task["worker_info"]["unique_key"] in bad_workers:
                 message = ""
                 residual = chi2["residual"].get(
-                    task["worker_info"]["unique_key"], float("inf")
+                    task["worker_info"]["unique_key"],
+                    float("inf"),
                 )
                 residual_color = residual_to_color(residual, chi2)
                 self.set_bad_task(
-                    task_id, run, residual=residual, residual_color=residual_color
+                    task_id,
+                    run,
+                    residual=residual,
+                    residual_color=residual_color,
                 )
         if message == "":
             results = compute_results(run)

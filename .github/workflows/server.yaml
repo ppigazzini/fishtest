@@ -38,6 +38,6 @@ jobs:
         run: uv sync
 
       - name: Run server tests
-        run: uv run python -m unittest discover -vb -s tests
+        run: uv run --with httpx python -m unittest discover -vb -s tests
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

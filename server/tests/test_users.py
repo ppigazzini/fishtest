@@ -2,37 +2,38 @@ import unittest
 from datetime import UTC, datetime
 
 import util
-from fishtest.views import login, signup
-from pyramid import testing
+from fastapi.testclient import TestClient
+from util import extract_csrf_token, get_test_app
 
 
 class Create10UsersTest(unittest.TestCase):
     def setUp(self):
         self.rundb = util.get_rundb()
-        self.config = testing.setUp()
-        self.config.add_route("login", "/login")
-        self.config.add_route("signup", "/signup")
+        self.client = TestClient(get_test_app(self.rundb))
 
     def tearDown(self):
         self.rundb.userdb.users.delete_many({"username": "JoeUser"})
         self.rundb.userdb.user_cache.delete_many({"username": "JoeUser"})
-        testing.tearDown()
 
     def test_create_user(self):
-        request = testing.DummyRequest(
-            userdb=self.rundb.userdb,
-            method="POST",
-            remote_addr="127.0.0.1",
-            params={
+        html = self.client.get("/signup").text
+        csrf = extract_csrf_token(html)
+        response = self.client.post(
+            "/signup",
+            data={
+                "csrf_token": csrf,
                 "username": "JoeUser",
-                "password": "secret",
-                "password2": "secret",
+                "password": "CorrectHorseBatteryStaple-1",
+                "password2": "CorrectHorseBatteryStaple-1",
                 "email": "joe@user.net",
                 "tests_repo": "https://github.com/official-stockfish/Stockfish",
+                # captcha is only required when FISHTEST_CAPTCHA_SECRET is set
+                "g-recaptcha-response": "",
             },
+            follow_redirects=False,
         )
-        response = signup(request)
-        self.assertTrue("The resource was found at", response)
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers.get("location"), "/login")
 
 
 class Create50LoginTest(unittest.TestCase):
@@ -44,39 +45,48 @@ class Create50LoginTest(unittest.TestCase):
             "email@email.email",
             "https://github.com/official-stockfish/Stockfish",
         )
-        self.config = testing.setUp()
-        self.config.add_route("login", "/login")
+        self.client = TestClient(get_test_app(self.rundb))
 
     def tearDown(self):
         self.rundb.userdb.users.delete_many({"username": "JoeUser"})
         self.rundb.userdb.user_cache.delete_many({"username": "JoeUser"})
-        testing.tearDown()
 
     def test_login(self):
-        request = testing.DummyRequest(
-            userdb=self.rundb.userdb,
-            method="POST",
-            params={"username": "JoeUser", "password": "badsecret"},
-        )
-        response = login(request)
-        self.assertTrue(
-            "Invalid password for user: JoeUser" in request.session.pop_flash("error")
-        )
+        html = self.client.get("/login").text
+        csrf = extract_csrf_token(html)
 
-        # Correct password, but still pending from logging in
-        request.params["password"] = "secret"
-        login(request)
-        self.assertTrue(
-            "Account pending for user: JoeUser" in request.session.pop_flash("error")[0]
+        response = self.client.post(
+            "/login",
+            data={"csrf_token": csrf, "username": "JoeUser", "password": "badsecret"},
+            follow_redirects=False,
         )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Login failed", response.text)
+
+        # Correct password, but still pending
+        html = self.client.get("/login").text
+        csrf = extract_csrf_token(html)
+        response = self.client.post(
+            "/login",
+            data={"csrf_token": csrf, "username": "JoeUser", "password": "secret"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Account pending for user: JoeUser", response.text)
 
         # Unblock, then user can log in successfully
         user = self.rundb.userdb.get_user("JoeUser")
         user["pending"] = False
         self.rundb.userdb.save_user(user)
-        response = login(request)
-        self.assertEqual(response.code, 302)
-        self.assertTrue("The resource was found at" in str(response))
+
+        html = self.client.get("/login").text
+        csrf = extract_csrf_token(html)
+        response = self.client.post(
+            "/login",
+            data={"csrf_token": csrf, "username": "JoeUser", "password": "secret"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
 
 
 class Create90APITest(unittest.TestCase):
@@ -98,15 +108,13 @@ class Create90APITest(unittest.TestCase):
             start_time=datetime.now(UTC),
         )
         self.rundb.userdb.user_cache.insert_one(
-            {"username": "JoeUser", "cpu_hours": 12345}
+            {"username": "JoeUser", "cpu_hours": 12345},
         )
-        self.config = testing.setUp()
-        self.config.add_route("api_stop_run", "/api/stop_run")
+        self.client = TestClient(get_test_app(self.rundb))
 
     def tearDown(self):
         self.rundb.userdb.users.delete_many({"username": "JoeUser"})
         self.rundb.userdb.user_cache.delete_many({"username": "JoeUser"})
-        testing.tearDown()
 
 
 if __name__ == "__main__":
