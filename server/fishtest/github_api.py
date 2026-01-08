@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import time
 from pathlib import Path
@@ -40,7 +42,7 @@ _dummy_sha = 40 * "f"
 official_master_sha = _dummy_sha
 
 
-def init(kvstore, actiondb):
+def init(kvstore: object, actiondb: object) -> None:
     global _actiondb, _github_rate_limit, _kvstore, _lru_cache, _api_initialized
     _kvstore = kvstore
     _actiondb = actiondb
@@ -55,18 +57,18 @@ def init(kvstore, actiondb):
         for k, v in github_api_cache["lru_cache"]:
             _lru_cache[tuple(k)] = v
     except Exception as e:
-        print(f"Unable to restore github_api_cache from kvstore: {str(e)}", flush=True)
+        print(f"Unable to restore github_api_cache from kvstore: {e!s}", flush=True)
 
     _api_initialized = True
     update_official_master_sha()
 
 
-def clear_api_cache():
+def clear_api_cache() -> None:
     global _lru_cache
     _lru_cache = LRUCache(LRU_CACHE_SIZE)
 
 
-def save():
+def save() -> None:
     global _kvstore
     _kvstore["github_api_cache"] = {
         "version": GITHUB_API_VERSION,
@@ -74,7 +76,13 @@ def save():
     }
 
 
-def call(url, *args, _method="GET", _ignore_rate_limit=False, **kwargs):
+def call(
+    url: str,
+    *args: object,
+    _method: str = "GET",
+    _ignore_rate_limit: bool = False,
+    **kwargs: object,
+) -> requests.Response:
     global _github_rate_limit
     if not _api_initialized:
         raise Exception("github_api.py was not properly initialized")
@@ -93,24 +101,27 @@ def call(url, *args, _method="GET", _ignore_rate_limit=False, **kwargs):
     resource = r.headers.get("X-RateLimit-Resource", "")
     if resource == "core":
         _github_rate_limit["remaining"] = int(
-            r.headers.get("X-RateLimit-Remaining", _github_rate_limit["remaining"])
+            r.headers.get("X-RateLimit-Remaining", _github_rate_limit["remaining"]),
         )
         _github_rate_limit["used"] = int(
-            r.headers.get("X-RateLimit-Used", _github_rate_limit["used"])
+            r.headers.get("X-RateLimit-Used", _github_rate_limit["used"]),
         )
         _github_rate_limit["reset"] = int(
-            r.headers.get("X-RateLimit-Reset", _github_rate_limit["reset"])
+            r.headers.get("X-RateLimit-Reset", _github_rate_limit["reset"]),
         )
         _github_rate_limit["limit"] = int(
-            r.headers.get("X-RateLimit-Limit", _github_rate_limit["limit"])
+            r.headers.get("X-RateLimit-Limit", _github_rate_limit["limit"]),
         )
         _github_rate_limit.pop("_uninitialized", None)
     return r
 
 
 def _download_from_github_raw(
-    item, user="official-stockfish", repo="Stockfish", branch="master"
-):
+    item: str,
+    user: str = "official-stockfish",
+    repo: str = "Stockfish",
+    branch: str = "master",
+) -> bytes:
     item_url = f"https://raw.githubusercontent.com/{user}/{repo}/{branch}/{item}"
     r = call(item_url, timeout=TIMEOUT, _ignore_rate_limit=True)
     r.raise_for_status()
@@ -118,12 +129,12 @@ def _download_from_github_raw(
 
 
 def _download_from_github_api(
-    item,
-    user="official-stockfish",
-    repo="Stockfish",
-    branch="master",
-    ignore_rate_limit=False,
-):
+    item: str,
+    user: str = "official-stockfish",
+    repo: str = "Stockfish",
+    branch: str = "master",
+    ignore_rate_limit: bool = False,
+) -> bytes:
     item_url = (
         f"https://api.github.com/repos/{user}/{repo}/contents/{item}?ref={branch}"
     )
@@ -138,13 +149,13 @@ def _download_from_github_api(
 
 
 def download_from_github(
-    item,
-    user="official-stockfish",
-    repo="Stockfish",
-    branch="master",
-    method="api",
-    ignore_rate_limit=False,
-):
+    item: str,
+    user: str = "official-stockfish",
+    repo: str = "Stockfish",
+    branch: str = "master",
+    method: str = "api",
+    ignore_rate_limit: bool = False,
+) -> bytes:
     if method == "api":
         return _download_from_github_api(
             item,
@@ -153,18 +164,17 @@ def download_from_github(
             branch=branch,
             ignore_rate_limit=ignore_rate_limit,
         )
-    elif method == "raw":
+    if method == "raw":
         return _download_from_github_raw(item, user=user, repo=repo, branch=branch)
-    else:
-        raise ValueError(f"Unknown method {method}")
+    raise ValueError(f"Unknown method {method}")
 
 
 def get_commit(
-    user="official-stockfish",
-    repo="Stockfish",
-    branch="master",
-    ignore_rate_limit=False,
-):
+    user: str = "official-stockfish",
+    repo: str = "Stockfish",
+    branch: str = "master",
+    ignore_rate_limit: bool = False,
+) -> dict[str, object]:
     url = f"https://api.github.com/repos/{user}/{repo}/commits/{branch}"
     r = call(url, timeout=TIMEOUT, _ignore_rate_limit=ignore_rate_limit)
     r.raise_for_status()
@@ -172,7 +182,11 @@ def get_commit(
     return commit
 
 
-def get_commits(user="official-stockfish", repo="Stockfish", ignore_rate_limit=False):
+def get_commits(
+    user: str = "official-stockfish",
+    repo: str = "Stockfish",
+    ignore_rate_limit: bool = False,
+) -> list[dict[str, object]]:
     url = f"https://api.github.com/repos/{user}/{repo}/commits"
     r = call(url, timeout=TIMEOUT, _ignore_rate_limit=ignore_rate_limit)
     r.raise_for_status()
@@ -180,7 +194,7 @@ def get_commits(user="official-stockfish", repo="Stockfish", ignore_rate_limit=F
     return commit
 
 
-def _update_rate_limit():
+def _update_rate_limit() -> None:
     if (
         "_uninitialized" not in _github_rate_limit
         and _github_rate_limit["remaining"] == _github_rate_limit["limit"]
@@ -195,21 +209,21 @@ def _update_rate_limit():
             # sets _github_rate_limit
             call(url, timeout=TIMEOUT, _ignore_rate_limit=True)
         except Exception as e:
-            print(f"Unable to get rate limit: {str(e)}", flush=True)
+            print(f"Unable to get rate limit: {e!s}", flush=True)
 
 
-def rate_limit():
+def rate_limit() -> dict[str, object]:
     _update_rate_limit()
     return _github_rate_limit
 
 
 def compare_sha(
-    user1="official-stockfish",
-    sha1=None,
-    user2=None,
-    sha2=None,
-    ignore_rate_limit=False,
-):
+    user1: str = "official-stockfish",
+    sha1: str | None = None,
+    user2: str | None = None,
+    sha2: str | None = None,
+    ignore_rate_limit: bool = False,
+) -> dict[str, object]:
     global _lru_cache
     # Non sha arguments cannot be safely cached
     validate(sha_schema, sha1)
@@ -277,9 +291,7 @@ def compare_sha(
     try:
         validate(cache_schema, json)
     except ValidationError as e:
-        message = (
-            f"Validation of cache entry for GitHub API call {url} failed: {str(e)}"
-        )
+        message = f"Validation of cache entry for GitHub API call {url} failed: {e!s}"
         print(message, flush=True)
         _actiondb.log_message(
             username="fishtest.system",
@@ -289,22 +301,21 @@ def compare_sha(
     _lru_cache[inputs] = json
     if saved_http_exception is None:
         return json
-    else:
-        raise saved_http_exception
+    raise saved_http_exception
 
 
-def parse_repo(repo_url):
+def parse_repo(repo_url: str) -> tuple[str, str]:
     p = Path(urlparse(repo_url).path).parts
     return (p[1], p[2])
 
 
 def get_merge_base_commit(
-    user1="official-stockfish",
-    sha1=None,
-    user2=None,
-    sha2=None,
-    ignore_rate_limit=False,
-):
+    user1: str = "official-stockfish",
+    sha1: str | None = None,
+    user2: str | None = None,
+    sha2: str | None = None,
+    ignore_rate_limit: bool = False,
+) -> str:
     if user2 is None:
         user2 = user1
     master_diff = compare_sha(
@@ -318,12 +329,12 @@ def get_merge_base_commit(
 
 
 def is_ancestor(
-    user1="official-stockfish",
-    sha1=None,
-    user2=None,
-    sha2=None,
-    ignore_rate_limit=False,
-):
+    user1: str = "official-stockfish",
+    sha1: str | None = None,
+    user2: str | None = None,
+    sha2: str | None = None,
+    ignore_rate_limit: bool = False,
+) -> bool:
     if user2 is None:
         user2 = user1
     merge_base_commit = get_merge_base_commit(
@@ -336,14 +347,16 @@ def is_ancestor(
     return merge_base_commit == sha1
 
 
-def is_master(sha, ignore_rate_limit=False):
+def is_master(sha: str, ignore_rate_limit: bool = False) -> bool:
     global _lru_cache
     inputs = ("is_master", sha)
     if inputs in _lru_cache:
         return _lru_cache[inputs]
     try:
         merge_base_commit = get_merge_base_commit(
-            sha1=sha, sha2=official_master_sha, ignore_rate_limit=ignore_rate_limit
+            sha1=sha,
+            sha2=official_master_sha,
+            ignore_rate_limit=ignore_rate_limit,
         )
     except requests.HTTPError as e:
         if e.response.status_code == 404:
@@ -366,8 +379,10 @@ def is_master(sha, ignore_rate_limit=False):
 
 
 def get_master_repo(
-    user="official-stockfish", repo="Stockfish", ignore_rate_limit=False
-):
+    user: str = "official-stockfish",
+    repo: str = "Stockfish",
+    ignore_rate_limit: bool = False,
+) -> str:
     api_url = f"https://api.github.com/repos/{user}/{repo}"
     r = call(api_url, timeout=TIMEOUT, _ignore_rate_limit=ignore_rate_limit)
     r.raise_for_status()
@@ -375,17 +390,18 @@ def get_master_repo(
     while True:
         if not r["fork"]:
             return r["html_url"]
-        else:
-            r = r["parent"]
+        r = r["parent"]
 
 
 normalize_repo_cache = LRUCache(size=128, expiration=600)
 
 
 def normalize_repo(repo):
-    cached_url = normalize_repo_cache.get(repo, refresh=False)
-    if cached_url is not None:
-        return cached_url
+    global normalize_repo_cache
+    if repo in normalize_repo_cache:
+        cache = normalize_repo_cache[repo]
+        if time.time() - cache[0] < NORMALIZE_REPO_CACHE_EXPIRY_SECONDS:
+            return cache[1]
     r = call(
         repo,
         _method="HEAD",
@@ -399,8 +415,11 @@ def normalize_repo(repo):
 
 
 def compare_branches_url(
-    user1="stockfish-chess", branch1="master", user2=None, branch2=None
-):
+    user1: str = "stockfish-chess",
+    branch1: str = "master",
+    user2: str | None = None,
+    branch2: str | None = None,
+) -> str:
     if user2 is None:
         user2 = user1
     return (
@@ -409,18 +428,22 @@ def compare_branches_url(
     )
 
 
-def commit_url(user="official-stockfish", repo="Stockfish", branch="master"):
+def commit_url(
+    user: str = "official-stockfish",
+    repo: str = "Stockfish",
+    branch: str = "master",
+) -> str:
     return f"https://github.com/{user}/{repo}/commit/{branch}"
 
 
-def update_official_master_sha():
+def update_official_master_sha() -> None:
     global official_master_sha
     try:
         response = get_commit(ignore_rate_limit=True)
         official_master_sha = response["sha"]
     except Exception as e:
         print(
-            f"Unable to obtain the official stockfish master sha: {str(e)}",
+            f"Unable to obtain the official stockfish master sha: {e!s}",
             flush=True,
         )
     if official_master_sha != _dummy_sha:

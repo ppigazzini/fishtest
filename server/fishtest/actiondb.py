@@ -54,7 +54,10 @@ class ActionDb:
             count = self.actions.count_documents(q)
 
         actions_list = self.actions.find(
-            q, limit=limit, skip=skip, sort=[("_id", DESCENDING)]
+            q,
+            limit=limit,
+            skip=skip,
+            sort=[("_id", DESCENDING)],
         )
 
         return actions_list, count
@@ -229,9 +232,7 @@ class ActionDb:
         try:
             validate(action_schema, action, "action")
         except ValidationError as e:
-            message = (
-                f"Internal Error. Request {str(action)} does not validate: {str(e)}"
-            )
+            message = f"Internal Error. Request {action!s} does not validate: {e!s}"
             print(message, flush=True)
             self.log_message(
                 username="fishtest.system",

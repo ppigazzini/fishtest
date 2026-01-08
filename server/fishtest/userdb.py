@@ -12,7 +12,7 @@ def validate_user(user):
     try:
         validate(user_schema, user, "user")
     except ValidationError as e:
-        message = f"The user object does not validate: {str(e)}"
+        message = f"The user object does not validate: {e!s}"
         print(message, flush=True)
         raise Exception(message)
 
@@ -45,10 +45,10 @@ class UserDb:
         if not user or user["password"] != password:
             print(f"Invalid login: '{username}' '{password}", flush=True)
             return {"error": f"Invalid password for user: {username}"}
-        if "blocked" in user and user["blocked"]:
+        if user.get("blocked"):
             print(f"Blocked account: '{username}' '{password}'", flush=True)
             return {"error": f"Account blocked for user: {username}"}
-        if "pending" in user and user["pending"]:
+        if user.get("pending"):
             print(f"Pending account: '{username}' '{password}'", flush=True)
             return {"error": f"Account pending for user: {username}"}
 
@@ -61,7 +61,7 @@ class UserDb:
         with self.pending.lock:
             if "value" not in self.pending:
                 self.pending["value"] = list(
-                    self.users.find({"pending": True}, sort=[("_id", ASCENDING)])
+                    self.users.find({"pending": True}, sort=[("_id", ASCENDING)]),
                 )
             return self.pending.get("value", refresh=False)
 
@@ -69,7 +69,7 @@ class UserDb:
         with self.blocked.lock:
             if "value" not in self.blocked:
                 self.blocked["value"] = list(
-                    self.users.find({"blocked": True}, sort=[("_id", ASCENDING)])
+                    self.users.find({"blocked": True}, sort=[("_id", ASCENDING)]),
                 )
             return self.blocked.get("value", refresh=False)
 
@@ -133,9 +133,8 @@ class UserDb:
                 flush=True,
             )
             return True
-        else:
-            # User not found
-            return False
+        # User not found
+        return False
 
     def get_machine_limit(self, username):
         user = self.get_user(username)

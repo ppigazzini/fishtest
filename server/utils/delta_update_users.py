@@ -260,7 +260,7 @@ def update_deltas(rundb: RunDb, deltas: dict, new_deltas: dict) -> None:
     n = 10000
     keys = tuple(new_deltas.keys())
     docs = (
-        {k: None for k in keys_batch}
+        dict.fromkeys(keys_batch)
         for keys_batch in (keys[i : i + n] for i in range(0, len(new_deltas), n))
     )
     rundb.deltas.insert_many(docs)

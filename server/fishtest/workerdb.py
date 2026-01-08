@@ -24,8 +24,7 @@ class WorkerDb:
                 "message": "",
                 "last_updated": None,
             }
-        else:
-            return r
+        return r
 
     def update_worker(self, worker_name, blocked=None, message=None):
         r = {

@@ -222,7 +222,7 @@ class CreateRunDBTest(unittest.TestCase):
         self.assertEqual(run, {"task_alive": False})
 
     def test_30_finish(self):
-        print("run_id: {}".format(run_id))
+        print(f"run_id: {run_id}")
         run = self.rundb.get_run(run_id)
         run["finished"] = True
         self.rundb.buffer(run, priority=Prio.SAVE_NOW)
@@ -244,9 +244,9 @@ class CreateRunDBTest(unittest.TestCase):
 
     def test_flips(self):
         random.seed(0)
-        for _ in range(0, 100):
+        for _ in range(100):
             L = random.randint(0, 1000)
-            a = [random.choice((-1, 1)) for _ in range(0, L)]
+            a = [random.choice((-1, 1)) for _ in range(L)]
             b = _pack_flips(a)
             self.assertTrue(isinstance(b, bytes))
             c = _unpack_flips(b, length=L)

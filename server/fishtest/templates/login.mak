@@ -14,6 +14,7 @@
   </header>
 
   <form method="POST">
+    <input type="hidden" name="csrf_token" value="${request.session.get_csrf_token()}">
     <div class="form-floating mb-3">
       <input
         type="text"

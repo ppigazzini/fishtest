@@ -7,8 +7,8 @@ import unittest
 import fishtest.github_api as gh
 import requests
 import util
+from fishtest.run_form import get_master_info
 from fishtest.schemas import books_schema
-from fishtest.views import get_master_info
 from vtjson import validate
 
 
@@ -38,9 +38,9 @@ class CreateGitHubApiTest(unittest.TestCase):
                     get_master_info(
                         user="official-stockfish",
                         repo="Stockfish",
-                    )["bench"]
+                    )["bench"],
                 ),
-            )
+            ),
         )
 
     def test_rate_limit(self):
@@ -51,7 +51,7 @@ class CreateGitHubApiTest(unittest.TestCase):
 
     def test_kvstore(self):
         self.assertTrue(
-            gh.official_master_sha == self.rundb.kvstore["official_master_sha"]
+            gh.official_master_sha == self.rundb.kvstore["official_master_sha"],
         )
         self.rundb.update_books()
         self.assertTrue(self.rundb.books == self.rundb.kvstore["books"])
@@ -63,7 +63,7 @@ class CreateGitHubApiTest(unittest.TestCase):
                 "books.json",
                 repo="books",
                 method="api",
-            ).decode()
+            ).decode(),
         )
         # test passes if no exception is raised
         validate(
@@ -76,7 +76,7 @@ class CreateGitHubApiTest(unittest.TestCase):
                 "books.json",
                 repo="books",
                 method="raw",
-            ).decode()
+            ).decode(),
         )
         self.assertTrue(books == books1)
 
@@ -104,7 +104,7 @@ class CreateGitHubApiTest(unittest.TestCase):
             gh.compare_sha(sha1=self.dummy_sha, sha2=self.dummy_sha)
         self.assertTrue(
             "__error__"
-            in gh._lru_cache[("compare_sha", self.dummy_sha, self.dummy_sha)]
+            in gh._lru_cache[("compare_sha", self.dummy_sha, self.dummy_sha)],
         )
         r = gh.compare_sha(sha1=self.sf10_sha, sha2=self.sf10_sha)
         self.assertFalse("__error__" in r)
@@ -128,7 +128,7 @@ class CreateGitHubApiTest(unittest.TestCase):
         print(a)
         self.assertTrue("The previous attempt" in a["message"])
         self.assertTrue(
-            r == gh._lru_cache[("compare_sha", self.sf10_sha, self.sf10_sha)]
+            r == gh._lru_cache[("compare_sha", self.sf10_sha, self.sf10_sha)],
         )
 
     def test_is_master(self):
