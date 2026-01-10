@@ -14,10 +14,12 @@ from __future__ import annotations
 import base64
 import binascii
 import copy
+import functools
 import time
 from datetime import UTC, datetime
 from typing import Any, Final, TypedDict, cast
 
+import anyio
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from fishtest.schemas import api_access_schema, api_schema, gzip_data
@@ -84,6 +86,17 @@ async def _json_body_or_response(
         return JSONResponse(payload, status_code=400)
 
     return body
+
+
+def _json_body_or_response_sync(
+    request: Request,
+    *,
+    t0: float,
+) -> dict[str, Any] | JSONResponse:
+    return anyio.from_thread.run(
+        functools.partial(_json_body_or_response, t0=t0),
+        request,
+    )
 
 
 def _validate_username_password(
@@ -214,10 +227,10 @@ router = APIRouter(tags=["worker"], include_in_schema=False)
 
 
 @router.post("/api/request_version")
-async def request_version(request: Request) -> JSONResponse:
+def request_version(request: Request) -> JSONResponse:
     """Return the worker protocol version."""
     t0 = time.monotonic()
-    body_or_response = await _json_body_or_response(request, t0=t0)
+    body_or_response = _json_body_or_response_sync(request, t0=t0)
     if isinstance(body_or_response, JSONResponse):
         return body_or_response
     body = body_or_response
@@ -230,10 +243,10 @@ async def request_version(request: Request) -> JSONResponse:
 
 
 @router.post("/api/update_task")
-async def update_task(request: Request) -> JSONResponse:
+def update_task(request: Request) -> JSONResponse:
     """Update a task's progress and stats."""
     t0 = time.monotonic()
-    body_or_response = await _json_body_or_response(request, t0=t0)
+    body_or_response = _json_body_or_response_sync(request, t0=t0)
     if isinstance(body_or_response, JSONResponse):
         return body_or_response
     body = body_or_response
@@ -275,10 +288,10 @@ async def update_task(request: Request) -> JSONResponse:
 
 
 @router.post("/api/request_task")
-async def request_task(request: Request) -> JSONResponse:
+def request_task(request: Request) -> JSONResponse:
     """Request a new task assignment for a worker."""
     t0 = time.monotonic()
-    body_or_response = await _json_body_or_response(request, t0=t0)
+    body_or_response = _json_body_or_response_sync(request, t0=t0)
     if isinstance(body_or_response, JSONResponse):
         return body_or_response
     body = body_or_response
@@ -328,10 +341,10 @@ async def request_task(request: Request) -> JSONResponse:
 
 
 @router.post("/api/beat")
-async def beat(request: Request) -> JSONResponse:
+def beat(request: Request) -> JSONResponse:
     """Heartbeat endpoint to keep tasks alive."""
     t0 = time.monotonic()
-    body_or_response = await _json_body_or_response(request, t0=t0)
+    body_or_response = _json_body_or_response_sync(request, t0=t0)
     if isinstance(body_or_response, JSONResponse):
         return body_or_response
     body = body_or_response
@@ -366,10 +379,10 @@ async def beat(request: Request) -> JSONResponse:
 
 
 @router.post("/api/request_spsa")
-async def request_spsa(request: Request) -> JSONResponse:
+def request_spsa(request: Request) -> JSONResponse:
     """Request SPSA parameters/data for a task."""
     t0 = time.monotonic()
-    body_or_response = await _json_body_or_response(request, t0=t0)
+    body_or_response = _json_body_or_response_sync(request, t0=t0)
     if isinstance(body_or_response, JSONResponse):
         return body_or_response
     body = body_or_response
@@ -399,10 +412,10 @@ async def request_spsa(request: Request) -> JSONResponse:
 
 
 @router.post("/api/failed_task")
-async def failed_task(request: Request) -> JSONResponse:
+def failed_task(request: Request) -> JSONResponse:
     """Report that a task failed."""
     t0 = time.monotonic()
-    body_or_response = await _json_body_or_response(request, t0=t0)
+    body_or_response = _json_body_or_response_sync(request, t0=t0)
     if isinstance(body_or_response, JSONResponse):
         return body_or_response
     body = body_or_response
@@ -424,10 +437,10 @@ async def failed_task(request: Request) -> JSONResponse:
 
 
 @router.post("/api/stop_run")
-async def stop_run(request: Request) -> JSONResponse:
+def stop_run(request: Request) -> JSONResponse:
     """Allow certain workers to stop a run (primary instance only)."""
     t0 = time.monotonic()
-    body_or_response = await _json_body_or_response(request, t0=t0)
+    body_or_response = _json_body_or_response_sync(request, t0=t0)
     if isinstance(body_or_response, JSONResponse):
         return body_or_response
     body = body_or_response
@@ -492,10 +505,10 @@ async def stop_run(request: Request) -> JSONResponse:
 
 
 @router.post("/api/worker_log")
-async def worker_log(request: Request) -> JSONResponse:
+def worker_log(request: Request) -> JSONResponse:
     """Submit a worker log message."""
     t0 = time.monotonic()
-    body_or_response = await _json_body_or_response(request, t0=t0)
+    body_or_response = _json_body_or_response_sync(request, t0=t0)
     if isinstance(body_or_response, JSONResponse):
         return body_or_response
     body = body_or_response
@@ -525,10 +538,10 @@ async def worker_log(request: Request) -> JSONResponse:
 
 
 @router.post("/api/upload_pgn")
-async def upload_pgn(request: Request) -> JSONResponse:
+def upload_pgn(request: Request) -> JSONResponse:
     """Upload a base64-encoded gzip PGN payload for a task."""
     t0 = time.monotonic()
-    body_or_response = await _json_body_or_response(request, t0=t0)
+    body_or_response = _json_body_or_response_sync(request, t0=t0)
     if isinstance(body_or_response, JSONResponse):
         return body_or_response
     body = body_or_response
