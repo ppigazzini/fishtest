@@ -816,6 +816,18 @@ We can simplify and standardize the codebase by leaning on framework features we
 - **Standard logging (Python `logging`) instead of `print()`**
   - Use structured logging conventions and log levels; improves ops parity and debugging.
 
+- **Router structure via `APIRouter` + `include_router()`**
+  - Keep each surface area as its own router (e.g., `api/worker.py`, `api/public.py`, UI `views/*`) with clear `prefix`, `tags`, and shared dependencies.
+  - Enables consistent per-router concerns (e.g., “worker auth dependency”, “UI session dependency”) without copy/paste.
+
+- **Centralized error shaping via exception handlers**
+  - Use `@app.exception_handler(...)` for `HTTPException` and `RequestValidationError` (plus any domain exceptions we introduce) to keep Pyramid-compatible error JSON/status shaping.
+  - Keeps endpoints focused on core logic and reduces divergent ad-hoc `try/except` patterns.
+
+- **Testing hooks built into FastAPI/Starlette**
+  - Use `fastapi.testclient.TestClient` (sync) and/or `httpx.AsyncClient(app=..., base_url=...)` to run contract tests against the ASGI app without starting Uvicorn.
+  - Use `app.dependency_overrides[...]` to swap `RunDb`/DB adapters with fakes for focused unit tests.
+
 ### Refactor steps (safe, incremental)
 
 1) **Extract shared “template request” shim**
@@ -840,23 +852,31 @@ We can simplify and standardize the codebase by leaning on framework features we
      - `get_userdb(request) -> UserDb`
    - Adopt in routes gradually (no big-bang change).
 
-5) **Standardize redirect semantics**
+5) **Centralize exception handling (parity + consistency)**
+  - Implement FastAPI exception handlers for validation and domain errors so the worker/public API error shape stays stable.
+  - Keep UI error pages (HTML) separated from `/api/*` JSON errors.
+
+6) **Standardize router structure + shared dependencies**
+  - Ensure each router has a clear `prefix`/`tags` and uses shared dependencies (e.g., worker auth, UI session) rather than per-endpoint boilerplate.
+
+7) **Standardize redirect semantics**
    - Decide and apply a consistent policy (prefer Pyramid parity: `302` for UI flows).
    - Keep API redirects as-is where they are part of the contract.
 
-6) **Logging + observability cleanup**
+8) **Logging + observability cleanup**
    - Replace startup/shutdown `print()` with `logging`.
    - Add request timing/log correlation if needed (still without adding new deps).
 
-7) **Document and lock in operational constraints**
+9) **Document and lock in operational constraints**
    - Re-assert that `--workers > 1` breaks in-process locks/semaphores/caches.
    - Keep primary instance as a single process.
 
-8) **Verification gates**
+10) **Verification gates**
    - For each refactor step, keep this minimum bar:
      - `cd server && uv run ruff check .`
      - `cd server && uv run ty check fishtest/app.py` (and any touched modules)
      - Run a small targeted pytest subset if applicable.
+  - Note: Ruff/Ty run on Python code (don’t run them on this Markdown file).
 
 ### Progress log (append-only)
 
