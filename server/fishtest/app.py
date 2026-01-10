@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import faulthandler
+import signal
+import sys
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Final
 
@@ -19,11 +22,37 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+def _install_thread_dump_signal_handler() -> None:
+    """Install a signal handler to dump Python stack traces for all threads.
+
+    This provides a FastAPI/Uvicorn equivalent of the legacy Pyramid handler:
+
+        kill -USR1 <pid>
+
+    Notes:
+    - This is process-local. If Uvicorn is started with multiple workers
+      (multiple processes), the signal must be sent to each worker PID.
+    - On platforms without SIGUSR1 (e.g. Windows), this is a no-op.
+
+    """
+    sigusr1 = getattr(signal, "SIGUSR1", None)
+    if sigusr1 is None:
+        return
+
+    try:
+        faulthandler.register(sigusr1, file=sys.stderr, all_threads=True)
+    except (RuntimeError, ValueError):
+        # RuntimeError: faulthandler disabled or not available.
+        # ValueError: signal already registered.
+        return
+
+
 def create_app() -> FastAPI:
     """Create and configure the FastAPI app."""
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        _install_thread_dump_signal_handler()
         settings = AppSettings.from_env()
         app.state.settings = settings
 
