@@ -26,13 +26,14 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Final, Protocol, cast
 
 import fishtest.github_api as gh
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import (
     JSONResponse,
     RedirectResponse,
     Response,
     StreamingResponse,
 )
+from fishtest.dependencies import get_rundb
 from fishtest.stats.stat_util import SPRT_elo
 from fishtest.stats.stat_util import get_elo as stat_get_elo
 from fishtest.util import strip_run
@@ -197,13 +198,15 @@ async def rate_limit() -> dict[str, object]:
 
 
 @router.get("/api/pgn/{id}")
-async def download_pgn(id: str, request: Request) -> Response:  # noqa: A002
+async def download_pgn(
+    id: str,  # noqa: A002
+    request: Request,
+    rundb: "RunDb" = Depends(get_rundb),
+) -> Response:
     """Download a gzipped PGN for a single task.
 
     Path param `id` is treated as a filename (e.g. `<runid>-<taskid>.pgn`).
     """
-    rundb = cast("RunDb", request.app.state.rundb)
-
     zip_name = id
     run_id = zip_name.split(".")[0]  # strip .pgn
 
@@ -220,7 +223,11 @@ async def download_pgn(id: str, request: Request) -> Response:  # noqa: A002
 
 
 @router.get("/api/run_pgns/{id}")
-async def download_run_pgns(id: str, request: Request) -> StreamingResponse:  # noqa: A002
+async def download_run_pgns(
+    id: str,  # noqa: A002
+    request: Request,
+    rundb: "RunDb" = Depends(get_rundb),
+) -> StreamingResponse:
     """Download a gzipped tar of all PGNs for a run.
 
     Path param `id` is treated as a filename (e.g. `<runid>.pgn.gz`).
@@ -230,8 +237,6 @@ async def download_run_pgns(id: str, request: Request) -> StreamingResponse:  # 
         raise HTTPException(status_code=400)
 
     run_id = match.group(1)
-    rundb = cast("RunDb", request.app.state.rundb)
-
     pgns_reader, total_size = rundb.get_run_pgns(run_id)
     if pgns_reader is None:
         raise HTTPException(status_code=404)
@@ -248,12 +253,11 @@ async def download_run_pgns(id: str, request: Request) -> StreamingResponse:  # 
 
 
 @router.get("/api/active_runs")
-async def active_runs(request: Request) -> dict[str, object]:
+async def active_runs(rundb: "RunDb" = Depends(get_rundb)) -> dict[str, object]:
     """Return all active runs.
 
     Matches Pyramid: returns a dict mapping run_id -> run document.
     """
-    rundb = cast("RunDb", request.app.state.rundb)
     runs = rundb.runs.find(
         {"finished": False},
         {"tasks": 0, "bad_tasks": 0, "args.spsa.param_history": 0},
@@ -267,13 +271,14 @@ async def active_runs(request: Request) -> dict[str, object]:
 
 
 @router.get("/api/finished_runs")
-async def finished_runs(request: Request) -> Response:
+async def finished_runs(
+    request: Request,
+    rundb: "RunDb" = Depends(get_rundb),
+) -> Response:
     """Return a page of finished runs.
 
     Requires `?page=` like Pyramid.
     """
-    rundb = cast("RunDb", request.app.state.rundb)
-
     qp = request.query_params
     username = qp.get("username", "")
     success_only = _truthy_query(qp.get("success_only"))
@@ -324,13 +329,14 @@ async def finished_runs(request: Request) -> Response:
 
 
 @router.post("/api/actions")
-async def actions(request: Request) -> Response:
+async def actions(
+    request: Request,
+    rundb: "RunDb" = Depends(get_rundb),
+) -> Response:
     """Query recent actions.
 
     Matches Pyramid: accepts a JSON query body and returns up to 200 results.
     """
-    rundb = cast("RunDb", request.app.state.rundb)
-
     try:
         query_obj = await request.json()
     except ValueError:
@@ -354,9 +360,12 @@ async def actions(request: Request) -> Response:
 
 
 @router.get("/api/get_run/{id}")
-async def get_run(id: str, request: Request) -> Response:  # noqa: A002
+async def get_run(
+    id: str,  # noqa: A002
+    request: Request,
+    rundb: "RunDb" = Depends(get_rundb),
+) -> Response:
     """Return a single run document (stripped for JSON)."""
-    rundb = cast("RunDb", request.app.state.rundb)
     run = rundb.get_run(id)
     if run is None:
         return _json_error(
@@ -372,9 +381,9 @@ async def get_task(
     id: str,  # noqa: A002
     task_id: str,
     request: Request,
+    rundb: "RunDb" = Depends(get_rundb),
 ) -> Response:
     """Return a specific task from a run."""
-    rundb = cast("RunDb", request.app.state.rundb)
     run = rundb.get_run(id)
     if run is None:
         return _json_error(
@@ -402,9 +411,11 @@ async def get_task(
 
 
 @router.get("/api/get_elo/{id}")
-async def get_elo(id: str, request: Request) -> dict[str, object]:  # noqa: A002
+async def get_elo(
+    id: str,  # noqa: A002
+    rundb: "RunDb" = Depends(get_rundb),
+) -> dict[str, object]:
     """Return run data augmented with computed SPRT elo (only for SPRT runs)."""
-    rundb = cast("RunDb", request.app.state.rundb)
     run = rundb.get_run(id)
     if run is None:
         raise HTTPException(status_code=404)
@@ -581,9 +592,12 @@ async def calc_elo(request: Request) -> Response:
 
 
 @router.get("/api/nn/{id}")
-async def download_nn(id: str, request: Request) -> RedirectResponse:  # noqa: A002
+async def download_nn(
+    id: str,  # noqa: A002
+    request: Request,
+    rundb: "RunDb" = Depends(get_rundb),
+) -> RedirectResponse:
     """Redirect to the static NN download endpoint after incrementing downloads."""
-    rundb = cast("RunDb", request.app.state.rundb)
     nn = rundb.get_nn(id)
     if nn is None:
         raise HTTPException(status_code=404)
