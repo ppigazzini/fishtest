@@ -154,6 +154,17 @@ Current FastAPI approach:
 - A small middleware returns HTTP `503` once `rundb._shutdown` is set (matching Pyramid's
   per-request `HTTPServiceUnavailable` guard).
 
+#### Pyramid subscribers → FastAPI equivalents
+
+Pyramid installed several per-request and app-start subscribers. In FastAPI these behaviors are implemented via lifespan + middleware:
+
+- `add_rundb (NewRequest)` → request access via `request.app.state.*`, plus middleware attaches `rundb/userdb/actiondb/workerdb` to `request.state`.
+- `check_shutdown (NewRequest)` → middleware returns HTTP `503` when `rundb._shutdown` is set.
+- `check_blocked_user (NewRequest)` → middleware checks UI sessions for blocked users and clears the session + redirects to `/tests`.
+- `set_default_base_url (NewRequest)` → middleware sets `rundb.base_url` from the external request scheme/host the first time a request arrives (when `FISHTEST_URL` is not configured).
+- `init_app (ApplicationCreated)` → FastAPI lifespan startup runs `gh.init`, `update_aggregated_data`, and `schedule_tasks` on the primary instance.
+- `add_renderer_globals (BeforeRender)` → no-op in Pyramid (not needed).
+
 ## Modern FastAPI stack (2026) — packages + application shape
 
 This section documents the **target “modern FastAPI” stack** for this migration.
