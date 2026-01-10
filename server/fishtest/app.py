@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import faulthandler
+import os
 import signal
 import sys
 from contextlib import asynccontextmanager
@@ -111,6 +112,12 @@ def create_app() -> FastAPI:
         settings = AppSettings.from_env()
         app.state.settings = settings
 
+        if not os.environ.get("FISHTEST_AUTHENTICATION_SECRET", "").strip():
+            print(
+                "FISHTEST_AUTHENTICATION_SECRET is missing, using an insecure default for authentication.",
+                flush=True,
+            )
+
         rundb = RunDb(
             port=settings.port,
             is_primary_instance=settings.is_primary_instance,
@@ -182,10 +189,16 @@ def create_app() -> FastAPI:
         if not username:
             return await call_next(request)
 
-        user = userdb.get_user(username)
-        if user is not None and user.get("blocked"):
+        blocked_users = userdb.get_blocked()
+        is_blocked = any(
+            isinstance(user, dict)
+            and user.get("username") == username
+            and user.get("blocked")
+            for user in blocked_users
+        )
+        if is_blocked:
             session.invalidate()
-            response = RedirectResponse(url="/tests", status_code=303)
+            response = RedirectResponse(url="/tests", status_code=302)
             clear_session_cookie(response=response, secure=is_https(request))
             return response
 
@@ -198,7 +211,7 @@ def create_app() -> FastAPI:
     ) -> Response:
         rundb = getattr(request.app.state, "rundb", None)
         if rundb is not None and getattr(rundb, "_shutdown", False):
-            return PlainTextResponse("Service Unavailable", status_code=503)
+            return PlainTextResponse("", status_code=503)
         return await call_next(request)
 
     static_dir: Final[Path] = default_static_dir()
