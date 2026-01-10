@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import copy
 import logging
-import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Final, cast
@@ -25,6 +24,7 @@ import fishtest.github_api as gh
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fishtest.cookie_session import CookieSession, commit_session, load_session
+from fishtest.csrf import csrf_is_valid, csrf_or_403, csrf_token_from_form
 from fishtest.mako import default_template_lookup, render_template
 from fishtest.run_cache import Prio
 from fishtest.run_form import (
@@ -34,8 +34,8 @@ from fishtest.run_form import (
     validate_form,
 )
 from fishtest.schemas import RUN_VERSION, is_undecided, runs_schema
+from fishtest.template_request import TemplateRequest
 from fishtest.util import is_sprt_ltc_data
-from fishtest.views.auth import TemplateRequest
 from fishtest.views.common import authenticated_user, is_https
 from vtjson import validate
 
@@ -81,12 +81,7 @@ def _validate_csrf(
     session: CookieSession,
     form_token: str | None,
 ) -> bool:
-    header_token = request.headers.get("x-csrf-token")
-    token = header_token or form_token
-    if not token:
-        return False
-    expected = session.get_csrf_token()
-    return secrets.compare_digest(token, expected)
+    return csrf_is_valid(request=request, session=session, form_token=form_token)
 
 
 def _redirect(
@@ -135,11 +130,6 @@ def _render_tests_run(
         secure=is_https(request),
     )
     return response
-
-
-def _csrf_token_from_form(form: FormData) -> str | None:
-    token = form.get("csrf_token")
-    return token if isinstance(token, str) else None
 
 
 def _require_login(*, session: CookieSession) -> str | None:
@@ -309,12 +299,11 @@ def _get_run_or_redirect(
 
 
 def _csrf_or_403(*, request: Request, session: CookieSession, form: FormData) -> None:
-    if not _validate_csrf(
+    csrf_or_403(
         request=request,
         session=session,
-        form_token=_csrf_token_from_form(form),
-    ):
-        raise HTTPException(status_code=403, detail="CSRF validation failed")
+        form_token=csrf_token_from_form(form),
+    )
 
 
 def _form_str(form: FormData, key: str) -> str | None:
@@ -439,7 +428,7 @@ async def tests_run_post(request: Request) -> Response:
     if not _validate_csrf(
         request=request,
         session=session,
-        form_token=_csrf_token_from_form(form),
+        form_token=csrf_token_from_form(form),
     ):
         session.flash("CSRF validation failed", "error")
         return _redirect(request=request, session=session, url="/tests/run")

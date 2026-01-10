@@ -9,15 +9,15 @@ Renders the existing `workers.mak` template.
 
 from __future__ import annotations
 
-import secrets
 from typing import TYPE_CHECKING, cast
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from fishtest.cookie_session import CookieSession, commit_session, load_session
+from fishtest.cookie_session import commit_session, load_session
+from fishtest.csrf import csrf_or_403
 from fishtest.mako import default_template_lookup, render_template
 from fishtest.schemas import short_worker_name
-from fishtest.views.auth import TemplateRequest
+from fishtest.template_request import TemplateRequest
 from fishtest.views.common import authenticated_user, is_https
 from vtjson import ValidationError, union, validate
 
@@ -41,20 +41,6 @@ def _is_approver(*, userdb: UserDb, username: str | None) -> bool:
         return False
     groups = userdb.get_user_groups(username) or []
     return "group:approvers" in groups
-
-
-def _validate_csrf(
-    *,
-    request: Request,
-    session: CookieSession,
-    form_token: str | None,
-) -> None:
-    token = request.headers.get("x-csrf-token") or form_token
-    if not token:
-        raise HTTPException(status_code=403, detail="CSRF validation failed")
-    expected = session.get_csrf_token()
-    if not secrets.compare_digest(token, expected):
-        raise HTTPException(status_code=403, detail="CSRF validation failed")
 
 
 def _normalize_lf(message: str) -> str:
@@ -267,7 +253,7 @@ async def workers_post(request: Request, worker_name: str) -> Response:
 
     form = await request.form()
     form_token = form.get("csrf_token")
-    _validate_csrf(
+    csrf_or_403(
         request=request,
         session=session,
         form_token=form_token if isinstance(form_token, str) else None,

@@ -15,7 +15,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from fishtest.cookie_session import commit_session, load_session
 from fishtest.mako import default_template_lookup, render_template
-from fishtest.views.auth import TemplateRequest
+from fishtest.template_request import TemplateRequest
 from fishtest.views.common import authenticated_user, is_https
 
 if TYPE_CHECKING:

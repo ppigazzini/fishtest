@@ -9,7 +9,6 @@ Pyramid; password hashing changes are explicitly out of scope.
 
 from __future__ import annotations
 
-import secrets
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, cast
 
@@ -17,10 +16,11 @@ import fishtest.github_api as gh
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fishtest.cookie_session import CookieSession, commit_session, load_session
+from fishtest.csrf import csrf_or_403, csrf_token_from_form
 from fishtest.mako import default_template_lookup, render_template
 from fishtest.schemas import github_repo
+from fishtest.template_request import TemplateRequest
 from fishtest.util import email_valid, format_date, password_strength
-from fishtest.views.auth import TemplateRequest
 from fishtest.views.common import authenticated_user, is_https
 from vtjson import ValidationError, union, validate
 
@@ -147,18 +147,6 @@ def _maybe_update_email(
 def _is_approver(*, userdb: UserDb, username: str) -> bool:
     groups = userdb.get_user_groups(username) or []
     return "group:approvers" in groups
-
-
-def _validate_csrf(
-    *,
-    request: Request,
-    session: CookieSession,
-    csrf_token: str | None,
-) -> None:
-    expected = session.get_csrf_token()
-    token = request.headers.get("x-csrf-token") or csrf_token
-    if not token or not secrets.compare_digest(token, expected):
-        raise HTTPException(status_code=403, detail="CSRF validation failed")
 
 
 def _redirect_with_session(
@@ -296,11 +284,10 @@ async def profile_post(request: Request) -> RedirectResponse:
         )
 
     form: FormData = await request.form()
-    raw_csrf = form.get("csrf_token")
-    _validate_csrf(
+    csrf_or_403(
         request=request,
         session=session,
-        csrf_token=raw_csrf if isinstance(raw_csrf, str) else None,
+        form_token=csrf_token_from_form(form),
     )
 
     user_data = userdb.get_user(userid)
@@ -395,11 +382,10 @@ async def user_post(request: Request, username: str) -> RedirectResponse:
         return _redirect_with_session(request=request, session=session, url="/login")
 
     form: FormData = await request.form()
-    raw_csrf = form.get("csrf_token")
-    _validate_csrf(
+    csrf_or_403(
         request=request,
         session=session,
-        csrf_token=raw_csrf if isinstance(raw_csrf, str) else None,
+        form_token=csrf_token_from_form(form),
     )
 
     if not _is_approver(userdb=userdb, username=userid):
