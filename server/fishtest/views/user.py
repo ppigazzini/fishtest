@@ -13,10 +13,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, cast
 
 import fishtest.github_api as gh
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fishtest.cookie_session import CookieSession, commit_session, load_session
 from fishtest.csrf import csrf_or_403, csrf_token_from_form
+from fishtest.dependencies import get_actiondb, get_userdb
 from fishtest.mako import default_template_lookup, render_template
 from fishtest.schemas import github_repo
 from fishtest.template_request import TemplateRequest
@@ -225,7 +226,7 @@ def _user_cpu_hours(*, userdb: UserDb, username: str) -> int:
 async def profile_get(request: Request) -> Response:
     """Show logged-in user's profile page."""
     session = load_session(request)
-    userdb = cast("UserDb", request.app.state.userdb)
+    userdb = get_userdb(request)
 
     userid = authenticated_user(session)
     if not userid:
@@ -263,13 +264,15 @@ async def profile_get(request: Request) -> Response:
 
 
 @router.post("/user")
-async def profile_post(request: Request) -> RedirectResponse:
+async def profile_post(
+    request: Request,
+    userdb: "UserDb" = Depends(get_userdb),
+) -> RedirectResponse:
     """Handle profile updates.
 
     Mirrors the Pyramid behavior: after processing, redirect to /tests.
     """
     session = load_session(request)
-    userdb = cast("UserDb", request.app.state.userdb)
 
     userid = authenticated_user(session)
     redirect_url = "/tests"
@@ -328,7 +331,7 @@ async def profile_post(request: Request) -> RedirectResponse:
 async def user_get(request: Request, username: str) -> Response:
     """Show user details for approvers, otherwise redirect."""
     session = load_session(request)
-    userdb = cast("UserDb", request.app.state.userdb)
+    userdb = get_userdb(request)
 
     userid = authenticated_user(session)
     if not userid:
@@ -370,11 +373,14 @@ async def user_get(request: Request, username: str) -> Response:
 
 
 @router.post("/user/{username}")
-async def user_post(request: Request, username: str) -> RedirectResponse:
+async def user_post(
+    request: Request,
+    username: str,
+    userdb: "UserDb" = Depends(get_userdb),
+    actiondb: "ActionDb" = Depends(get_actiondb),
+) -> RedirectResponse:
     """Handle approver actions for a user (pending/block)."""
     session = load_session(request)
-    userdb = cast("UserDb", request.app.state.userdb)
-    actiondb = cast("ActionDb", request.app.state.actiondb)
 
     userid = authenticated_user(session)
     if not userid:
