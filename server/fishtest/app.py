@@ -8,26 +8,25 @@ import os
 import signal
 import sys
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final, cast
 
 import fishtest.github_api as gh
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
-from fishtest.cookie_session import clear_session_cookie, load_session
 from fishtest.errors import install_error_handlers
+from fishtest.middleware import (
+    AttachRequestStateMiddleware,
+    RedirectBlockedUiUsersMiddleware,
+    ShutdownGuardMiddleware,
+)
 from fishtest.router import include_routers
 from fishtest.rundb import RunDb
 from fishtest.settings import DEFAULT_APP_TITLE, AppSettings, default_static_dir
-from fishtest.views.common import authenticated_user, is_https
-from starlette.responses import PlainTextResponse
 from starlette.staticfiles import StaticFiles
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
     from pathlib import Path
-
-    from starlette.middleware.base import RequestResponseEndpoint
-    from starlette.responses import Response
 
 
 def _install_thread_dump_signal_handler() -> None:
@@ -141,78 +140,13 @@ def create_app() -> FastAPI:
     app = FastAPI(title=DEFAULT_APP_TITLE, lifespan=lifespan)
     install_error_handlers(app)
 
-    def _external_base_url_from_request(request: Request) -> str:
-        forwarded = (
-            request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
-        )
-        scheme = forwarded or request.url.scheme
-        host = request.headers.get("host")
-        if host:
-            return f"{scheme}://{host}".rstrip("/")
-        return str(request.base_url).rstrip("/")
-
-    @app.middleware("http")
-    async def _attach_request_state_and_base_url(
-        request: Request,
-        call_next: RequestResponseEndpoint,
-    ) -> Response:
-        rundb = getattr(request.app.state, "rundb", None)
-        if rundb is not None:
-            request.state.rundb = rundb
-            request.state.userdb = getattr(request.app.state, "userdb", None)
-            request.state.actiondb = getattr(request.app.state, "actiondb", None)
-            request.state.workerdb = getattr(request.app.state, "workerdb", None)
-
-            if not getattr(rundb, "_base_url_set", True):
-                rundb.base_url = _external_base_url_from_request(request)
-                rundb._base_url_set = True  # noqa: SLF001
-
-        return await call_next(request)
-
-    @app.middleware("http")
-    async def _redirect_blocked_ui_users(
-        request: Request,
-        call_next: RequestResponseEndpoint,
-    ) -> Response:
-        # Match Pyramid's behavior: if an authenticated UI user becomes blocked,
-        # invalidate the session and redirect to the tests page.
-        path = request.url.path
-        if path.startswith("/api") or path.startswith("/static"):
-            return await call_next(request)
-
-        userdb = getattr(request.app.state, "userdb", None)
-        if userdb is None:
-            return await call_next(request)
-
-        session = load_session(request)
-        username = authenticated_user(session)
-        if not username:
-            return await call_next(request)
-
-        blocked_users = userdb.get_blocked()
-        is_blocked = any(
-            isinstance(user, dict)
-            and user.get("username") == username
-            and user.get("blocked")
-            for user in blocked_users
-        )
-        if is_blocked:
-            session.invalidate()
-            response = RedirectResponse(url="/tests", status_code=302)
-            clear_session_cookie(response=response, secure=is_https(request))
-            return response
-
-        return await call_next(request)
-
-    @app.middleware("http")
-    async def _reject_requests_while_shutting_down(
-        request: Request,
-        call_next: RequestResponseEndpoint,
-    ) -> Response:
-        rundb = getattr(request.app.state, "rundb", None)
-        if rundb is not None and getattr(rundb, "_shutdown", False):
-            return PlainTextResponse("", status_code=503)
-        return await call_next(request)
+    # Middleware order is explicit:
+    # - Shutdown guard runs first (outermost).
+    # - Blocked-user redirect applies to UI routes only.
+    # - Request state wiring/base_url init runs closest to handlers.
+    app.add_middleware(cast(Any, AttachRequestStateMiddleware))
+    app.add_middleware(cast(Any, RedirectBlockedUiUsersMiddleware))
+    app.add_middleware(cast(Any, ShutdownGuardMiddleware))
 
     static_dir: Final[Path] = default_static_dir()
     app.mount(
