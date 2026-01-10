@@ -23,6 +23,7 @@ from typing import Any, Final, TypedDict, cast
 import anyio
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+from fishtest.dependencies import get_actiondb, get_rundb, get_userdb
 from fishtest.schemas import api_access_schema, api_schema, gzip_data
 from fishtest.util import worker_name
 from fishtest.versions import WORKER_VERSION
@@ -104,7 +105,7 @@ def _json_body_or_response_sync(
     *,
     t0: float,
 ) -> dict[str, Any] | JSONResponse:
-    return anyio.from_thread.run(
+    return anyio.from_thread.run(  # type: ignore[unresolved-attribute]
         functools.partial(_json_body_or_response, t0=t0),
         request,
     )
@@ -125,7 +126,8 @@ def _validate_username_password(
     username = body["worker_info"]["username"]
     password = body["password"]
 
-    token = request.app.state.userdb.authenticate(username, password)
+    userdb = get_userdb(request)
+    token = userdb.authenticate(username, password)
     if isinstance(token, dict) and "error" in token:
         payload = _api_error(path=request.url.path, message=token["error"], t0=t0)
         return JSONResponse(payload, status_code=401)
@@ -154,7 +156,7 @@ def _validate_request(
         payload = _api_error(path=request.url.path, message=str(exc), t0=t0)
         return None, None, JSONResponse(payload, status_code=400)
 
-    rundb = request.app.state.rundb
+    rundb = get_rundb(request)
 
     run: dict[str, Any] | None = None
     task: dict[str, Any] | None = None
@@ -206,7 +208,7 @@ def _validate_request(
 
 
 def _require_primary_instance(*, request: Request, t0: float) -> JSONResponse | None:
-    rundb = request.app.state.rundb
+    rundb = get_rundb(request)
     if hasattr(rundb, "is_primary_instance") and not rundb.is_primary_instance():
         payload = _api_error(
             path=request.url.path,
@@ -270,7 +272,7 @@ def update_task(request: Request) -> JSONResponse:
     if error is not None:
         return error
 
-    rundb = request.app.state.rundb
+    rundb = get_rundb(request)
 
     run_id: Final[str] = body["run_id"]
     task_id: Final[int] = body["task_id"]
@@ -318,7 +320,7 @@ def request_task(request: Request) -> JSONResponse:
     worker_info = _worker_info_for_rundb(request=request, body=body, task=task)
     worker_info["host_url"] = _host_url(request)
 
-    rundb = request.app.state.rundb
+    rundb = get_rundb(request)
     result = rundb.request_task(worker_info)
     if not isinstance(result, dict):
         result = {"info": result}
@@ -376,7 +378,7 @@ def beat(request: Request) -> JSONResponse:
         )
         return JSONResponse(payload, status_code=400)
 
-    rundb = request.app.state.rundb
+    rundb = get_rundb(request)
     run_id: str = body["run_id"]
     with rundb.active_run_lock(run_id):
         if task.get("active"):
@@ -414,7 +416,7 @@ def request_spsa(request: Request) -> JSONResponse:
         )
         return JSONResponse(payload, status_code=400)
 
-    rundb = request.app.state.rundb
+    rundb = get_rundb(request)
     result = rundb.spsa_handler.request_spsa_data(body["run_id"], body["task_id"])
     if not isinstance(result, dict):
         result = {"info": result}
@@ -439,7 +441,7 @@ def failed_task(request: Request) -> JSONResponse:
     if error is not None:
         return error
 
-    rundb = request.app.state.rundb
+    rundb = get_rundb(request)
     result = rundb.failed_task(body["run_id"], body["task_id"], body.get("message", ""))
     if not isinstance(result, dict):
         result = {"info": result}
@@ -472,9 +474,9 @@ def stop_run(request: Request) -> JSONResponse:
         )
         return JSONResponse(payload, status_code=400)
 
-    rundb = request.app.state.rundb
-    userdb = request.app.state.userdb
-    actiondb = request.app.state.actiondb
+    rundb = get_rundb(request)
+    userdb = get_userdb(request)
+    actiondb = get_actiondb(request)
 
     username = body["worker_info"]["username"]
     user = userdb.user_cache.find_one({"username": username})
@@ -540,7 +542,8 @@ def worker_log(request: Request) -> JSONResponse:
     message: str = body.get("message", "")
     username: str = body["worker_info"]["username"]
 
-    request.app.state.actiondb.log_message(
+    actiondb = get_actiondb(request)
+    actiondb.log_message(
         username=username,
         message=message,
         worker=worker_name(worker_info),
@@ -572,7 +575,7 @@ def upload_pgn(request: Request) -> JSONResponse:
         payload = _api_error(path=request.url.path, message=str(exc), t0=t0)
         return JSONResponse(payload, status_code=400)
 
-    rundb = request.app.state.rundb
+    rundb = get_rundb(request)
     run_id: str = body["run_id"]
     task_id: int = body["task_id"]
     result = rundb.upload_pgn(run_id=f"{run_id}-{task_id}", pgn_zip=pgn_zip)
