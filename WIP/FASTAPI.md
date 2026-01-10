@@ -782,3 +782,82 @@ If you still need to run the legacy Pyramid server (WSGI), it now comes from:
 The FastAPI app import path for local/dev runs is:
 
 - `uvicorn fishtest.app:app --host 0.0.0.0 --port 8000`
+
+---
+
+## 2026 FastAPI refactor plan (tracking)
+
+This section is intentionally **last in the file** so we can append progress notes during the migration without rewriting earlier rationale.
+
+### Goal
+
+Make the FastAPI codebase more idiomatic (FastAPI/Starlette in 2026, Python 3.14) while preserving Pyramid behavior where required (especially worker protocol correctness).
+
+### Use more built-in FastAPI/Starlette features (no extra deps)
+
+We can simplify and standardize the codebase by leaning on framework features we are not consistently using yet:
+
+- **Dependency injection (`fastapi.Depends`)**
+  - Replace many `request.app.state.*` lookups with typed dependencies (e.g., `get_rundb`, `get_userdb`).
+  - Keeps handlers small and makes contracts explicit per endpoint.
+
+- **Class-based middleware / explicit middleware ordering**
+  - Use Starlette middleware classes (or pure ASGI middleware) instead of nested `@app.middleware("http")` closures.
+  - Benefit: ordering is explicit and testable (e.g., “shutdown guard runs before everything”).
+
+- **Lifespan as the single place for startup/shutdown**
+  - Keep all init/cleanup (primary-instance init, scheduler, shutdown flush) in lifespan.
+  - Avoid installing SIGINT/SIGTERM handlers in-app (Uvicorn owns those); keep SIGUSR1 only.
+
+- **Proxy-awareness via server/runtime flags (preferred)**
+  - Prefer `uvicorn --proxy-headers --forwarded-allow-ips=...` so `request.url.scheme` is correct.
+  - If configured, we can simplify base-URL derivation and reduce manual `X-Forwarded-*` parsing.
+
+- **Standard logging (Python `logging`) instead of `print()`**
+  - Use structured logging conventions and log levels; improves ops parity and debugging.
+
+### Refactor steps (safe, incremental)
+
+1) **Extract shared “template request” shim**
+   - Move `TemplateRequest` (and Pyramid template-compat helpers like `static_url`) out of `views/auth.py` into a dedicated module (e.g., `fishtest/template_request.py`).
+   - Goal: single source of truth for template contract used by all UI routes.
+
+2) **Unify CSRF helpers**
+   - Centralize CSRF validation in one helper module (e.g., `fishtest/csrf.py`).
+   - Update all UI POST routes to use the shared function.
+
+3) **Replace inline middlewares with explicit middleware classes**
+   - Create `fishtest/middleware.py` and implement:
+     - shutdown guard (`503`)
+     - attach request state (`request.state.rundb/userdb/actiondb/workerdb`)
+     - blocked-user redirect (UI only)
+   - Install via `app.add_middleware(...)` in a single, ordered block.
+
+4) **Introduce typed app state + dependency helpers**
+   - Create a small typed wrapper (dataclass/protocol) for what we store on `app.state`.
+   - Add dependencies:
+     - `get_rundb(request) -> RunDb`
+     - `get_userdb(request) -> UserDb`
+   - Adopt in routes gradually (no big-bang change).
+
+5) **Standardize redirect semantics**
+   - Decide and apply a consistent policy (prefer Pyramid parity: `302` for UI flows).
+   - Keep API redirects as-is where they are part of the contract.
+
+6) **Logging + observability cleanup**
+   - Replace startup/shutdown `print()` with `logging`.
+   - Add request timing/log correlation if needed (still without adding new deps).
+
+7) **Document and lock in operational constraints**
+   - Re-assert that `--workers > 1` breaks in-process locks/semaphores/caches.
+   - Keep primary instance as a single process.
+
+8) **Verification gates**
+   - For each refactor step, keep this minimum bar:
+     - `cd server && uv run ruff check .`
+     - `cd server && uv run ty check fishtest/app.py` (and any touched modules)
+     - Run a small targeted pytest subset if applicable.
+
+### Progress log (append-only)
+
+- 2026-01-10: Added Pyramid-parity fixes in `fishtest/app.py` (blocked-user check uses `get_blocked()` 1s cache; secret warning; 503 guard body).
