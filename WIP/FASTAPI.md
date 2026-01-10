@@ -129,6 +129,31 @@ Deployment implication:
 - To take advantage of the cache buster, serve `/static/` with long-lived cache headers (e.g., `Cache-Control: public, max-age=31536000, immutable`).
 - If nginx serves static files, ensure it serves the `/static/` namespace (not only `/css`, `/js`, etc.) and handle conventional root fetches like `/robots.txt` and `/favicon.ico`.
 
+#### Signals and shutdown: uvicorn + lifespan parity
+
+Legacy Pyramid behavior:
+
+- `SIGUSR1` prints stack traces for all threads (debugging).
+- `SIGINT`/`SIGTERM` call `RunDb.exit_run()`, which:
+  - sets `rundb._shutdown = True` (reject new requests),
+  - stops the scheduler,
+  - flushes the run cache and saves persistent state (primary instance only),
+  - writes a `system_event` "stop fishtest@<port>",
+  - exits.
+
+FastAPI/Uvicorn considerations:
+
+- Uvicorn already owns `SIGINT`/`SIGTERM` (graceful server stop). Installing our own
+  handlers for those signals can conflict with Uvicorn.
+
+Current FastAPI approach:
+
+- `SIGUSR1` is supported via `faulthandler.register(..., all_threads=True)` in `server/fishtest/app.py`.
+- `SIGINT`/`SIGTERM` cleanup is implemented in the FastAPI **lifespan shutdown** in `server/fishtest/app.py`.
+  This preserves Pyramid's cleanup steps without overriding Uvicorn signal handlers.
+- A small middleware returns HTTP `503` once `rundb._shutdown` is set (matching Pyramid's
+  per-request `HTTPServiceUnavailable` guard).
+
 ## Modern FastAPI stack (2026) — packages + application shape
 
 This section documents the **target “modern FastAPI” stack** for this migration.

@@ -177,6 +177,14 @@ Error handling:
 - `/api/...` returns JSON errors (404 as JSON).
 - UI routes return an HTML 404 page rendered from `notfound.mak` (and commit the cookie session).
 
+Signals and shutdown:
+
+- `SIGUSR1` is registered (where available) to dump all thread stack traces for debugging.
+- `SIGINT`/`SIGTERM` are handled by Uvicorn. Fishtest's Pyramid-era cleanup steps are executed
+	from FastAPI's lifespan shutdown (stop scheduler, flush/save on primary, log a stop event).
+- Once shutdown begins, the app rejects new requests with HTTP `503` (matching Pyramid's
+	`rundb._shutdown` request guard).
+
 Run creation form logic (FastAPI migration “glue”):
 
 - Implemented in `server/fishtest/run_form.py`.

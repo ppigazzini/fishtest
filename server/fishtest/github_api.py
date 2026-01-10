@@ -397,11 +397,9 @@ normalize_repo_cache = LRUCache(size=128, expiration=600)
 
 
 def normalize_repo(repo):
-    global normalize_repo_cache
-    if repo in normalize_repo_cache:
-        cache = normalize_repo_cache[repo]
-        if time.time() - cache[0] < NORMALIZE_REPO_CACHE_EXPIRY_SECONDS:
-            return cache[1]
+    cached_url = normalize_repo_cache.get(repo, refresh=False)
+    if cached_url is not None:
+        return cached_url
     r = call(
         repo,
         _method="HEAD",
