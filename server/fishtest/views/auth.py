@@ -10,10 +10,13 @@ pages rendered by the FastAPI app.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import os
 import secrets
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated, cast
+from pathlib import Path
+from typing import TYPE_CHECKING, Annotated, Final, cast
 
 import requests
 from fastapi import APIRouter, Form, HTTPException, Request
@@ -42,6 +45,39 @@ TEMPLATE_LOOKUP = default_template_lookup()
 
 HTTP_TIMEOUT = 15
 
+_STATIC_DIR: Final[Path] = Path(__file__).resolve().parents[1] / "static"
+_STATIC_URL_PARAM: Final[str] = "x"
+_STATIC_TOKEN_CACHE: dict[str, str] = {}
+
+
+def _static_file_token(rel_path: str) -> str | None:
+    """Return a Pyramid-compatible cache-buster token for a static file.
+
+    Pyramid used a base64-encoded sha384 hash of the file contents as a query
+    string parameter (see `FileHashCacheBuster` in the legacy implementation).
+
+    Args:
+        rel_path: Path relative to the server static directory, e.g.
+            "css/application.css".
+
+    Returns:
+        The cache-buster token, or None if the file does not exist/read fails.
+
+    """
+    cached = _STATIC_TOKEN_CACHE.get(rel_path)
+    if cached is not None:
+        return cached
+
+    file_path = _STATIC_DIR / rel_path
+    try:
+        content = file_path.read_bytes()
+    except OSError:
+        return None
+
+    token = base64.b64encode(hashlib.sha384(content).digest()).decode("utf-8")
+    _STATIC_TOKEN_CACHE[rel_path] = token
+    return token
+
 
 @dataclass
 class TemplateRequest:
@@ -61,11 +97,20 @@ class TemplateRequest:
         return self.query_params
 
     def static_url(self, spec: str) -> str:
-        """Map a Pyramid asset spec to the FastAPI static mount."""
+        """Map a Pyramid asset spec to the FastAPI static mount.
+
+        This preserves Pyramid's cache-busting behavior by appending a stable
+        query string token derived from the file contents.
+        """
         prefix = "fishtest:static/"
-        if spec.startswith(prefix):
-            return "/static/" + spec[len(prefix) :]
-        return "/static/" + spec
+        rel_path = spec.removeprefix(prefix)
+        rel_path = rel_path.lstrip("/")
+
+        url = "/static/" + rel_path
+        token = _static_file_token(rel_path)
+        if token is None:
+            return url
+        return f"{url}?{_STATIC_URL_PARAM}={token}"
 
 
 def _validate_csrf(
@@ -151,6 +196,7 @@ async def login_get(request: Request) -> Response:
 
 @router.get("/signup", response_class=HTMLResponse)
 async def signup_get(request: Request) -> Response:
+    """Render the existing signup page."""
     session = load_session(request)
     userdb = cast("UserDb", request.app.state.userdb)
 
@@ -168,7 +214,7 @@ async def signup_get(request: Request) -> Response:
 
 
 @router.post("/signup")
-async def signup_post(
+async def signup_post(  # noqa: C901, PLR0912, PLR0913, PLR0915
     request: Request,
     username: Annotated[str, Form(...)],
     password: Annotated[str, Form(...)],
@@ -177,9 +223,11 @@ async def signup_post(
     tests_repo: Annotated[str | None, Form()] = None,
     csrf_token: Annotated[str | None, Form()] = None,
     g_recaptcha_response: Annotated[
-        str | None, Form(alias="g-recaptcha-response")
+        str | None,
+        Form(alias="g-recaptcha-response"),
     ] = None,
 ) -> Response:
+    """Handle signup form submission."""
     session = load_session(request)
     userdb = cast("UserDb", request.app.state.userdb)
 
@@ -244,12 +292,12 @@ async def signup_post(
             "remoteip": request.client.host if request.client else "",
         }
         try:
-            response_json = requests.post(
+            response_json = requests.post(  # noqa: ASYNC210
                 "https://www.google.com/recaptcha/api/siteverify",
                 data=payload,
                 timeout=HTTP_TIMEOUT,
             ).json()
-        except Exception:
+        except (requests.RequestException, ValueError):
             response_json = {"success": False}
 
         if not response_json.get("success", False):
