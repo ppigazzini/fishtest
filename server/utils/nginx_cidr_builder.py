@@ -77,8 +77,8 @@ def compute_max_length(folders: list[Path]) -> int:
 def build_nginx_conf(repo_path: Path) -> str:
     """Build the Nginx configuration file from the IP address ranges.
 
-    Expects aggregated.json files containing a dict with a "prefixes" key
-    (new schema), where prefixes have "ipv4" and "ipv6" lists.
+    Expects aggregated.json files containing a dict with a "prefixes" key,
+    where prefixes have "ipv4" and "ipv6" lists.
     """
     country_path = repo_path / "country"
     if not country_path.is_dir():
@@ -88,7 +88,6 @@ def build_nginx_conf(repo_path: Path) -> str:
     folders = sorted(country_path.glob("*"))
     max_length = compute_max_length(folders)
 
-    # Match cidr.conf.bkp style: align country code column.
     # Ensure padding width is at least length of "default".
     max_length = max(max_length, len("default"))
     conf_lines = ["geo $region {", f"    {'default':<{max_length}} ZZ;"]
