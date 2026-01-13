@@ -15,9 +15,7 @@ classifiers = [
     "Framework :: MongoDB",
     "Framework :: Mako",
     "Framework :: Numpy",
-    "Framework :: Pyramid",
     "Framework :: Scipy",
-    "Framework :: Waitress",
     "Topic :: Computer Chess Development",
     "Topic :: Computer Chess Development :: Statistical Testing Framework",
     "Topic :: Internet",
@@ -29,17 +27,16 @@ classifiers = [
 dependencies = [
     "awscli>=1.44.30",
     "email-validator>=2.3.0",
+    "fastapi>=0.128.0",
+    "mako>=1.3.10",
     "numpy>=2.4.2",
     "pymongo>=4.16.0",
-    "pyramid>=2.0.2",
-    "pyramid-debugtoolbar>=4.12.1",
-    "pyramid-mako>=1.1.0",
+    "python-multipart>=0.0.21",
     "regex>=2026.1.15",
     "requests>=2.32.5",
     "scipy>=1.17.0",
-    "setuptools>=61,<81",
+    "uvicorn[standard]>=0.40.0",
     "vtjson>=2.2.8",
-    "waitress>=3.0.2",
     "zxcvbn>=4.5.0",
 ]
 
@@ -49,11 +46,8 @@ Documentation = "https://github.com/official-stockfish/fishtest/wiki"
 Repository = "https://github.com/official-stockfish/fishtest"
 Issues = "https://github.com/official-stockfish/fishtest"
 
-[project.entry-points."paste.app_factory"]
-main = "fishtest:main"
-
 [build-system]
-requires = ["setuptools>=61,<81"]
+requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.data-files]
@@ -80,4 +74,14 @@ fishtest = [
     "*.pt",
     "*.txt",
     "*.xml",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["fishtest", "fishtest.*"]
+exclude = ["tests", "tests.*"]
+
+[dependency-groups]
+test = [
+    "httpx>=0.28.1",
 ]
