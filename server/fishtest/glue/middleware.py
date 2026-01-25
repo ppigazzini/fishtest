@@ -10,6 +10,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
+from fishtest.glue.api import WORKER_API_PATHS
 from fishtest.glue.cookie_session import (
     authenticated_user,
     clear_session_cookie,
@@ -18,7 +19,7 @@ from fishtest.glue.cookie_session import (
 )
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import PlainTextResponse, RedirectResponse
+from starlette.responses import JSONResponse, PlainTextResponse, RedirectResponse
 
 if TYPE_CHECKING:
     from starlette.middleware.base import RequestResponseEndpoint
@@ -83,6 +84,46 @@ class ShutdownGuardMiddleware(BaseHTTPMiddleware):
         if rundb is not None and getattr(rundb, "_shutdown", False):
             return PlainTextResponse("", status_code=503)
         return await call_next(request)
+
+
+def _duration_from_request(request: Request) -> float:
+    started_at = getattr(request.state, "request_started_at", None)
+    if isinstance(started_at, (int, float)):
+        return max(0.0, time.monotonic() - float(started_at))
+    return 0.0
+
+
+class RejectNonPrimaryWorkerApiMiddleware(BaseHTTPMiddleware):
+    """Return a stable worker-protocol error when misrouted to a secondary instance."""
+
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: RequestResponseEndpoint,
+    ) -> Response:
+        path = request.url.path
+        if path not in WORKER_API_PATHS:
+            return await call_next(request)
+
+        rundb = getattr(request.app.state, "rundb", None)
+        if rundb is None:
+            return await call_next(request)
+
+        try:
+            is_primary = bool(rundb.is_primary_instance())
+        except Exception:
+            is_primary = True
+
+        if is_primary:
+            return await call_next(request)
+
+        return JSONResponse(
+            {
+                "error": f"{path}: primary instance required",
+                "duration": _duration_from_request(request),
+            },
+            status_code=503,
+        )
 
 
 class AttachRequestStateMiddleware(BaseHTTPMiddleware):

@@ -81,16 +81,20 @@ Status:
 - Milestone 3 is complete; see [3.3-ITERATION.md](3.3-ITERATION.md) for completion record.
 
 
-## Milestone 4 — Make the FastAPI/Starlette layer idiomatic (incrementally)
+## Milestone 4 — Make the FastAPI/Starlette glue explicit + maintainable (incrementally)
+
+Status:
+
+- Milestone 4 is complete; see completion record in [3.4-ITERATION.md](3.4-ITERATION.md).
 
 Goal: reduce glue where it only exists due to “we haven’t refactored yet”, while keeping parity for behaviors that are relied on.
 
-Examples of what “idiomatic” means (choose deliberately, don’t churn):
+Examples of what “good FastAPI glue” means (choose deliberately, don’t churn):
 
 - Clear middleware stack (one responsibility each).
 - Explicit dependency injection where it simplifies lifecycle and testing.
 - Centralized exception handlers instead of ad-hoc per-route shaping.
-- Typed request models where they reduce bugs (not as a style exercise).
+- Request parsing is explicit (e.g., dependencies) where it reduces bugs/duplication (not as a style exercise).
 
 Scope guidance (incremental, safe-by-default):
 
@@ -102,14 +106,51 @@ Candidate areas (examples, not a mandate):
 
 - Move one-off request parsing into dependencies when it reduces duplication.
 - Consolidate error shaping that is currently spread across helpers.
-- Introduce Pydantic models only for new endpoints or when they remove known bugs.
 
 Non-goals for this milestone:
 
 - No redesign of DB adapters or scheduling semantics.
-- No template engine switch (that is Milestone 5).
 
-## Milestone 5 — Templates: Mako → Starlette Jinja2 (optional but recommended long-term)
+Completion notes (what landed):
+
+- Explicit + maintainable middleware/dependency patterns while preserving protocol parity.
+- Operational hardening for misrouted primary-only endpoints (worker guard + UI primary-only guard).
+- Next work moves to Milestone 5; see [3.5-ITERATION.md](3.5-ITERATION.md).
+
+## Milestone 5 — Remove Pyramid wrapper scaffolding (keep protocol parity)
+
+Goal: stop “pretending Pyramid” in the serving layer.
+
+This milestone is about removing the Pyramid-style wrapper patterns (request shims and view-config dispatch) and replacing them with explicit, idiomatic FastAPI route handlers and dependencies, while preserving the Pyramid-*era behavior contracts*.
+
+Definition of done:
+
+- UI and API endpoints are expressed as FastAPI handlers (explicit `@router.get`/`@router.post` or `add_api_route`) with typed inputs and `Depends(...)` dependencies.
+- No Pyramid-style view registration/dispatch layer is required (e.g. no `__view_configs__` registry + generic `_dispatch_view(...)` trampoline).
+- Pyramid-compatibility objects exist only at the boundary where they are truly required (e.g. a minimal template request object for legacy templates), not as the internal programming model.
+- Contract-test / parity gate remains the safety net; behavior changes are explicit and reviewed as such.
+
+Non-goals:
+
+- No UI redesign.
+- No “make everything async” rewrite.
+
+## Milestone 6 — Optional: Pydantic (only when it buys real safety)
+
+Goal: allow Pydantic only where it materially reduces bugs/duplication, without duplicating vtjson validation across the whole codebase or changing externally-visible error semantics.
+
+Scope guidance:
+
+- Prefer vtjson as the protocol-validation source of truth unless we deliberately migrate a specific surface.
+- If Pydantic is used for request parsing, ensure validation failures are routed through existing error shaping (avoid leaking FastAPI default `422` behavior on worker/UI paths).
+- Any Pydantic introduction must be paired with contract tests that lock response shape + error strings + worker `duration` behavior.
+
+Non-goals:
+
+- No broad conversion of existing endpoints “for style”.
+- No replacement of vtjson across the codebase.
+
+## Milestone N-1 — Templates: Mako → Starlette Jinja2 (optional but recommended long-term)
 
 Goal: remove the Mako/Pyramid-template compatibility layer and use the standard Starlette template integration.
 This is an architectural cleanup; it should happen only when Milestone 2 parity gates are solid.

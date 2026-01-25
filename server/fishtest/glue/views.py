@@ -18,7 +18,6 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fishtest.glue.cookie_session import (
     authenticated_user,
-    clear_session_cookie,
     commit_session,
     is_https,
     load_session,
@@ -26,7 +25,12 @@ from fishtest.glue.cookie_session import (
 from fishtest.glue.csrf import csrf_or_403, csrf_token_from_form
 from fishtest.glue.dependencies import get_actiondb, get_rundb, get_userdb, get_workerdb
 from fishtest.glue.mako import default_template_lookup, render_template
-from fishtest.glue.template_request import TemplateRequest
+from fishtest.glue.ui_context import build_ui_context
+from fishtest.glue.ui_pipeline import (
+    apply_http_cache,
+    apply_response_headers,
+    apply_session_cookie,
+)
 from fishtest.run_cache import Prio
 from fishtest.schemas import (
     RUN_VERSION,
@@ -65,15 +69,7 @@ async def render_notfound_response(request):
     """Render the legacy UI 404 page and commit the cookie session."""
     session = load_session(request)
 
-    template_request = TemplateRequest(
-        headers=request.headers,
-        cookies=request.cookies,
-        query_params=request.query_params,
-        session=session,
-        authenticated_userid=authenticated_user(session),
-        userdb=get_userdb(request),
-        url=str(request.url),
-    )
+    template_request = build_ui_context(request, session).template_request
 
     # Mako rendering is sync and can be CPU heavy; keep it off the event loop.
     rendered = await run_in_threadpool(
@@ -97,15 +93,7 @@ async def render_forbidden_response(request):
     session = load_session(request)
     session.flash("Please login")
 
-    template_request = TemplateRequest(
-        headers=request.headers,
-        cookies=request.cookies,
-        query_params=request.query_params,
-        session=session,
-        authenticated_userid=authenticated_user(session),
-        userdb=get_userdb(request),
-        url=str(request.url),
-    )
+    template_request = build_ui_context(request, session).template_request
 
     rendered = await run_in_threadpool(
         render_template,
@@ -315,26 +303,6 @@ class _RequestShim:
         return f"{self.host_url}/{path}"
 
 
-def _template_request(request, session):
-    return TemplateRequest(
-        headers=request.headers,
-        cookies=request.cookies,
-        query_params=request.query_params,
-        session=session,
-        authenticated_userid=authenticated_user(session),
-        userdb=get_userdb(request),
-        url=str(request.url),
-    )
-
-
-def _apply_response_headers(shim, response):
-    for k, v in getattr(shim.response, "headers", {}).items():
-        response.headers[k] = v
-    for k, v in getattr(shim.response, "headerlist", []):
-        response.headers[k] = v
-    return response
-
-
 async def _dispatch_view(fn, cfg, request, path_params):
     session = load_session(request)
     post = None
@@ -349,22 +317,27 @@ async def _dispatch_view(fn, cfg, request, path_params):
 
     shim = _RequestShim(request, session, post, path_params)
 
+    if (
+        request.method == "POST"
+        and cfg.get("require_primary")
+        and not shim.rundb.is_primary_instance()
+    ):
+        response = HTMLResponse(
+            "<h1>503 Service Unavailable</h1><p>Primary instance required.</p>",
+            status_code=503,
+        )
+        response.headers.setdefault("Cache-Control", "no-store")
+        apply_session_cookie(request, session, shim, response)
+        return apply_response_headers(shim, response)
+
     try:
         result = await run_in_threadpool(fn, shim)
     except HTTPFound as e:
         response = RedirectResponse(url=e.location, status_code=302)
         for k, v in getattr(e, "headers", []) or []:
             response.headers[k] = v
-        if getattr(shim, "_forget", False):
-            clear_session_cookie(response=response, secure=is_https(request))
-        else:
-            commit_session(
-                response=response,
-                session=session,
-                remember=getattr(shim, "_remember", False),
-                secure=is_https(request),
-            )
-        return _apply_response_headers(shim, response)
+        apply_session_cookie(request, session, shim, response)
+        return apply_response_headers(shim, response)
     except HTTPNotFound:
         raise StarletteHTTPException(status_code=404)
 
@@ -372,16 +345,8 @@ async def _dispatch_view(fn, cfg, request, path_params):
         response = RedirectResponse(url=result.location, status_code=302)
         for k, v in getattr(result, "headers", []) or []:
             response.headers[k] = v
-        if getattr(shim, "_forget", False):
-            clear_session_cookie(response=response, secure=is_https(request))
-        else:
-            commit_session(
-                response=response,
-                session=session,
-                remember=getattr(shim, "_remember", False),
-                secure=is_https(request),
-            )
-        return _apply_response_headers(shim, response)
+        apply_session_cookie(request, session, shim, response)
+        return apply_response_headers(shim, response)
 
     renderer = cfg.get("renderer")
     if isinstance(renderer, str) and renderer.endswith(".mak"):
@@ -392,7 +357,7 @@ async def _dispatch_view(fn, cfg, request, path_params):
             template_name=renderer,
             context={
                 **context,
-                "request": _template_request(request, session),
+                "request": build_ui_context(request, session).template_request,
             },
         )
         status_code = getattr(shim.response, "status", 200) or 200
@@ -401,24 +366,9 @@ async def _dispatch_view(fn, cfg, request, path_params):
         # Most UI endpoints either redirect or render templates.
         response = HTMLResponse("", status_code=204)
 
-    if getattr(shim, "_forget", False):
-        clear_session_cookie(response=response, secure=is_https(request))
-    else:
-        commit_session(
-            response=response,
-            session=session,
-            remember=getattr(shim, "_remember", False),
-            secure=is_https(request),
-        )
-
-    http_cache = cfg.get("http_cache")
-    if http_cache is not None and "Cache-Control" not in response.headers:
-        try:
-            response.headers["Cache-Control"] = f"max-age={int(http_cache)}"
-        except Exception:
-            pass
-
-    return _apply_response_headers(shim, response)
+    apply_session_cookie(request, session, shim, response)
+    apply_http_cache(response, cfg)
+    return apply_response_headers(shim, response)
 
 
 def pagination(page_idx, num, page_size, query_params):
@@ -491,6 +441,23 @@ def pagination(page_idx, num, page_size, query_params):
         }
     )
     return pages
+
+
+def parse_page_idx(page_param: str) -> int:
+    return max(0, int(page_param) - 1) if page_param.isdigit() else 0
+
+
+def parse_show_task(show_task_param, num_tasks: int) -> int:
+    try:
+        show_task = int(show_task_param)
+    except (TypeError, ValueError):
+        return -1
+    return show_task if -1 <= show_task < num_tasks else -1
+
+
+def should_include_unfinished_runs(page_param: str) -> bool:
+    # Pyramid-era behavior: page 2+ shows only finished runs.
+    return not page_param.isdigit() or int(page_param) <= 1
 
 
 @notfound_view_config(renderer="notfound.mak")
@@ -684,7 +651,12 @@ def workers(request):
     }
 
 
-@view_config(route_name="nn_upload", renderer="nn_upload.mak", require_csrf=True)
+@view_config(
+    route_name="nn_upload",
+    renderer="nn_upload.mak",
+    require_csrf=True,
+    require_primary=True,
+)
 def upload(request):
     ensure_logged_in(request)
 
@@ -1692,7 +1664,12 @@ def new_run_message(request, run):
     return ret
 
 
-@view_config(route_name="tests_run", renderer="tests_run.mak", require_csrf=True)
+@view_config(
+    route_name="tests_run",
+    renderer="tests_run.mak",
+    require_csrf=True,
+    require_primary=True,
+)
 def tests_run(request):
     user_id = ensure_logged_in(request)
 
@@ -1757,7 +1734,12 @@ def can_modify_run(request, run):
     return is_same_user(request, run) or request.has_permission("approve_run")
 
 
-@view_config(route_name="tests_modify", require_csrf=True, request_method="POST")
+@view_config(
+    route_name="tests_modify",
+    require_csrf=True,
+    request_method="POST",
+    require_primary=True,
+)
 def tests_modify(request):
     userid = ensure_logged_in(request)
 
@@ -1842,7 +1824,12 @@ def tests_modify(request):
     return home(request)
 
 
-@view_config(route_name="tests_stop", require_csrf=True, request_method="POST")
+@view_config(
+    route_name="tests_stop",
+    require_csrf=True,
+    request_method="POST",
+    require_primary=True,
+)
 def tests_stop(request):
     if not request.authenticated_userid:
         request.session.flash("Please login")
@@ -1863,7 +1850,12 @@ def tests_stop(request):
     return home(request)
 
 
-@view_config(route_name="tests_approve", require_csrf=True, request_method="POST")
+@view_config(
+    route_name="tests_approve",
+    require_csrf=True,
+    request_method="POST",
+    require_primary=True,
+)
 def tests_approve(request):
     if not request.authenticated_userid:
         return HTTPFound(location=request.route_url("login"))
@@ -1885,7 +1877,12 @@ def tests_approve(request):
     return home(request)
 
 
-@view_config(route_name="tests_purge", require_csrf=True, request_method="POST")
+@view_config(
+    route_name="tests_purge",
+    require_csrf=True,
+    request_method="POST",
+    require_primary=True,
+)
 def tests_purge(request):
     run = request.rundb.get_run(request.POST["run-id"])
     if not request.has_permission("approve_run") and not is_same_user(request, run):
@@ -1913,7 +1910,12 @@ def tests_purge(request):
     return home(request)
 
 
-@view_config(route_name="tests_delete", require_csrf=True, request_method="POST")
+@view_config(
+    route_name="tests_delete",
+    require_csrf=True,
+    request_method="POST",
+    require_primary=True,
+)
 def tests_delete(request):
     if not request.authenticated_userid:
         request.session.flash("Please login")

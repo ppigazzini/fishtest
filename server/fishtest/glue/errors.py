@@ -18,9 +18,11 @@ from fastapi.exception_handlers import (
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fishtest.glue.api import WORKER_API_PATHS
+from fishtest.glue.api import router as api_router
 from fishtest.glue.views import render_forbidden_response, render_notfound_response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import PlainTextResponse
+from starlette.routing import Route
 
 if TYPE_CHECKING:
     from fastapi import FastAPI, Request
@@ -30,7 +32,15 @@ STATUS_NOT_FOUND: Final[int] = 404
 STATUS_UNAUTHORIZED: Final[int] = 401
 STATUS_FORBIDDEN: Final[int] = 403
 
-_WORKER_API_PATHS: Final[set[str]] = set(WORKER_API_PATHS)
+
+def _derive_worker_api_paths() -> set[str]:
+    router_paths = {
+        route.path for route in api_router.routes if isinstance(route, Route)
+    }
+    return {path for path in WORKER_API_PATHS if path in router_paths}
+
+
+_WORKER_API_PATHS: Final[set[str]] = _derive_worker_api_paths()
 
 
 def _duration_from_request(request: Request) -> float:

@@ -9,6 +9,12 @@ from urllib.parse import urlparse
 import fishtest.github_api as gh
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
+from fishtest.glue.dependencies import (
+    DependencyNotInitializedError,
+    get_actiondb,
+    get_rundb,
+    get_userdb,
+)
 from fishtest.schemas import api_access_schema, api_schema, gzip_data
 from fishtest.stats.stat_util import SPRT_elo, get_elo
 from fishtest.util import strip_run, worker_name
@@ -94,15 +100,18 @@ class _RequestShim:
         self.remote_addr = request.client.host if request.client else None
         self.response = _ResponseShim()
 
-        self.rundb = getattr(request.state, "rundb", None) or getattr(
-            request.app.state, "rundb", None
-        )
-        self.userdb = getattr(request.state, "userdb", None) or getattr(
-            request.app.state, "userdb", None
-        )
-        self.actiondb = getattr(request.state, "actiondb", None) or getattr(
-            request.app.state, "actiondb", None
-        )
+        try:
+            self.rundb = get_rundb(request)
+        except DependencyNotInitializedError:
+            self.rundb = None
+        try:
+            self.userdb = get_userdb(request)
+        except DependencyNotInitializedError:
+            self.userdb = None
+        try:
+            self.actiondb = get_actiondb(request)
+        except DependencyNotInitializedError:
+            self.actiondb = None
 
     @property
     def json_body(self):
@@ -131,6 +140,20 @@ class GenericApi:
             raise HTTPException(
                 status_code=status_code, detail=self.add_time({"error": error})
             )
+
+    def parse_page_param(self, page_param: str) -> int:
+        if page_param == "":
+            self.handle_error("Please provide a Page number.")
+        if not page_param.isdigit() or int(page_param) < 1:
+            self.handle_error("Please provide a valid Page number.")
+        return int(page_param) - 1
+
+    def parse_unix_timestamp(self, timestamp: str):
+        if timestamp == "":
+            return None
+        if re.match(r"^\d{10}(\.\d+)?$", timestamp):
+            return datetime.fromtimestamp(float(timestamp))
+        self.handle_error("Please provide a valid UNIX timestamp.")
 
 
 class WorkerApi(GenericApi):
