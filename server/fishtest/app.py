@@ -23,6 +23,7 @@ from fishtest.glue.errors import install_error_handlers
 from fishtest.glue.middleware import (
     AttachRequestStateMiddleware,
     RedirectBlockedUiUsersMiddleware,
+    RejectNonPrimaryWorkerApiMiddleware,
     ShutdownGuardMiddleware,
 )
 from fishtest.glue.settings import AppSettings, default_static_dir
@@ -130,6 +131,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(cast("Any", ShutdownGuardMiddleware))
     app.add_middleware(cast("Any", AttachRequestStateMiddleware))
+    app.add_middleware(cast("Any", RejectNonPrimaryWorkerApiMiddleware))
     app.add_middleware(cast("Any", RedirectBlockedUiUsersMiddleware))
 
     static_dir = default_static_dir()
