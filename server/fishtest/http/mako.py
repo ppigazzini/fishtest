@@ -17,7 +17,7 @@ REPO_ROOT_DEPTH: Final[int] = 3
 
 def _repo_root() -> Path:
     """Return the repository root directory."""
-    # server/fishtest/glue/mako.py -> server/ -> repo root
+    # server/fishtest/http/mako.py -> server/ -> repo root
     return Path(__file__).resolve().parents[REPO_ROOT_DEPTH]
 
 

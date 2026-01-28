@@ -18,7 +18,7 @@ def require_fastapi() -> tuple[Any, Any]:
         # dependency is missing.
         name = getattr(exc, "name", None)
         raise unittest.SkipTest(
-            f"FastAPI test dependencies missing ({name or exc}); skipping FastAPI glue tests",
+            f"FastAPI test dependencies missing ({name or exc}); skipping FastAPI HTTP tests",
         )
 
 
@@ -29,15 +29,15 @@ def build_test_app(*, rundb: Any, include_api: bool, include_views: bool):
     FastAPI, _TestClient = require_fastapi()
 
     try:
-        from fishtest.glue.errors import install_error_handlers
-        from fishtest.glue.middleware import (
+        from fishtest.http.errors import install_error_handlers
+        from fishtest.http.middleware import (
             AttachRequestStateMiddleware,
             RedirectBlockedUiUsersMiddleware,
             ShutdownGuardMiddleware,
         )
     except ModuleNotFoundError as exc:  # pragma: no cover
         raise unittest.SkipTest(
-            f"Server dependencies missing ({exc.name}); skipping FastAPI glue tests",
+            f"Server dependencies missing ({exc.name}); skipping FastAPI HTTP tests",
         )
 
     app = FastAPI()
@@ -56,19 +56,19 @@ def build_test_app(*, rundb: Any, include_api: bool, include_views: bool):
 
     if include_api:
         try:
-            from fishtest.glue.api import router as api_router
+            from fishtest.http.api import router as api_router
         except ModuleNotFoundError as exc:  # pragma: no cover
             raise unittest.SkipTest(
-                f"Server dependencies missing ({exc.name}); skipping FastAPI glue tests",
+                f"Server dependencies missing ({exc.name}); skipping FastAPI HTTP tests",
             )
         app.include_router(api_router)
 
     if include_views:
         try:
-            from fishtest.glue.views import router as views_router
+            from fishtest.http.views import router as views_router
         except ModuleNotFoundError as exc:  # pragma: no cover
             raise unittest.SkipTest(
-                f"Server dependencies missing ({exc.name}); skipping FastAPI glue tests",
+                f"Server dependencies missing ({exc.name}); skipping FastAPI HTTP tests",
             )
         app.include_router(views_router)
 
@@ -76,7 +76,7 @@ def build_test_app(*, rundb: Any, include_api: bool, include_views: bool):
 
 
 def make_test_client(*, rundb: Any, include_api: bool, include_views: bool):
-    """Create a starlette TestClient for the glue routers."""
+    """Create a starlette TestClient for the HTTP routers."""
     _FastAPI, TestClient = require_fastapi()
     app = build_test_app(
         rundb=rundb,

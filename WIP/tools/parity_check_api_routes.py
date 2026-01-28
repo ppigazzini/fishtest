@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # ruff: noqa: T201
-"""Parity check: Pyramid API routes vs FastAPI glue API routes.
+"""Parity check: Pyramid API routes vs FastAPI HTTP API routes.
 
 This script is a captured version of the ad-hoc checks used during the
 mechanical port work.
 
 It compares:
 - Pyramid spec: server/fishtest/api.py (route_name="api_...")
-- FastAPI glue: server/fishtest/glue/api.py (@router.<method>("/api/..."))
+- FastAPI HTTP: server/fishtest/http/api.py (@router.<method>("/api/..."))
 
 Usage:
   python WIP/parity_check_api_routes.py
@@ -28,7 +28,8 @@ API_PATH_STEM_INDEX = 2
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC_API = REPO_ROOT / "server" / "fishtest" / "api.py"
-GLUE_API = REPO_ROOT / "server" / "fishtest" / "glue" / "api.py"
+GLUE_API = REPO_ROOT / "server" / "fishtest" / "http" / "api.py"
+WEB_ROOT = REPO_ROOT / "server" / "fishtest" / "web"
 
 
 _SPEC_TO_GLUE_STEM_OVERRIDES: dict[str, str] = {
@@ -160,13 +161,22 @@ def _spec_stem_from_route_name(route_name: str) -> str:
     return _SPEC_TO_GLUE_STEM_OVERRIDES.get(suffix, suffix)
 
 
-def main() -> int:  # noqa: C901
+def main() -> int:  # noqa: C901, PLR0912, PLR0915
     """Run the API parity check and return process exit code."""
+    if WEB_ROOT.exists():
+        route_files = sorted(WEB_ROOT.rglob("routes_*.py"))
+        if route_files:
+            print("FAILED: http-first layout violation (web route modules found).")
+            for path in route_files:
+                rel = path.relative_to(REPO_ROOT)
+                print("  ", rel)
+            return 1
+
     if not SPEC_API.exists():
         print(f"Missing spec file: {SPEC_API}")
         return 1
     if not GLUE_API.exists():
-        print(f"Missing glue file: {GLUE_API}")
+        print(f"Missing http file: {GLUE_API}")
         return 1
 
     pyramid_routes = _iter_pyramid_api_routes(SPEC_API)
@@ -184,7 +194,7 @@ def main() -> int:  # noqa: C901
     spec_stems: set[str] = {stem for _, stem in spec_pairs}
 
     print("Pyramid api.py route_name count:", len({rn for _, rn in pyramid_routes}))
-    print("FastAPI glue/api.py /api paths count:", len([p for _, p in glue_routes]))
+    print("FastAPI http/api.py /api paths count:", len([p for _, p in glue_routes]))
 
     if pyramid_routes:
         print("\nPyramid route_names:")
@@ -206,28 +216,28 @@ def main() -> int:  # noqa: C901
 
     ok = True
 
-    print("\n(spec→glue) normalized endpoint pairs:")
+    print("\n(spec→http) normalized endpoint pairs:")
     print("  spec pairs", len(spec_pairs))
-    print("  glue pairs", len(glue_pairs), "(OPTIONS ignored)")
+    print("  http pairs", len(glue_pairs), "(OPTIONS ignored)")
     print("  missing stems", len(missing_stems))
     print("  missing methods", len(missing_methods))
     print("  extra (informational)", len(extra))
 
     if missing_stems:
         ok = False
-        print("\nMissing in glue (stem):")
+        print("\nMissing in http (stem):")
         for stem in missing_stems:
             print("  ", stem)
 
     if missing_methods:
         ok = False
-        print("\nMissing in glue (method, stem) for method-specified routes:")
+        print("\nMissing in http (method, stem) for method-specified routes:")
         for m, stem in missing_methods:
             print("  ", m, stem)
 
     if extra:
         # Extra endpoints might exist during transitions; report them but do not fail.
-        print("\nExtra in glue (method, stem):")
+        print("\nExtra in http (method, stem):")
         for m, stem in extra:
             print("  ", m, stem)
 

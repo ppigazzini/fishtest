@@ -29,6 +29,10 @@ This directory contains *work-in-progress* docs for the Pyramid → FastAPI migr
 7. **Rebase process + parity tooling:**
    - [5-REBASE.md](5-REBASE.md)
 
+8. **Reference guides (FastAPI/Starlette):**
+   - [6-FASTAPI-REFERENCES.md](6-FASTAPI-REFERENCES.md)
+   - [7-STARLETTE-REFERENCES.md](7-STARLETTE-REFERENCES.md)
+
 ## Sources of truth (don’t mix these up)
 
 - **Behavioral spec:** upstream Pyramid behavior (and the Pyramid-era spec modules kept in-tree for tests).

@@ -6,12 +6,12 @@ This is the API counterpart to `WIP/parity_check_views_ast.py`.
 
 It treats `server/fishtest/api.py` as the Pyramid behavioral spec and checks that
 for each `route_name="api_*"` view in the spec, the corresponding method body in
-`server/fishtest/glue/api.py` is identical.
+`server/fishtest/http/api.py` is identical.
 
 What it compares:
 - Spec: methods inside `WorkerApi` / `UserApi` decorated with
     `@view_config(route_name="api_...")`
-- Glue: methods with the same name inside `WorkerApi` / `UserApi`
+- HTTP: methods with the same name inside `WorkerApi` / `UserApi`
 
 Normalization choices (intentional):
 - compares function bodies only (signatures ignored)
@@ -36,7 +36,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC_API = REPO_ROOT / "server" / "fishtest" / "api.py"
-GLUE_API = REPO_ROOT / "server" / "fishtest" / "glue" / "api.py"
+GLUE_API = REPO_ROOT / "server" / "fishtest" / "http" / "api.py"
 
 # Endpoints that are intentionally expected to differ due to framework response
 # primitives (Pyramid Response/FileIter vs Starlette StreamingResponse).
@@ -106,7 +106,7 @@ class _BodyNormalizer(ast.NodeTransformer):
         node = visited
 
         # Normalize Pyramid-style handle_error(exception=HTTPNotFound)
-        # to glue-style handle_error(status_code=404).
+        # to http-style handle_error(status_code=404).
         if (
             isinstance(node.func, ast.Attribute)
             and node.func.attr == "handle_error"
@@ -252,7 +252,7 @@ def main() -> int:  # noqa: C901, PLR0912
         print(f"Missing spec file: {SPEC_API}")
         return 1
     if not GLUE_API.exists():
-        print(f"Missing glue file: {GLUE_API}")
+        print(f"Missing http file: {GLUE_API}")
         return 1
 
     spec_tree = ast.parse(SPEC_API.read_text())
@@ -281,12 +281,12 @@ def main() -> int:  # noqa: C901, PLR0912
                 changed.append(ep)
 
     print("spec api endpoints", len(endpoints))
-    print("missing glue methods", len(missing))
+    print("missing http methods", len(missing))
     print("changed method bodies", len(changed))
     print("expected drift bodies", len(allowed_changed))
 
     if missing:
-        print("\nMissing in glue:")
+        print("\nMissing in http:")
         for ep in missing[:200]:
             print(" ", ep.route_name, f"{ep.class_name}.{ep.method_name}")
 

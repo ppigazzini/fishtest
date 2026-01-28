@@ -1,24 +1,24 @@
-"""UI request context helpers for FastAPI glue views."""
+"""UI request context helpers for FastAPI HTTP views."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from fishtest.glue.cookie_session import authenticated_user
-from fishtest.glue.dependencies import (
+from fishtest.http.cookie_session import authenticated_user
+from fishtest.http.dependencies import (
     get_actiondb,
     get_rundb,
     get_userdb,
     get_workerdb,
 )
-from fishtest.glue.ui_pipeline import build_template_request
+from fishtest.http.ui_pipeline import build_template_request
 
 if TYPE_CHECKING:
     from fastapi import Request
     from fishtest.actiondb import ActionDb
-    from fishtest.glue.cookie_session import CookieSession
-    from fishtest.glue.template_request import TemplateRequest
+    from fishtest.http.cookie_session import CookieSession
+    from fishtest.http.template_request import TemplateRequest
     from fishtest.rundb import RunDb
     from fishtest.userdb import UserDb
     from fishtest.workerdb import WorkerDb

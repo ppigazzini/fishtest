@@ -1,4 +1,4 @@
-"""FastAPI glue layer.
+"""FastAPI HTTP layer.
 
 This package contains the FastAPI-specific adapters (middleware, error handling,
 settings parsing, template/session shims).

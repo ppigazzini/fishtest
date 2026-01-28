@@ -29,7 +29,7 @@ class TestUiSessionSemanticsFastAPI(unittest.TestCase):
         cls.rundb.conn.close()
 
     def test_ui_404_commits_session_cookie(self):
-        from fishtest.glue.cookie_session import SESSION_COOKIE_NAME
+        from fishtest.http.cookie_session import SESSION_COOKIE_NAME
 
         client = fastapi_util.make_test_client(
             rundb=self.rundb,
@@ -48,8 +48,8 @@ class TestUiSessionSemanticsFastAPI(unittest.TestCase):
     def test_csrf_failure_is_ui_403_not_json(self):
         from fastapi import Request
         from fastapi.responses import HTMLResponse
-        from fishtest.glue.cookie_session import SESSION_COOKIE_NAME, load_session
-        from fishtest.glue.csrf import csrf_or_403, csrf_token_from_form
+        from fishtest.http.cookie_session import SESSION_COOKIE_NAME, load_session
+        from fishtest.http.csrf import csrf_or_403, csrf_token_from_form
 
         _FastAPI, TestClient = fastapi_util.require_fastapi()
 

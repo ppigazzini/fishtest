@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 import fishtest.github_api as gh
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
-from fishtest.glue.dependencies import (
+from fishtest.http.dependencies import (
     DependencyNotInitializedError,
     get_actiondb,
     get_rundb,

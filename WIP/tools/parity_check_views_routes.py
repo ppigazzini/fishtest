@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # ruff: noqa: T201
-"""Parity check: Pyramid UI views vs FastAPI glue UI views.
+"""Parity check: Pyramid UI views vs FastAPI HTTP UI views.
 
 This script captures the ad-hoc checks used during the mechanical port.
 
 It compares:
 - route_name coverage and request_method coverage via @view_config
 - notfound_view_config and forbidden_view_config presence
-- _ROUTE_PATHS coverage in glue/views.py
+- _ROUTE_PATHS coverage in http/views.py
 
 Usage:
   python WIP/parity_check_views_routes.py
@@ -26,7 +26,24 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC_VIEWS = REPO_ROOT / "server" / "fishtest" / "views.py"
-GLUE_VIEWS = REPO_ROOT / "server" / "fishtest" / "glue" / "views.py"
+GLUE_VIEWS = REPO_ROOT / "server" / "fishtest" / "http" / "views.py"
+WEB_ROOT = REPO_ROOT / "server" / "fishtest" / "web"
+
+
+def _assert_glue_first_layout() -> bool:
+    """Fail if route logic is split into web/ modules (http-first rule)."""
+    if not WEB_ROOT.exists():
+        return True
+
+    route_files = sorted(WEB_ROOT.rglob("routes_*.py"))
+    if not route_files:
+        return True
+
+    print("FAILED: http-first layout violation (web route modules found).")
+    for path in route_files:
+        rel = path.relative_to(REPO_ROOT)
+        print("  ", rel)
+    return False
 
 
 def _normalize_request_methods(value: object) -> list[str | None]:
@@ -74,6 +91,9 @@ def _parse_route_paths(glue_path: Path) -> dict[str, str]:
 
 def main() -> int:  # noqa: C901, PLR0912, PLR0915
     """Run the UI route parity check and return process exit code."""
+    if not _assert_glue_first_layout():
+        return 1
+
     a = _parse_view_configs(SPEC_VIEWS)
     b = _parse_view_configs(GLUE_VIEWS)
 
@@ -119,7 +139,7 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
     glue_set = set(glue_idx)
 
     print("spec route_name count", len(spec_set))
-    print("glue route_name count", len(glue_set))
+    print("http route_name count", len(glue_set))
 
     missing = sorted(spec_set - glue_set)
     extra = sorted(glue_set - spec_set)
@@ -128,13 +148,13 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
 
     if missing:
         ok = False
-        print("missing in glue", len(missing))
+        print("missing in http", len(missing))
         for rn in missing:
             print("  ", rn, spec_idx[rn])
 
     if extra:
         ok = False
-        print("extra in glue", len(extra))
+        print("extra in http", len(extra))
         for rn in extra:
             print("  ", rn, glue_idx[rn])
 
@@ -153,7 +173,7 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
     if mismatch:
         ok = False
         for rn, sm, gm in mismatch:
-            print(" ", rn, "spec", sm, "glue", gm)
+            print(" ", rn, "spec", sm, "http", gm)
 
     route_paths = _parse_route_paths(GLUE_VIEWS)
     missing_paths = sorted(spec_set - set(route_paths))
@@ -182,9 +202,9 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
     ]
 
     print("spec notfound", spec_nf)
-    print("glue notfound", glue_nf)
+    print("http notfound", glue_nf)
     print("spec forbidden", spec_fb)
-    print("glue forbidden", glue_fb)
+    print("http forbidden", glue_fb)
 
     if spec_nf != glue_nf or spec_fb != glue_fb:
         ok = False

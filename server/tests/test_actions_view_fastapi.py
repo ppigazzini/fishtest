@@ -1,7 +1,7 @@
 import unittest
 
-from fishtest.glue.views import HTTPFound
-from fishtest.glue.views import actions as actions_view
+from fishtest.http.views import HTTPFound
+from fishtest.http.views import actions as actions_view
 
 
 class _ActionDbStub:

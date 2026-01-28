@@ -2,7 +2,7 @@
 # ruff: noqa: T201
 """Parity check: function-body (AST) equivalence for UI views.
 
-This is the stronger mechanical check used to confirm that glue/views.py kept
+This is the stronger mechanical check used to confirm that http/views.py kept
 the exact same view logic bodies as server/fishtest/views.py.
 
 Normalization choices (intentional):
@@ -25,7 +25,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC_VIEWS = REPO_ROOT / "server" / "fishtest" / "views.py"
-GLUE_VIEWS = REPO_ROOT / "server" / "fishtest" / "glue" / "views.py"
+GLUE_VIEWS = REPO_ROOT / "server" / "fishtest" / "http" / "views.py"
 
 
 def _func_body_dumps(path: Path) -> dict[str, str]:
@@ -34,13 +34,11 @@ def _func_body_dumps(path: Path) -> dict[str, str]:
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             body = list(node.body)
-            if (
-                body
-                and isinstance(body[0], ast.Expr)
-                and isinstance(getattr(body[0], "value", None), ast.Constant)
-                and isinstance(body[0].value.value, str)
-            ):
-                body = body[1:]
+            if body and isinstance(body[0], ast.Expr):
+                body0 = body[0]
+                value = body0.value
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    body = body[1:]
 
             # Normalize to compare function *bodies only*.
             normalized = ast.FunctionDef(

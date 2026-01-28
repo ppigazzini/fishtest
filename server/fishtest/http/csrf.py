@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from fastapi import HTTPException, Request
 
 if TYPE_CHECKING:
-    from fishtest.glue.cookie_session import CookieSession
+    from fishtest.http.cookie_session import CookieSession
     from starlette.datastructures import FormData
 
 

@@ -16,17 +16,23 @@ import regex
 import requests
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fishtest.glue.cookie_session import (
+from fishtest.http.cookie_session import (
     authenticated_user,
     commit_session,
     is_https,
     load_session,
 )
-from fishtest.glue.csrf import csrf_or_403, csrf_token_from_form
-from fishtest.glue.dependencies import get_actiondb, get_rundb, get_userdb, get_workerdb
-from fishtest.glue.mako import default_template_lookup, render_template
-from fishtest.glue.ui_context import build_ui_context
-from fishtest.glue.ui_pipeline import (
+from fishtest.http.csrf import csrf_or_403, csrf_token_from_form
+from fishtest.http.dependencies import (
+    get_actiondb,
+    get_request_context,
+    get_rundb,
+    get_userdb,
+    get_workerdb,
+)
+from fishtest.http.mako import default_template_lookup, render_template
+from fishtest.http.ui_context import build_ui_context
+from fishtest.http.ui_pipeline import (
     apply_http_cache,
     apply_response_headers,
     apply_session_cookie,
@@ -60,6 +66,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from vtjson import ValidationError, union, validate
 
 HTTP_TIMEOUT = 15.0
+FORM_MAX_FILES = 2
+FORM_MAX_FIELDS = 200
+FORM_MAX_PART_SIZE = 200 * 1024 * 1024
 
 router = APIRouter(tags=["ui"], include_in_schema=False)
 _TEMPLATE_LOOKUP = default_template_lookup()
@@ -244,7 +253,7 @@ class _CombinedParams:
 
 
 class _RequestShim:
-    def __init__(self, request, session, post, matchdict):
+    def __init__(self, request, session, post, matchdict, context=None):
         self._request = request
         self.session = session
         self.POST = post or {}
@@ -266,10 +275,16 @@ class _RequestShim:
         self.host_url = str(request.base_url).rstrip("/")
         self.remote_addr = request.client.host if request.client else None
 
-        self.rundb = get_rundb(request)
-        self.userdb = get_userdb(request)
-        self.actiondb = get_actiondb(request)
-        self.workerdb = get_workerdb(request)
+        if context is None:
+            self.rundb = get_rundb(request)
+            self.userdb = get_userdb(request)
+            self.actiondb = get_actiondb(request)
+            self.workerdb = get_workerdb(request)
+        else:
+            self.rundb = context["rundb"]
+            self.userdb = context["userdb"]
+            self.actiondb = context["actiondb"]
+            self.workerdb = context["workerdb"]
 
     @property
     def path_url(self):
@@ -304,10 +319,15 @@ class _RequestShim:
 
 
 async def _dispatch_view(fn, cfg, request, path_params):
-    session = load_session(request)
+    context = get_request_context(request)
+    session = context["session"]
     post = None
     if request.method == "POST":
-        post = await request.form()
+        post = await request.form(
+            max_files=FORM_MAX_FILES,
+            max_fields=FORM_MAX_FIELDS,
+            max_part_size=FORM_MAX_PART_SIZE,
+        )
         if cfg.get("require_csrf"):
             csrf_or_403(
                 request=request,
@@ -315,7 +335,7 @@ async def _dispatch_view(fn, cfg, request, path_params):
                 form_token=csrf_token_from_form(post),
             )
 
-    shim = _RequestShim(request, session, post, path_params)
+    shim = _RequestShim(request, session, post, path_params, context=context)
 
     if (
         request.method == "POST"

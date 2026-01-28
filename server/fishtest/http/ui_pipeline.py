@@ -1,24 +1,24 @@
-"""UI pipeline helpers for FastAPI glue views."""
+"""UI pipeline helpers for FastAPI HTTP views."""
 
 from __future__ import annotations
 
 from contextlib import suppress
 from typing import TYPE_CHECKING, Protocol
 
-from fishtest.glue.cookie_session import (
+from fishtest.http.cookie_session import (
     authenticated_user,
     clear_session_cookie,
     commit_session,
     is_https,
 )
-from fishtest.glue.dependencies import get_userdb
-from fishtest.glue.template_request import TemplateRequest
+from fishtest.http.dependencies import get_userdb
+from fishtest.http.template_request import TemplateRequest
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, MutableMapping
 
     from fastapi import Request
-    from fishtest.glue.cookie_session import CookieSession
+    from fishtest.http.cookie_session import CookieSession
     from starlette.responses import Response
 
 

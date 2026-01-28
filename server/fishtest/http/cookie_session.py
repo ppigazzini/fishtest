@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 SESSION_COOKIE_NAME: Final[str] = "fishtest_session"
 SESSION_SALT: Final[str] = "fishtest.session.v1"
 DEFAULT_SAMESITE: Final[Literal["lax", "strict", "none"]] = "lax"
+REMEMBER_MAX_AGE_SECONDS: Final[int] = 60 * 60 * 24 * 365
 MAX_COOKIE_BYTES: Final[int] = 3800
 INSECURE_DEV_ENV: Final[str] = "FISHTEST_INSECURE_DEV"
 
@@ -272,7 +273,11 @@ def commit_session(
     value = _encode_cookie(payload)
     if not _cookie_size_ok(value):
         return
-    max_age = 60 * 60 * 24 * 365 if remember else None
+    # Cookie flags (Option A):
+    # - secure: derived from proxy-aware HTTPS detection
+    # - samesite: DEFAULT_SAMESITE ("lax")
+    # - max_age: 1 year when "remember" is requested
+    max_age = REMEMBER_MAX_AGE_SECONDS if remember else None
 
     response.set_cookie(
         key=SESSION_COOKIE_NAME,

@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Final
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from fishtest.glue.cookie_session import CookieSession
+    from fishtest.http.cookie_session import CookieSession
     from fishtest.userdb import UserDb
 
 
