@@ -17,9 +17,9 @@ from fastapi.exception_handlers import (
 )
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from fishtest.glue.api import WORKER_API_PATHS
-from fishtest.glue.api import router as api_router
-from fishtest.glue.views import render_forbidden_response, render_notfound_response
+from fishtest.http.api import WORKER_API_PATHS
+from fishtest.http.api import router as api_router
+from fishtest.http.views import render_forbidden_response, render_notfound_response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import PlainTextResponse
 from starlette.routing import Route

@@ -117,25 +117,33 @@ Completion notes (what landed):
 - Operational hardening for misrouted primary-only endpoints (worker guard + UI primary-only guard).
 - Next work moves to Milestone 5; see [3.5-ITERATION.md](3.5-ITERATION.md).
 
-## Milestone 5 — Remove Pyramid wrapper scaffolding (keep protocol parity)
+## Milestone 5 — Idiomatic plumbing, glue remains the readable entrypoint
 
-Goal: stop “pretending Pyramid” in the serving layer.
+Goal: use idiomatic FastAPI/Starlette **plumbing** while keeping `glue/api.py` and `glue/views.py` as the primary, human‑readable entrypoints.
 
-This milestone is about removing the Pyramid-style wrapper patterns (request shims and view-config dispatch) and replacing them with explicit, idiomatic FastAPI route handlers and dependencies, while preserving the Pyramid-*era behavior contracts*.
+This milestone keeps the single‑file narrative (glue) intact and avoids file‑spread, while still adopting best‑practice plumbing (dependencies, middleware, explicit threadpool boundaries) *inside* the glue layer.
 
 Definition of done:
 
-- UI and API endpoints are expressed as FastAPI handlers (explicit `@router.get`/`@router.post` or `add_api_route`) with typed inputs and `Depends(...)` dependencies.
-- No Pyramid-style view registration/dispatch layer is required (e.g. no `__view_configs__` registry + generic `_dispatch_view(...)` trampoline).
-- Pyramid-compatibility objects exist only at the boundary where they are truly required (e.g. a minimal template request object for legacy templates), not as the internal programming model.
-- Contract-test / parity gate remains the safety net; behavior changes are explicit and reviewed as such.
+- UI and API entrypoints remain in `glue/api.py` and `glue/views.py`, with linear, readable flow.
+- FastAPI/Starlette plumbing is used where it reduces risk: explicit dependencies, explicit middleware order, explicit threadpool boundaries.
+- No new route‑split folder explosion; glue stays the primary narrative for routes.
+- Pyramid‑compat objects exist only at true boundaries (template request object, session/CSRF helpers), not as the internal programming model.
+- Contract‑test / parity gate remains the safety net; behavior changes are explicit and reviewed as such.
+
+Human metrics (target values):
+
+- Hop count ≤ 1 per endpoint (route → domain call).
+- File hops ≤ 1 for UI/API entrypoints (stay in glue).
+- Helper calls ≤ 2 per endpoint (avoid helper chains).
+- Single‑pass readability: endpoint is understandable without opening other files.
 
 Non-goals:
 
 - No UI redesign.
 - No “make everything async” rewrite.
 
-## Milestone 6 — Optional: Pydantic (only when it buys real safety)
+## Milestone N-2 — Optional: Pydantic (only when it buys real safety)
 
 Goal: allow Pydantic only where it materially reduces bugs/duplication, without duplicating vtjson validation across the whole codebase or changing externally-visible error semantics.
 

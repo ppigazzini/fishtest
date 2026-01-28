@@ -5,18 +5,18 @@ from pathlib import Path
 from unittest import mock
 
 from fishtest.app import _require_single_worker_on_primary
-from fishtest.glue import cookie_session
-from fishtest.glue.api import WORKER_API_PATHS
-from fishtest.glue.errors import _WORKER_API_PATHS
-from fishtest.glue.middleware import _get_blocked_cached
-from fishtest.glue.settings import AppSettings
-from fishtest.glue.template_request import TemplateRequest
+from fishtest.http import cookie_session
+from fishtest.http.api import WORKER_API_PATHS
+from fishtest.http.errors import _WORKER_API_PATHS
+from fishtest.http.middleware import _get_blocked_cached
+from fishtest.http.settings import AppSettings
+from fishtest.http.template_request import TemplateRequest
 from starlette.responses import Response
 
 
 class TemplateRequestStaticUrlTests(unittest.TestCase):
     def test_static_url_blocks_traversal(self):
-        from fishtest.glue import template_request
+        from fishtest.http import template_request
 
         with tempfile.TemporaryDirectory() as tmpdir:
             static_dir = Path(tmpdir) / "static"
@@ -48,7 +48,7 @@ class TemplateRequestStaticUrlTests(unittest.TestCase):
                 template_request._STATIC_TOKEN_CACHE.update(original_cache)
 
     def test_static_url_token_is_urlsafe(self):
-        from fishtest.glue import template_request
+        from fishtest.http import template_request
 
         with tempfile.TemporaryDirectory() as tmpdir:
             static_dir = Path(tmpdir) / "static"
@@ -82,7 +82,7 @@ class TemplateRequestStaticUrlTests(unittest.TestCase):
                 template_request._STATIC_TOKEN_CACHE.update(original_cache)
 
     def test_static_token_cache_eviction(self):
-        from fishtest.glue import template_request
+        from fishtest.http import template_request
 
         with tempfile.TemporaryDirectory() as tmpdir:
             static_dir = Path(tmpdir) / "static"

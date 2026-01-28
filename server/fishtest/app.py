@@ -2,7 +2,7 @@
 
 This module is the single stable ASGI entrypoint: `uvicorn fishtest.app:app`.
 
-The implementation depends on the small FastAPI glue layer under `fishtest.glue`
+The implementation depends on the small FastAPI HTTP layer under `fishtest.http`
 (middleware, error handling, settings parsing, template/session shims).
 """
 
@@ -18,16 +18,16 @@ import fishtest.github_api as gh
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from fishtest.glue.api import router as api_router
-from fishtest.glue.errors import install_error_handlers
-from fishtest.glue.middleware import (
+from fishtest.http.api import router as api_router
+from fishtest.http.errors import install_error_handlers
+from fishtest.http.middleware import (
     AttachRequestStateMiddleware,
     RedirectBlockedUiUsersMiddleware,
     RejectNonPrimaryWorkerApiMiddleware,
     ShutdownGuardMiddleware,
 )
-from fishtest.glue.settings import AppSettings, default_static_dir
-from fishtest.glue.views import router as views_router
+from fishtest.http.settings import AppSettings, default_static_dir
+from fishtest.http.views import router as views_router
 from fishtest.rundb import RunDb
 from starlette.concurrency import run_in_threadpool
 

@@ -17,7 +17,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 
 try:
-    from fishtest.glue.api import WORKER_VERSION
+    from fishtest.http.api import WORKER_VERSION
     from fishtest.util import worker_name
 except ModuleNotFoundError:  # pragma: no cover
     WORKER_VERSION = None  # type: ignore[assignment]
@@ -32,7 +32,7 @@ class TestApiFastAPI(unittest.TestCase):
 
         if WORKER_VERSION is None:  # pragma: no cover
             raise unittest.SkipTest(
-                "Server glue dependencies missing (fishtest.glue.api); skipping FastAPI glue tests",
+                "Server HTTP dependencies missing (fishtest.http.api); skipping FastAPI HTTP tests",
             )
 
         try:
@@ -42,7 +42,7 @@ class TestApiFastAPI(unittest.TestCase):
                 from tests import util as test_util
             except ModuleNotFoundError as exc:  # pragma: no cover
                 raise unittest.SkipTest(
-                    f"Test harness dependencies missing ({exc.name}); skipping FastAPI glue tests",
+                    f"Test harness dependencies missing ({exc.name}); skipping FastAPI HTTP tests",
                 )
 
         cls.rundb = test_util.get_rundb()
