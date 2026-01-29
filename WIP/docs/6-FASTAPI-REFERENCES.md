@@ -1,6 +1,6 @@
 # FastAPI references (for this project)
 
-Date: 2026-01-28
+Date: 2026-01-29
 
 Curated **web-only** references and a short project-focused synthesis for the fishtest FastAPI refactor.
 
@@ -108,3 +108,18 @@ app = FastAPI(lifespan=lifespan)
 - Deterministic startup/shutdown: `lifespan` → Events.
 - Reverse proxy correctness: `root_path` + proxy headers → Behind a Proxy.
 - Endpoint-level tests: TestClient patterns → Testing.
+
+## Lessons from the bloated draft (what to adopt vs avoid)
+
+What worked (small, safe patterns):
+- Keep `app.include_router(...)` ordering explicit and documented to preserve legacy behavior.
+- Use `Annotated` aliases for shared dependencies to keep handler signatures consistent and testable.
+- Keep a single internal shim boundary when legacy signatures must be preserved (avoid multiple layers of request wrappers).
+- Feature‑flagged session migration plan (dual-read → dual-write → flip) to avoid mass session invalidation.
+
+What to avoid:
+- Splitting routes into many small modules when it harms readability (the draft increased hop count without clarity gains).
+- Helper/pipeline/context layering that obscures the request flow; prefer linear handler code with only essential helpers.
+- Middleware that hides business‑level control flow (session commit/forget, CSRF decisions are clearer when explicit at route/dependency level).
+- Duplicative dependency helpers with slightly different names (centralize in one module to avoid drift).
+- Wholesale copying large example projects; prefer small, reviewed cherry‑picks (dependencies, lifespan, router inclusion).

@@ -7,7 +7,7 @@ from fishtest.run_cache import Prio
 from vtjson import ValidationError
 
 
-class TestUsersFastAPI(unittest.TestCase):
+class TestHttpUsers(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         try:
@@ -15,11 +15,8 @@ class TestUsersFastAPI(unittest.TestCase):
         except ModuleNotFoundError:  # pragma: no cover
             from tests import fastapi_util
 
-        # Re-export for instance methods.
         cls.fastapi_util = fastapi_util
 
-        # Defer importing util/get_rundb until runtime so discovery doesn't crash
-        # in minimal environments.
         try:
             import util as test_util
         except ModuleNotFoundError:  # pragma: no cover

@@ -1,6 +1,6 @@
 # Starlette references (for this project)
 
-Date: 2026-01-28
+Date: 2026-01-29
 
 Curated **web-only** references and a short project-focused synthesis for the fishtest FastAPI refactor.
 
@@ -71,3 +71,17 @@ form = await request.form(max_files=1, max_fields=20, max_part_size=200 * 1024 *
 - HTML error pages: exception handlers → Exceptions.
 - Lifecycle correctness: lifespan + TestClient context manager → Lifespan + TestClient.
 - Avoid event-loop blocking: use threadpool for sync work → Thread pool.
+
+## Lessons from the bloated draft (what to adopt vs avoid)
+
+What worked (small, safe patterns):
+- Session migration plan: dual-read → dual-write → flip, with explicit tests for cookie name + flash/CSRF behavior.
+- Keep middleware order explicit; run session middleware early so `request.session` is available everywhere.
+- Keep `app.py` as the single assembly point and `include_router(...)` calls explicit and documented.
+
+What to avoid:
+- Removing template/session shims before templates are updated or covered by tests (this created regressions and extra indirection).
+- Centralizing too much UI behavior in generic pipeline helpers when it makes per-route flow unreadable.
+- Adding new middleware layers for concerns that can be expressed as dependencies.
+- Spreading one route flow across many tiny modules purely for structure; prefer grouping by feature.
+- Duplicating dependency helpers across modules; centralize dependency aliases to avoid naming drift.

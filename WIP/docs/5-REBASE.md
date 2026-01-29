@@ -150,7 +150,7 @@ possible framework adaptations.
 
 ### 4.2 FastAPI HTTP tests
 
-- Files: `server/tests/test_api_fastapi.py`, `server/tests/test_users_fastapi.py`
+- Files: `server/tests/test_http_api.py`, `server/tests/test_http_users.py`
 - For each upstream behavior change, add/adjust a FastAPI test that asserts the
 	same externally-visible behavior (status code, JSON shape, redirects, HTML).
 

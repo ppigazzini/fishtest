@@ -6,7 +6,7 @@
 
 # Pyramid → FastAPI roadmap (milestones)
 
-Date: 2026-01-14
+Date: 2026-01-29
 
 This document describes *how we switch* from Pyramid (WSGI) to FastAPI/Starlette (ASGI), and (optionally) from Mako to Jinja2.
 It stays intentionally high-level to avoid duplicating (and drifting from) the details in:
@@ -18,7 +18,7 @@ If you need details (exact behaviors, invariants, operational constraints, code 
 
 ## Milestone 0 — Where we are now
 
-FastAPI/Starlette is the active serving stack in this repo, and a “glue” layer exists to preserve Pyramid-era behavior.
+FastAPI/Starlette is the active serving stack in this repo, and an `http/` layer exists to preserve Pyramid-era behavior.
 For the current implementation and module map, see [2-ARCHITECTURE.md](2-ARCHITECTURE.md).
 
 Important distinction:
@@ -117,24 +117,28 @@ Completion notes (what landed):
 - Operational hardening for misrouted primary-only endpoints (worker guard + UI primary-only guard).
 - Next work moves to Milestone 5; see [3.5-ITERATION.md](3.5-ITERATION.md).
 
-## Milestone 5 — Idiomatic plumbing, glue remains the readable entrypoint
+## Milestone 5 — Idiomatic plumbing, HTTP remains the readable entrypoint
 
-Goal: use idiomatic FastAPI/Starlette **plumbing** while keeping `glue/api.py` and `glue/views.py` as the primary, human‑readable entrypoints.
+Status:
 
-This milestone keeps the single‑file narrative (glue) intact and avoids file‑spread, while still adopting best‑practice plumbing (dependencies, middleware, explicit threadpool boundaries) *inside* the glue layer.
+- Milestone 5 is complete (2026-01-29); see [3.5-ITERATION.md](3.5-ITERATION.md).
+
+Goal: use idiomatic FastAPI/Starlette **plumbing** while keeping `http/api.py` and `http/views.py` as the primary, human‑readable entrypoints.
+
+This milestone keeps the single‑file narrative (HTTP) intact and avoids file‑spread, while still adopting best‑practice plumbing (dependencies, middleware, explicit threadpool boundaries) *inside* the HTTP layer.
 
 Definition of done:
 
-- UI and API entrypoints remain in `glue/api.py` and `glue/views.py`, with linear, readable flow.
+- UI and API entrypoints remain in `http/api.py` and `http/views.py`, with linear, readable flow.
 - FastAPI/Starlette plumbing is used where it reduces risk: explicit dependencies, explicit middleware order, explicit threadpool boundaries.
-- No new route‑split folder explosion; glue stays the primary narrative for routes.
+- No new route‑split folder explosion; HTTP entrypoints stay the primary narrative for routes.
 - Pyramid‑compat objects exist only at true boundaries (template request object, session/CSRF helpers), not as the internal programming model.
 - Contract‑test / parity gate remains the safety net; behavior changes are explicit and reviewed as such.
 
 Human metrics (target values):
 
 - Hop count ≤ 1 per endpoint (route → domain call).
-- File hops ≤ 1 for UI/API entrypoints (stay in glue).
+- File hops ≤ 1 for UI/API entrypoints (stay in HTTP).
 - Helper calls ≤ 2 per endpoint (avoid helper chains).
 - Single‑pass readability: endpoint is understandable without opening other files.
 
@@ -142,6 +146,56 @@ Non-goals:
 
 - No UI redesign.
 - No “make everything async” rewrite.
+
+## Milestone 6 — Contract tests & de‑Pyramidized tests
+
+Goal: make the active FastAPI/Starlette behavior the single source of truth for tests and remove the test‑time Pyramid stubs.
+
+Definition of done:
+- All protocol contract tests (Protocol A worker API + Protocol B UI flows) run against the FastAPI app using `TestClient` or direct callable tests.
+- Legacy Pyramid‑importing unit tests are either ported to FastAPI tests or removed.
+- Test-only Pyramid stubs under `server/tests/pyramid/` are deleted after their consumers are migrated.
+- CI passes with no Pyramid stubs present.
+
+Verification gates:
+- Full contract test suite for worker endpoints (status codes, `duration`, error shape).
+- UI contract tests: login/logout, CSRF, 403/404 HTML, representative list/detail pages.
+- Parity scripts updated to point at `server/fishtest/http/*`.
+
+Metrics:
+- Zero imports from `pyramid.*` in test modules.
+- Contract coverage: all worker endpoints + representative UI flows pass in CI.
+
+Reference implementations (from the bloat branch, to be adapted to `http/`):
+- [__fishtest-bloat/server/tests/test_web_api_worker.py](__fishtest-bloat/server/tests/test_web_api_worker.py)
+- [__fishtest-bloat/server/tests/test_web_middleware.py](__fishtest-bloat/server/tests/test_web_middleware.py)
+- [__fishtest-bloat/server/tests/test_web_session.py](__fishtest-bloat/server/tests/test_web_session.py)
+- [__fishtest-bloat/server/tests/test_web_ui_actions.py](__fishtest-bloat/server/tests/test_web_ui_actions.py)
+
+## Milestone 7 — Starlette idiomatic plumbing (reduce shim surface, avoid bloat)
+
+Goal: make the HTTP layer idiomatic Starlette/FastAPI while preserving externally‑visible behavior; reduce shim usage without recreating the helper bloat seen in earlier drafts.
+
+Scope and constraints:
+- Preserve protocol parity at all times (tests + parity tools gate changes).
+- Incremental: replace shims only when tests cover the affected surfaces.
+- Keep `http/api.py` and `http/views.py` readable; avoid route‑layer fragmentation.
+
+Key outcomes:
+- Replace request‑shim call patterns with typed dependencies (`Annotated` aliases) for DB handles, session, and UI context.
+- Adopt Starlette/FastAPI session middleware and migrate template access via a thin, well‑tested compatibility layer during transition.
+- Remove remaining `TemplateRequest` surface only after templates are ported or an adapter is proven identical.
+
+Verification gates:
+- Contract tests (Milestone 6) remain green after each refactor.
+- Parity scripts continue to report OK or expected whitelists.
+
+Notes:
+- Avoid helper explosion and multi‑hop flow; the route layer should remain readable in a single pass.
+
+Metrics:
+- Hop count ≤ 1 per endpoint; helper calls ≤ 2 per endpoint in `http/api.py` and `http/views.py`.
+- No new route‑split folder tree; HTTP entrypoints remain the primary narrative.
 
 ## Milestone N-2 — Optional: Pydantic (only when it buys real safety)
 
@@ -199,6 +253,7 @@ Definition of done:
 ## What does NOT belong here
 
 This file should not be the place where we restate detailed behavior or code pointers.
+
 If you want to document any of the following, put it in the correct source of truth instead:
 
 - Migration strategy, phases, acceptance criteria, tooling rules → [1-FASTAPI-REFACTOR.md](1-FASTAPI-REFACTOR.md)
