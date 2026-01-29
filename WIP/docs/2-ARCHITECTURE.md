@@ -4,9 +4,9 @@
 
 # Fishtest architecture (repo snapshot)
 
-Date: **2026-01-22**
+Date: **2026-01-29**
 
-(Last updated: **2026-01-22**)
+(Last updated: **2026-01-29** — `glue/` renamed to `http/`)
 
 This document describes the **current architecture of this repository**: what the major components are, how the server and worker interact, where the data lives, and what has changed (and *has not changed*) after the Pyramid → FastAPI replacement.
 
@@ -67,7 +67,7 @@ Fishtest is a distributed testing system:
 ```
 server/fishtest/
 ├─ app.py                 # FastAPI app factory + lifespan wiring
-├─ glue/                  # FastAPI “glue” layer (mechanical port hotspots)
+├─ http/                  # FastAPI HTTP layer (mechanical port hotspots)
 │  ├─ api.py              # ALL /api/... endpoints (worker + public)
 │  ├─ views.py            # ALL UI endpoints (Mako HTML)
 │  ├─ errors.py           # Error shaping: API JSON vs UI HTML
@@ -166,7 +166,7 @@ Request-time wiring:
   - DB adapters (`request.state.rundb`/`userdb`/`actiondb`/`workerdb`)
   - request start time (`request.state.request_started_at`) used for worker `duration`
   - (UI only) blocked-user redirect checks use a short TTL cache and a threadpool lookup
-- Route handlers should prefer typed FastAPI dependencies from `server/fishtest/glue/dependencies.py` rather than reaching into `app.state` directly.
+- Route handlers should prefer typed FastAPI dependencies from `server/fishtest/http/dependencies.py` rather than reaching into `app.state` directly.
 
 Static files:
 
@@ -188,9 +188,9 @@ Reverse proxy note:
 
 Error handling:
 
-- Implemented in `server/fishtest/glue/errors.py`.
+- Implemented in `server/fishtest/http/errors.py`.
 - Installed by the app factory via `install_error_handlers(app)`.
-- The worker-endpoint set used for worker-style validation errors is derived from the glue API router to avoid drift.
+- The worker-endpoint set used for worker-style validation errors is derived from the HTTP API router to avoid drift.
 - `/api/...` returns JSON errors (404 as JSON).
 - UI routes return an HTML 404 page rendered from `notfound.mak` (and commit the cookie session).
 
@@ -212,8 +212,8 @@ Operational constraint enforcement:
 
 UI form POST behavior (CSRF + flash + redirects):
 
-- Implemented in `server/fishtest/glue/views.py` using helpers from `server/fishtest/glue/cookie_session.py` and `server/fishtest/glue/csrf.py`.
-- UI routes build a small “template request” object (see `server/fishtest/glue/template_request.py`) to preserve the Pyramid-era template contract.
+- Implemented in `server/fishtest/http/views.py` using helpers from `server/fishtest/http/cookie_session.py` and `server/fishtest/http/csrf.py`.
+- UI routes build a small “template request” object (see `server/fishtest/http/template_request.py`) to preserve the Pyramid-era template contract.
 
 ---
 
@@ -223,18 +223,18 @@ Fishtest has behaviors that must run on exactly one instance (background schedul
 
 In the FastAPI app (`server/fishtest/app.py`):
 
-- `FISHTEST_PORT` and `FISHTEST_PRIMARY_PORT` are parsed in `server/fishtest/glue/settings.py` and compared.
+- `FISHTEST_PORT` and `FISHTEST_PRIMARY_PORT` are parsed in `server/fishtest/http/settings.py` and compared.
 - If the ports cannot be determined from the environment, the instance defaults to “primary” (fail-open).
 - If the instance is considered “primary”, it runs:
   - GitHub API initialization
   - `RunDb.update_aggregated_data()`
   - `RunDb.schedule_tasks()`
 
-In worker endpoints (`server/fishtest/glue/api.py`):
+In worker endpoints (`server/fishtest/http/api.py`):
 
 - Several worker endpoints and UI mutation endpoints rely on `RunDb.buffer(...)`, which is only
   wired on the primary instance (see `RunDb.__init__`).
-- In the FastAPI glue layer, primary-only behavior is currently achieved by **routing** (e.g. nginx
+- In the FastAPI HTTP layer, primary-only behavior is currently achieved by **routing** (e.g. nginx
   sends those paths to the primary port). If misrouted to a secondary instance, these endpoints
   generally fail (they are not guaranteed to return a clean HTTP `503` today).
 
@@ -275,7 +275,7 @@ There are two families of endpoints, with different “contracts”.
 > [!NOTE]
 > **Worker protocol contracts** (status codes, JSON shape, error semantics) are canonically documented in [1-FASTAPI-REFACTOR.md](1-FASTAPI-REFACTOR.md).
 
-Location: `server/fishtest/glue/api.py`
+Location: `server/fishtest/http/api.py`
 
 Endpoints implemented here include:
 
@@ -291,7 +291,7 @@ Endpoints implemented here include:
 
 ### 6.2 Public/web API (`/api/...`)
 
-Location: `server/fishtest/glue/api.py`
+Location: `server/fishtest/http/api.py`
 
 This is the API the UI uses for reading state and downloading artifacts.
 
@@ -324,9 +324,9 @@ Brief summary (see [4-VPS.md](4-VPS.md) for full routing matrix and nginx config
 - **Single-instance (not necessarily primary)**: network upload (`/upload`), user management (for cache consistency)
 - **Load-balance safe**: read-only endpoints
 
-### 6.4 How `glue/api.py` keeps Pyramid-era behavior
+### 6.4 How `http/api.py` keeps Pyramid-era behavior
 
-The FastAPI server keeps `/api/...` behavior stable by adapting the Pyramid-style handler expectations inside `server/fishtest/glue/api.py`, instead of rewriting all downstream logic.
+The FastAPI server keeps `/api/...` behavior stable by adapting the Pyramid-style handler expectations inside `server/fishtest/http/api.py`, instead of rewriting all downstream logic.
 
 Implementation highlights:
 
@@ -343,7 +343,7 @@ Implementation highlights:
 
 Location:
 
-- Routes: `server/fishtest/glue/views.py`
+- Routes: `server/fishtest/http/views.py`
 - Templates: `server/fishtest/templates/*.mak`
 - Static: `server/fishtest/static/*`
 
@@ -363,10 +363,10 @@ The UI has two layers:
 
 The FastAPI implementation provides a small compatibility layer via:
 
-- `server/fishtest/glue/template_request.py:TemplateRequest`
-- `server/fishtest/glue/cookie_session.py` (CSRF + flash support)
+- `server/fishtest/http/template_request.py:TemplateRequest`
+- `server/fishtest/http/cookie_session.py` (CSRF + flash support)
 
-### 7.1 FastAPI “glue code” (Pyramid template compatibility)
+### 7.1 FastAPI HTTP glue (Pyramid template compatibility)
 
 Fishtest’s UI templates were originally written for Pyramid and expect a Pyramid-style request object and session API. The FastAPI server keeps the existing templates by providing a small set of compatibility shims.
 
@@ -376,9 +376,9 @@ Why these shims exist:
 - The templates also use Pyramid’s `request.static_url("fishtest:static/...")` asset notation.
 - Rewriting all templates at once would be high-risk and provides little user value, so the shims preserve the existing template contract while the HTTP framework is FastAPI.
 
-### 7.2 How `glue/views.py` adapts Pyramid views
+### 7.2 How `http/views.py` adapts Pyramid views
 
-Pyramid UI code relies on decorators + implicit request/session/response behaviors. The FastAPI UI layer preserves that contract via a small “view system” implemented in `server/fishtest/glue/views.py`.
+Pyramid UI code relies on decorators + implicit request/session/response behaviors. The FastAPI UI layer preserves that contract via a small “view system” implemented in `server/fishtest/http/views.py`.
 
 Mechanics:
 
@@ -394,7 +394,7 @@ Mechanics:
 
 This is why UI routes behave like Pyramid pages (HTML 404/login pages, redirects, flashes) instead of FastAPI’s default JSON validation errors.
 
-#### `server/fishtest/glue/cookie_session.py`
+#### `server/fishtest/http/cookie_session.py`
 
 Purpose: provide a minimal session implementation that satisfies template expectations without depending on Pyramid.
 
@@ -415,11 +415,11 @@ What it does:
 Notes:
 
 - Templates read the CSRF token both from the HTML meta tag in `base.mak` and from hidden form fields.
-- Routes decide whether cookies are `Secure` using `fishtest.glue.cookie_session.is_https()`.
+- Routes decide whether cookies are `Secure` using `fishtest.http.cookie_session.is_https()`.
 - `FISHTEST_AUTHENTICATION_SECRET` must be set in production; an insecure dev fallback is only enabled via explicit opt-in (e.g. `FISHTEST_INSECURE_DEV=1`).
 - Session cookie growth is capped; flash queues are trimmed deterministically to stay within cookie limits.
 
-#### `server/fishtest/glue/mako.py`
+#### `server/fishtest/http/mako.py`
 
 Purpose: render the existing `server/fishtest/templates/*.mak` templates from FastAPI.
 
@@ -429,7 +429,7 @@ What it does:
 - Uses `strict_undefined=False` to match Pyramid’s historical template behavior.
 - Provides `render_template(lookup=..., template_name=..., context=...) -> RenderedTemplate`.
 
-#### `server/fishtest/glue/template_request.py:TemplateRequest`
+#### `server/fishtest/http/template_request.py:TemplateRequest`
 
 Purpose: provide a small “request-like” object passed to templates as `request`.
 
@@ -443,7 +443,7 @@ This object deliberately implements only the minimal surface area that templates
 
 The key idea: UI route handlers can stay small and predictable, while the templates remain largely unchanged.
 
-#### `server/fishtest/glue/csrf.py`
+#### `server/fishtest/http/csrf.py`
 
 Purpose: provide shared CSRF validation helpers for UI POST endpoints.
 
@@ -452,34 +452,34 @@ What it does:
 - Centralizes the “extract token from request + compare to session token” logic.
 - Keeps UI POST routes consistent and reduces per-endpoint boilerplate.
 
-### 7.3 Where glue differs from the Pyramid “spec” modules
+### 7.3 Where the HTTP layer differs from the Pyramid “spec” modules
 
-This repository intentionally keeps `server/fishtest/api.py` and `server/fishtest/views.py` as Pyramid-era **behavioral specs** (tests import them), but the running server uses FastAPI + the glue layer.
+This repository intentionally keeps `server/fishtest/api.py` and `server/fishtest/views.py` as Pyramid-era **behavioral specs** (tests import them), but the running server uses FastAPI + the HTTP layer.
 
-The glue layer is deliberately minimal: it does not try to be Pyramid; it only emulates the surfaces that existing handlers/templates rely on.
+The HTTP layer is deliberately minimal: it does not try to be Pyramid; it only emulates the surfaces that existing handlers/templates rely on.
 
 Concrete differences:
 
 - **Registration**
 
   - Pyramid: route config + decorator scanning.
-  - Glue: explicit FastAPI router registration; UI uses decorator metadata + a registration pass.
+  - HTTP: explicit FastAPI router registration; UI uses decorator metadata + a registration pass.
 - **Request/response objects**
 
   - Pyramid: rich request/response types.
-  - Glue: small shims for the handful of attributes used by legacy codepaths (`json_body`, `matchdict`, `POST/params`, response headers/status), plus a separate `TemplateRequest` for templates.
+  - HTTP: small shims for the handful of attributes used by legacy codepaths (`json_body`, `matchdict`, `POST/params`, response headers/status), plus a separate `TemplateRequest` for templates.
 - **Exceptions and control flow**
 
   - Pyramid: `HTTPFound`/`HTTPNotFound`/`HTTPForbidden` exceptions.
-  - Glue: internal equivalents are caught by the dispatcher and turned into Starlette responses, while still committing UI session cookies and preserving HTML-vs-JSON behavior.
+  - HTTP: internal equivalents are caught by the dispatcher and turned into Starlette responses, while still committing UI session cookies and preserving HTML-vs-JSON behavior.
 - **Streaming**
 
   - Pyramid: WSGI iteration (`FileIter`).
-  - Glue: ASGI streaming (`StreamingResponse`) with iteration performed via a threadpool bridge.
+  - HTTP: ASGI streaming (`StreamingResponse`) with iteration performed via a threadpool bridge.
 - **Threading model**
 
   - Pyramid/Waitress: handlers run in threads by default.
-  - Glue: handlers are invoked in a threadpool explicitly so blocking MongoDB/locking code keeps the same effective concurrency model.
+  - HTTP: handlers are invoked in a threadpool explicitly so blocking MongoDB/locking code keeps the same effective concurrency model.
 
 ---
 
@@ -498,7 +498,7 @@ It helps to separate “architecture” from “framework”:
 ### Changed (HTTP and app wiring)
 
 - The server now has a first-class **FastAPI (ASGI)** entrypoint in `server/fishtest/app.py`.
-- The UI and API are implemented as **routers** grouped by concern.
+- The UI and API are implemented as FastAPI routers in `http/views.py` and `http/api.py`.
 - Sessions for UI routes are now implemented without Pyramid (cookie session helper).
 
 ---

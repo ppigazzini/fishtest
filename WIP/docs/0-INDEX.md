@@ -1,6 +1,6 @@
 # WIP docs index (entry point)
 
-Date: 2026-01-22
+Date: 2026-01-29
 
 This directory contains *work-in-progress* docs for the Pyramid → FastAPI migration and the current FastAPI server architecture.
 
@@ -20,8 +20,8 @@ This directory contains *work-in-progress* docs for the Pyramid → FastAPI migr
 
 5. **How to iterate safely (day-to-day loop):**
    - Rules of engagement: [3.0-ITERATION-RULES.md](3.0-ITERATION-RULES.md)
-   - Completed iteration records: [3.1-ITERATION.md](3.1-ITERATION.md), [3.2-ITERATION.md](3.2-ITERATION.md), [3.3-ITERATION.md](3.3-ITERATION.md), [3.4-ITERATION.md](3.4-ITERATION.md)
-   - Current iteration plan (Milestone 5): [3.5-ITERATION.md](3.5-ITERATION.md)
+   - Completed iteration records: [3.1-ITERATION.md](3.1-ITERATION.md), [3.2-ITERATION.md](3.2-ITERATION.md), [3.3-ITERATION.md](3.3-ITERATION.md), [3.4-ITERATION.md](3.4-ITERATION.md), [3.5-ITERATION.md](3.5-ITERATION.md)
+   - Current iteration plans: [3.6-ITERATION.md](3.6-ITERATION.md), [3.7-ITERATION.md](3.7-ITERATION.md)
 
 6. **Deployment notes (systemd + nginx examples):**
    - [4-VPS.md](4-VPS.md)

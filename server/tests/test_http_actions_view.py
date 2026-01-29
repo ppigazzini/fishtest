@@ -50,7 +50,7 @@ class _GlueRequestStub:
         return self._authenticated_userid is not None
 
 
-class ActionsViewMaxActionsFastApiTest(unittest.TestCase):
+class ActionsViewMaxActionsHttpTest(unittest.TestCase):
     def test_prev_link_preserves_max_actions_authenticated(self):
         request = _GlueRequestStub(
             params={"page": "20000", "max_actions": "500000"},

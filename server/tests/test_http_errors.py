@@ -8,7 +8,7 @@ except ModuleNotFoundError:  # pragma: no cover
     from tests import fastapi_util
 
 
-class TestGlueErrorsFastAPI(unittest.TestCase):
+class TestHttpErrors(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Skips cleanly if FastAPI/TestClient (and its deps like httpx) aren't available.

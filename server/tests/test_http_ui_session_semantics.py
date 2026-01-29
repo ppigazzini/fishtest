@@ -8,7 +8,7 @@ except ModuleNotFoundError:  # pragma: no cover
     from tests import fastapi_util
 
 
-class TestUiSessionSemanticsFastAPI(unittest.TestCase):
+class TestHttpUiSessionSemantics(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         fastapi_util.require_fastapi()

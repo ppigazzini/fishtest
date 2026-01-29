@@ -1,6 +1,6 @@
 # Restart refactor plan: Pyramid master → FastAPI (minimal-diff)
 
-Date: 2026-01-13
+Date: 2026-01-29
 
 This is the authoritative migration plan for the FastAPI cutover.
 
@@ -10,6 +10,8 @@ Notes:
 	- **Docs**: `WIP/docs/` (this plan is `WIP/docs/1-FASTAPI-REFACTOR.md`).
 	- **Tools**: `WIP/tools/` (parity checks and other helper scripts).
 
+**2026-01-29 update:** the `glue/` package was renamed to `http/`; current runtime modules live under `server/fishtest/http/`.
+
 ## Strategy (the “mechanical port” approach)
 
 Treat upstream Pyramid code as the behavioral spec, and mechanically port the HTTP surface to FastAPI while keeping diffs small and localized.
@@ -18,11 +20,11 @@ Rules:
 
 - Upstream Pyramid master behavior is the source of truth.
 - No redesigns and no cleanup refactors.
-- Avoid “many little files” for endpoints.
+- Prefer cohesive modules for endpoints; avoid extra handler layers that hide the flow.
 - Keep merge hotspots limited to:
 		- [server/fishtest/app.py](../../server/fishtest/app.py) (ASGI wiring)
-		- [server/fishtest/glue/api.py](../../server/fishtest/glue/api.py) (ALL `/api/...` endpoints, in upstream order)
-		- [server/fishtest/glue/views.py](../../server/fishtest/glue/views.py) (ALL UI endpoints, in upstream order)
+		- [server/fishtest/http/api.py](../../server/fishtest/http/api.py) (ALL `/api/...` endpoints, in upstream order)
+		- [server/fishtest/http/views.py](../../server/fishtest/http/views.py) (ALL UI endpoints, in upstream order)
 
 Mechanical port means:
 
@@ -51,7 +53,7 @@ Parity rules that have proven important in practice:
 Date: 2026-01-21
 
 This section enumerates the two external protocols that define Milestone 2 parity.
-It is a checklist for contract tests and glue parity work.
+It is a checklist for contract tests and HTTP parity work.
 
 ### Protocol A — Worker API (/api/*)
 
@@ -133,20 +135,18 @@ These folders are reference-only and MUST NOT be modified:
 - [fishtest-fastapi-draft/](../../fishtest-fastapi-draft) — first FastAPI draft snapshot (read-only)
 - [fishtest-fastapi-draft/WIP/](../../fishtest-fastapi-draft/WIP) contains docs from the first draft.
 
-## Current status (2026-01-13)
+## Current status (2026-01-29)
 
 Completed:
 
 - Single ASGI entrypoint at [server/fishtest/app.py](../../server/fishtest/app.py).
 - Mechanical port hotspots are in place and mounted:
-	- [server/fishtest/glue/api.py](../../server/fishtest/glue/api.py)
-	- [server/fishtest/glue/views.py](../../server/fishtest/glue/views.py)
-- No compatibility shim: `server/fishtest/glue/app.py` is deleted.
-- No UI subset router: `server/fishtest/glue/routes.py` is deleted.
-- UI error rendering parity is centralized in [server/fishtest/glue/views.py](../../server/fishtest/glue/views.py):
+	- [server/fishtest/http/api.py](../../server/fishtest/http/api.py)
+	- [server/fishtest/http/views.py](../../server/fishtest/http/views.py)
+- UI error rendering parity is centralized in [server/fishtest/http/views.py](../../server/fishtest/http/views.py):
 	- `render_notfound_response()`
 	- `render_forbidden_response()`
-- Central error handler delegates UI 404/401/403 rendering via [server/fishtest/glue/errors.py](../../server/fishtest/glue/errors.py).
+- Central error handler delegates UI 404/401/403 rendering via [server/fishtest/http/errors.py](../../server/fishtest/http/errors.py).
 - Production deployment scaffolding exists (systemd + nginx), see [4-VPS.md](4-VPS.md).
 - Parity-check scripts used during the port live under [../tools/](../tools/) (route coverage and behavioral spot-checks).
 - Milestone 3 async/blocking boundaries are complete; see 2.1-ASYNC-INVENTORY.md for the inventory and invariants.
@@ -184,8 +184,8 @@ Operational goal (what “switch” means):
 ## Tooling rules (strict)
 
 - Python version target: **Python 3.14+**.
-- `ruff`/`ty` apply only to glue support modules (middleware/errors/session/template shims) and any new tests.
-- [server/fishtest/glue/api.py](../../server/fishtest/glue/api.py) and [server/fishtest/glue/views.py](../../server/fishtest/glue/views.py) are treated as mechanical ports of upstream HTTP-layer code:
+- `ruff`/`ty` apply only to HTTP support modules (middleware/errors/session/template shims) and any new tests.
+- [server/fishtest/http/api.py](../../server/fishtest/http/api.py) and [server/fishtest/http/views.py](../../server/fishtest/http/views.py) are treated as mechanical ports of upstream HTTP-layer code:
 	- Do not add type hints.
 	- Do not run `ruff`/`ty` on them (and do not reformat them) unless explicitly decided later.
 - Prefer `uv run ...` for checks and tests.
@@ -200,8 +200,8 @@ Note: the repo may still contain tooling configs that *can* target the hotspots;
 ## What stays stable (constraints)
 
 - The deployed entrypoint is `uvicorn fishtest.app:app`.
-- All UI routes come from [server/fishtest/glue/views.py](../../server/fishtest/glue/views.py).
-- All `/api/...` routes come from [server/fishtest/glue/api.py](../../server/fishtest/glue/api.py).
+- All UI routes come from [server/fishtest/http/views.py](../../server/fishtest/http/views.py).
+- All `/api/...` routes come from [server/fishtest/http/api.py](../../server/fishtest/http/api.py).
 - `fishtest-fastapi-draft/` and `fishtest-pyramid/` are read-only.
 
 ## Cutover architecture (big picture)
@@ -210,7 +210,7 @@ Target runtime shape:
 
 - Single ASGI app: [server/fishtest/app.py](../../server/fishtest/app.py)
 	- Installs middleware + error handlers.
-	- Mounts UI router ([server/fishtest/glue/views.py](../../server/fishtest/glue/views.py)) and API router ([server/fishtest/glue/api.py](../../server/fishtest/glue/api.py)).
+	- Mounts UI router ([server/fishtest/http/views.py](../../server/fishtest/http/views.py)) and API router ([server/fishtest/http/api.py](../../server/fishtest/http/api.py)).
 	- Serves `/static` from the existing static tree.
 
 Sync/async boundary:
@@ -235,7 +235,7 @@ Local dev (still flexible):
 ## Signals and shutdown (runtime behavior)
 
 - `SIGINT`/`SIGTERM`: handled by Uvicorn; Fishtest cleanup runs from FastAPI lifespan shutdown in [server/fishtest/app.py](../../server/fishtest/app.py) via `_shutdown_rundb()` (mirrors Pyramid-era shutdown semantics).
-- Shutdown guard: once `rundb._shutdown` is set, [server/fishtest/glue/middleware.py](../../server/fishtest/glue/middleware.py) `ShutdownGuardMiddleware` rejects new requests with HTTP `503`.
+- Shutdown guard: once `rundb._shutdown` is set, [server/fishtest/http/middleware.py](../../server/fishtest/http/middleware.py) `ShutdownGuardMiddleware` rejects new requests with HTTP `503`.
 - Single-worker primary: [server/fishtest/app.py](../../server/fishtest/app.py) `_require_single_worker_on_primary()` raises `RuntimeError` if `UVICORN_WORKERS`/`WEB_CONCURRENCY` indicates workers != `1` on the primary instance.
 - `SIGUSR1` thread-dump: not currently installed in the active server (it existed in the read-only draft); if desired, add `faulthandler.register(SIGUSR1, all_threads=True)` as a debug aid.
 
@@ -249,4 +249,4 @@ Local dev (still flexible):
 ## Immediate next steps
 
 - Keep tightening parity by chasing any remaining mismatches found during real usage (UI templates + worker endpoints).
-- When doing parity work, prefer changes in the glue hotspots over adding new endpoint modules.
+- When doing parity work, prefer changes in the HTTP hotspots over adding new endpoint modules.

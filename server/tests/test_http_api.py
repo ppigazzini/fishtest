@@ -15,7 +15,6 @@ try:
 except ModuleNotFoundError:  # pragma: no cover
     from tests import fastapi_util
 
-
 try:
     from fishtest.http.api import WORKER_VERSION
     from fishtest.util import worker_name
@@ -24,10 +23,10 @@ except ModuleNotFoundError:  # pragma: no cover
     worker_name = None  # type: ignore[assignment]
 
 
-class TestApiFastAPI(unittest.TestCase):
+class TestHttpApi(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # Skips cleanly if FastAPI isn't installed.
+        # Skips cleanly if FastAPI/TestClient (and its deps like httpx) aren't available.
         fastapi_util.require_fastapi()
 
         if WORKER_VERSION is None:  # pragma: no cover
@@ -106,6 +105,19 @@ class TestApiFastAPI(unittest.TestCase):
         cls.rundb.runs.drop()
         cls.rundb.conn.close()
 
+    def setUp(self):
+        self._reset_runs()
+
+    def _reset_runs(self) -> None:
+        self.rundb.runs.delete_many({})
+        if hasattr(self.rundb, "run_cache"):
+            self.rundb.run_cache.flush_all()
+            self.rundb.run_cache.run_cache.clear()
+        self.rundb.unfinished_runs.clear()
+        self.rundb.wtt_map.clear()
+        self.rundb.worker_runs.clear()
+        self.rundb.connections_counter.clear()
+
     def _payload(self, *, password: str, worker_info: dict | None = None) -> dict:
         return {
             "password": password,
@@ -129,11 +141,11 @@ class TestApiFastAPI(unittest.TestCase):
             self.assertIn(contains, body["error"])
         return body
 
-    def _create_run_with_task(self, *, spsa: bool = False) -> tuple[str, int]:
+    def _create_run(self, *, num_games: int = 400) -> str:
         run_id = self.rundb.new_run(
             "master",
             "master",
-            400,
+            num_games,
             "10+0.01",
             "10+0.01",
             "book.pgn",
@@ -157,6 +169,13 @@ class TestApiFastAPI(unittest.TestCase):
             start_time=datetime.now(UTC),
             arch_filter="avx",
         )
+        run = self.rundb.get_run(run_id)
+        run["approved"] = True
+        self.rundb.buffer(run, priority=Prio.SAVE_NOW)
+        return str(run_id)
+
+    def _create_run_with_task(self, *, spsa: bool = False) -> tuple[str, int]:
+        run_id = self._create_run()
         run = self.rundb.get_run(run_id)
         if spsa:
             run["args"]["spsa"] = {
@@ -200,6 +219,17 @@ class TestApiFastAPI(unittest.TestCase):
         self.rundb.buffer(run, priority=Prio.SAVE_NOW)
         return str(run_id), 0
 
+    def _stop_all_runs(self) -> None:
+        runs = self.rundb.runs.find({})
+        for run in runs:
+            run_ = self.rundb.get_run(str(run["_id"]))
+            run_["finished"] = True
+            for task in run_["tasks"]:
+                task["active"] = False
+            self.rundb.buffer(run_, priority=Prio.SAVE_NOW)
+        if hasattr(self.rundb, "run_cache"):
+            self.rundb.run_cache.flush_all()
+
     def test_request_version_ok(self):
         response = self.client.post(
             "/api/request_version",
@@ -222,7 +252,6 @@ class TestApiFastAPI(unittest.TestCase):
         )
 
     def test_request_version_invalid_json_body(self):
-        # Use an invalid JSON payload; glue should preserve worker-style error shaping.
         response = self.client.post(
             "/api/request_version",
             data=b"{",
@@ -305,7 +334,6 @@ class TestApiFastAPI(unittest.TestCase):
             )
 
     def test_worker_endpoints_invalid_json_body(self):
-        # Contract coverage for Protocol A endpoints (see WIP/docs/PROTOCOLS.md).
         endpoints = [
             "/api/request_version",
             "/api/request_task",
@@ -346,6 +374,7 @@ class TestApiFastAPI(unittest.TestCase):
         self.assertTrue(isinstance(body.get("duration"), (int, float)))
 
     def test_request_task_no_runs_returns_task_waiting(self):
+        self._reset_runs()
         response = self.client.post(
             "/api/request_task",
             json=self._payload(password=self.password),
@@ -355,6 +384,27 @@ class TestApiFastAPI(unittest.TestCase):
         self.assertIn("task_waiting", body)
         self.assertFalse(body["task_waiting"])
         self.assertTrue(isinstance(body.get("duration"), (int, float)))
+
+    def test_request_task_ok(self):
+        self._stop_all_runs()
+        run_ids = [self._create_run() for _ in range(3)]
+
+        response = self.client.post(
+            "/api/request_task",
+            json=self._payload(password=self.password),
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertNotIn("error", body)
+
+        run_id = str(body["run"]["_id"])
+        self.assertIn(run_id, run_ids)
+
+        run = self.rundb.get_run(run_id)
+        self.assertEqual(len(run["tasks"]), 1)
+        self.assertEqual(run["workers"], 1)
+        self.assertEqual(run["cores"], self.worker_info["concurrency"])
+        self.assertTrue(run["tasks"][body["task_id"]]["active"])
 
     def test_request_task_blocked_worker_is_application_error(self):
         if worker_name is None:  # pragma: no cover
@@ -514,6 +564,122 @@ class TestApiFastAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertTrue(isinstance(body.get("duration"), (int, float)))
+
+    def test_get_active_runs(self):
+        run_id = self._create_run()
+        response = self.client.get("/api/active_runs")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertIn(run_id, body)
+
+    def test_get_run(self):
+        run_id = self._create_run()
+        response = self.client.get(f"/api/get_run/{run_id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json().get("_id"), run_id)
+
+    def test_get_elo(self):
+        run_id = self._create_run()
+        response = self.client.get(f"/api/get_elo/{run_id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json())
+
+    def test_duplicate_workers(self):
+        self._stop_all_runs()
+        self._create_run(num_games=400)
+
+        response = self.client.post(
+            "/api/request_task",
+            json=self._payload(password=self.password),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("error", response.json())
+
+        response = self.client.post(
+            "/api/request_task",
+            json=self._payload(password=self.password),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("error", response.json())
+
+    def test_auto_purge_runs(self):
+        self._stop_all_runs()
+        run_id = self._create_run(num_games=1200)
+
+        response = self.client.post(
+            "/api/request_task",
+            json=self._payload(password=self.password),
+        )
+        body = response.json()
+        self.assertEqual(body["run"]["_id"], run_id)
+        self.assertEqual(body["task_id"], 0)
+
+        task1 = self.rundb.get_run(run_id)["tasks"][0]
+        task_size1 = task1["num_games"]
+
+        n_wins = task_size1 // 5
+        n_losses = task_size1 // 5
+        n_draws = task_size1 - n_wins - n_losses
+
+        response = self.client.post(
+            "/api/update_task",
+            json={
+                **self._payload(password=self.password),
+                "run_id": run_id,
+                "task_id": 0,
+                "stats": {
+                    "wins": n_wins,
+                    "draws": n_draws,
+                    "losses": n_losses,
+                    "crashes": 0,
+                    "time_losses": 0,
+                    "pentanomial": [n_losses // 2, 0, n_draws // 2, 0, n_wins // 2],
+                },
+            },
+        )
+        self.assertFalse(response.json()["task_alive"])
+        run = self.rundb.get_run(run_id)
+        self.assertFalse(run["finished"])
+
+        response = self.client.post(
+            "/api/request_task",
+            json=self._payload(password=self.password),
+        )
+        body = response.json()
+        self.assertEqual(body["run"]["_id"], run_id)
+        self.assertEqual(body["task_id"], 1)
+
+        task2 = self.rundb.get_run(run_id)["tasks"][1]
+        task_size2 = task2["num_games"]
+        task_start2 = task2["start"]
+
+        self.assertEqual(task_start2, task_size1)
+
+        n_wins = 2 * ((task_size2 // 5) // 2)
+        n_losses = 2 * ((task_size2 // 5) // 2)
+        n_draws = task_size2 - n_wins - n_losses
+
+        response = self.client.post(
+            "/api/update_task",
+            json={
+                **self._payload(password=self.password),
+                "run_id": run_id,
+                "task_id": 1,
+                "stats": {
+                    "wins": n_wins,
+                    "draws": n_draws,
+                    "losses": n_losses,
+                    "crashes": 0,
+                    "time_losses": 0,
+                    "pentanomial": [n_losses // 2, 0, n_draws // 2, 0, n_wins // 2],
+                },
+            },
+        )
+        self.assertFalse(response.json()["task_alive"])
+
+        run = self.rundb.get_run(run_id)
+        self.assertTrue(run["finished"])
+        self.assertTrue(all([not t["active"] for t in run["tasks"]]))
 
     def test_download_run_pgns_streaming_response(self):
         run_id = "testrun123"
