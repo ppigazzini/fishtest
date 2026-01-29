@@ -1,5 +1,7 @@
 """FastAPI/Starlette error handlers.
 
+Ownership: API/UI error shaping; UI HTML rendering delegated to ui_errors.
+
 These handlers preserve legacy fishtest behavior:
 - JSON 404s for `/api/...`
 - HTML 404 page for UI routes rendered via Mako
@@ -19,7 +21,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fishtest.http.api import WORKER_API_PATHS
 from fishtest.http.api import router as api_router
-from fishtest.http.views import render_forbidden_response, render_notfound_response
+from fishtest.http.ui_errors import render_forbidden_response, render_notfound_response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import PlainTextResponse
 from starlette.routing import Route

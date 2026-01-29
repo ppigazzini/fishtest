@@ -14,15 +14,23 @@ import fishtest.github_api as gh
 import fishtest.stats.stat_util
 import regex
 import requests
-from fastapi import APIRouter, Request
+from fastapi import (
+    APIRouter,
+    Request,
+)
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fishtest.http.boundary import (
+    apply_response_headers,
+    build_template_context,
+    commit_session_response,
+    csrf_or_403,
+    forget,
+    remember,
+)
 from fishtest.http.cookie_session import (
     authenticated_user,
-    commit_session,
-    is_https,
-    load_session,
 )
-from fishtest.http.csrf import csrf_or_403, csrf_token_from_form
+from fishtest.http.csrf import csrf_token_from_form
 from fishtest.http.dependencies import (
     get_actiondb,
     get_request_context,
@@ -31,12 +39,7 @@ from fishtest.http.dependencies import (
     get_workerdb,
 )
 from fishtest.http.mako import default_template_lookup, render_template
-from fishtest.http.ui_context import build_ui_context
-from fishtest.http.ui_pipeline import (
-    apply_http_cache,
-    apply_response_headers,
-    apply_session_cookie,
-)
+from fishtest.http.ui_pipeline import apply_http_cache
 from fishtest.run_cache import Prio
 from fishtest.schemas import (
     RUN_VERSION,
@@ -72,52 +75,6 @@ FORM_MAX_PART_SIZE = 200 * 1024 * 1024
 
 router = APIRouter(tags=["ui"], include_in_schema=False)
 _TEMPLATE_LOOKUP = default_template_lookup()
-
-
-async def render_notfound_response(request):
-    """Render the legacy UI 404 page and commit the cookie session."""
-    session = load_session(request)
-
-    template_request = build_ui_context(request, session).template_request
-
-    # Mako rendering is sync and can be CPU heavy; keep it off the event loop.
-    rendered = await run_in_threadpool(
-        render_template,
-        lookup=_TEMPLATE_LOOKUP,
-        template_name="notfound.mak",
-        context={"request": template_request},
-    )
-    response = HTMLResponse(rendered.html, status_code=404)
-    commit_session(
-        response=response,
-        session=session,
-        remember=False,
-        secure=is_https(request),
-    )
-    return response
-
-
-async def render_forbidden_response(request):
-    """Render the legacy UI 403 page (login) and commit the cookie session."""
-    session = load_session(request)
-    session.flash("Please login")
-
-    template_request = build_ui_context(request, session).template_request
-
-    rendered = await run_in_threadpool(
-        render_template,
-        lookup=_TEMPLATE_LOOKUP,
-        template_name="login.mak",
-        context={"request": template_request},
-    )
-    response = HTMLResponse(rendered.html, status_code=403)
-    commit_session(
-        response=response,
-        session=session,
-        remember=False,
-        secure=is_https(request),
-    )
-    return response
 
 
 _ROUTE_PATHS = {
@@ -192,20 +149,6 @@ def forbidden_view_config(**kw):
     return deco
 
 
-def remember(request, username, max_age=None):
-    request.session.data["user"] = username
-    request.session.dirty = True
-    request._remember = max_age is not None
-    return []
-
-
-def forget(request):
-    request.session.data.pop("user", None)
-    request.session.dirty = True
-    request._forget = True
-    return []
-
-
 class _ResponseShim:
     def __init__(self):
         self.status = 200
@@ -263,8 +206,8 @@ class _RequestShim:
         self.method = request.method
         self.matchdict = matchdict or {}
         self.response = _ResponseShim()
-        self._remember = False
-        self._forget = False
+        self.remember = False
+        self.forget = False
 
         self.url = str(request.url)
         self.path = request.url.path
@@ -347,7 +290,7 @@ async def _dispatch_view(fn, cfg, request, path_params):
             status_code=503,
         )
         response.headers.setdefault("Cache-Control", "no-store")
-        apply_session_cookie(request, session, shim, response)
+        commit_session_response(request, session, shim, response)
         return apply_response_headers(shim, response)
 
     try:
@@ -356,7 +299,7 @@ async def _dispatch_view(fn, cfg, request, path_params):
         response = RedirectResponse(url=e.location, status_code=302)
         for k, v in getattr(e, "headers", []) or []:
             response.headers[k] = v
-        apply_session_cookie(request, session, shim, response)
+        commit_session_response(request, session, shim, response)
         return apply_response_headers(shim, response)
     except HTTPNotFound:
         raise StarletteHTTPException(status_code=404)
@@ -365,7 +308,7 @@ async def _dispatch_view(fn, cfg, request, path_params):
         response = RedirectResponse(url=result.location, status_code=302)
         for k, v in getattr(result, "headers", []) or []:
             response.headers[k] = v
-        apply_session_cookie(request, session, shim, response)
+        commit_session_response(request, session, shim, response)
         return apply_response_headers(shim, response)
 
     renderer = cfg.get("renderer")
@@ -375,10 +318,7 @@ async def _dispatch_view(fn, cfg, request, path_params):
             render_template,
             lookup=_TEMPLATE_LOOKUP,
             template_name=renderer,
-            context={
-                **context,
-                "request": build_ui_context(request, session).template_request,
-            },
+            context=build_template_context(request, session, context),
         )
         status_code = getattr(shim.response, "status", 200) or 200
         response = HTMLResponse(rendered.html, status_code=int(status_code))
@@ -386,7 +326,7 @@ async def _dispatch_view(fn, cfg, request, path_params):
         # Most UI endpoints either redirect or render templates.
         response = HTMLResponse("", status_code=204)
 
-    apply_session_cookie(request, session, shim, response)
+    commit_session_response(request, session, shim, response)
     apply_http_cache(response, cfg)
     return apply_response_headers(shim, response)
 
@@ -480,6 +420,7 @@ def should_include_unfinished_runs(page_param: str) -> bool:
     return not page_param.isdigit() or int(page_param) <= 1
 
 
+# === Error handling views ===
 @notfound_view_config(renderer="notfound.mak")
 def notfound_view(request):
     request.response.status = 404
@@ -496,11 +437,13 @@ def notfound_view(request):
     return {}
 
 
+# === Home redirect ===
 @view_config(route_name="home")
 def home(request):
     return HTTPFound(location=request.route_url("tests"))
 
 
+# === Authentication views ===
 def ensure_logged_in(request):
     userid = request.authenticated_userid
     if not userid:
@@ -553,10 +496,9 @@ def login(request):
     return {}
 
 
+# === Worker administration ===
 # Note that the allowed length of mailto URLs on Chrome/Windows is severely
 # limited.
-
-
 def worker_email(worker_name, blocker_name, message, host_url, blocked):
     owner_name = worker_name.split("-")[0]
     body = f"""\
@@ -671,11 +613,11 @@ def workers(request):
     }
 
 
+# === Neural network uploads + tools ===
 @view_config(
     route_name="nn_upload",
     renderer="nn_upload.mak",
     require_csrf=True,
-    require_primary=True,
 )
 def upload(request):
     ensure_logged_in(request)
@@ -782,7 +724,7 @@ def signup(request):
         signup_password, signup_username, signup_email
     )
     if not strong_password:
-        errors.append("Error! Weak password: " + password_err)
+        errors.append(password_err)
     if signup_password != signup_password_verify:
         errors.append("Error! Matching verify password required")
     email_is_valid, validated_email = email_valid(signup_email)
@@ -918,6 +860,7 @@ def sanitize_quotation_marks(text):
     return text.translate(quotation_marks_translation)
 
 
+# === Actions log ===
 @view_config(route_name="actions", renderer="actions.mak")
 def actions(request):
     DEFAULT_MAX_ACTIONS_AUTH = 50000
@@ -1004,6 +947,7 @@ def actions(request):
     }
 
 
+# === User management + profiles ===
 def get_idle_users(users, request):
     idle = {}
     for u in users:
@@ -1072,9 +1016,7 @@ def user(request):
                         user_data["password"] = new_password
                         request.session.flash("Success! Password updated")
                     else:
-                        request.session.flash(
-                            "Error! Weak password: " + password_err, "error"
-                        )
+                        request.session.flash(password_err, "error")
                         return home(request)
                 else:
                     request.session.flash(
@@ -1150,6 +1092,7 @@ def user(request):
     }
 
 
+# === Contributors views ===
 @view_config(route_name="contributors", renderer="contributors.mak")
 def contributors(request):
     users_list = list(request.userdb.user_cache.find())
@@ -1170,6 +1113,7 @@ def contributors_monthly(request):
     }
 
 
+# === Run creation helpers ===
 def get_master_info(
     user="official-stockfish", repo="Stockfish", ignore_rate_limit=False
 ):
@@ -1684,6 +1628,7 @@ def new_run_message(request, run):
     return ret
 
 
+# === Run creation ===
 @view_config(
     route_name="tests_run",
     renderer="tests_run.mak",
@@ -1754,6 +1699,7 @@ def can_modify_run(request, run):
     return is_same_user(request, run) or request.has_permission("approve_run")
 
 
+# === Run admin actions ===
 @view_config(
     route_name="tests_modify",
     require_csrf=True,
@@ -1970,6 +1916,7 @@ def tests_delete(request):
     return home(request)
 
 
+# === Run detail views ===
 def get_page_title(run):
     if run["args"].get("sprt"):
         page_title = "SPRT {} vs {}".format(
@@ -2361,6 +2308,7 @@ def get_paginated_finished_runs(request):
     }
 
 
+# === Run lists + homepage ===
 @view_config(route_name="tests_finished", renderer="tests_finished.mak")
 def tests_finished(request):
     return get_paginated_finished_runs(request)
@@ -2436,6 +2384,7 @@ def tests(request):
     }
 
 
+# === Router registration ===
 def _register_view_configs():
     for name, obj in list(globals().items()):
         configs = getattr(obj, "__view_configs__", None)

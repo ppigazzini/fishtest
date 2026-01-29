@@ -147,15 +147,17 @@ Non-goals:
 - No UI redesign.
 - No “make everything async” rewrite.
 
-## Milestone 6 — Contract tests & de‑Pyramidized tests
+## Milestone 6 — Contract tests & dual‑suite tests
 
-Goal: make the active FastAPI/Starlette behavior the single source of truth for tests and remove the test‑time Pyramid stubs.
+Goal: make the active FastAPI/Starlette behavior the single source of truth for contract tests while **keeping** the legacy Pyramid tests/stubs for upstream rebase safety.
+
+Status: **Complete (2026-01-30)** — worker routes covered by FastAPI contract tests; legacy Pyramid tests/stubs retained for rebase safety.
 
 Definition of done:
 - All protocol contract tests (Protocol A worker API + Protocol B UI flows) run against the FastAPI app using `TestClient` or direct callable tests.
-- Legacy Pyramid‑importing unit tests are either ported to FastAPI tests or removed.
-- Test-only Pyramid stubs under `server/tests/pyramid/` are deleted after their consumers are migrated.
-- CI passes with no Pyramid stubs present.
+- Legacy Pyramid‑importing unit tests are retained alongside FastAPI tests for rebase safety.
+- Test-only Pyramid stubs under `server/tests/pyramid/` are retained (do not delete).
+- CI passes with both suites present.
 
 Verification gates:
 - Full contract test suite for worker endpoints (status codes, `duration`, error shape).
@@ -163,7 +165,6 @@ Verification gates:
 - Parity scripts updated to point at `server/fishtest/http/*`.
 
 Metrics:
-- Zero imports from `pyramid.*` in test modules.
 - Contract coverage: all worker endpoints + representative UI flows pass in CI.
 
 Reference implementations (from the bloat branch, to be adapted to `http/`):
@@ -172,7 +173,7 @@ Reference implementations (from the bloat branch, to be adapted to `http/`):
 - [__fishtest-bloat/server/tests/test_web_session.py](__fishtest-bloat/server/tests/test_web_session.py)
 - [__fishtest-bloat/server/tests/test_web_ui_actions.py](__fishtest-bloat/server/tests/test_web_ui_actions.py)
 
-## Milestone 7 — Starlette idiomatic plumbing (reduce shim surface, avoid bloat)
+## Milestone 7 — HTTP boundary extraction without bloat
 
 Goal: make the HTTP layer idiomatic Starlette/FastAPI while preserving externally‑visible behavior; reduce shim usage without recreating the helper bloat seen in earlier drafts.
 
@@ -181,10 +182,23 @@ Scope and constraints:
 - Incremental: replace shims only when tests cover the affected surfaces.
 - Keep `http/api.py` and `http/views.py` readable; avoid route‑layer fragmentation.
 
+Phase 0 (inventory): enumerate the remaining Pyramid-era plumbing surfaces to de-shim, with an explicit list of:
+- request shim entrypoints and constructors
+- response header helpers
+- session flags and cookie semantics
+- template context injection
+- JSON body parsing and error shaping
+
+Phase 1 (explicit): extract HTTP plumbing from `http/api.py` and `http/views.py` into the boundary module [server/fishtest/http/boundary.py](server/fishtest/http/boundary.py), focused only on shared plumbing and dependencies.
+- Keep route handlers as the readable entrypoints; the boundary module only holds plumbing (dependencies, middleware wiring helpers, session/context adapters).
+- Move request shim constructors, view-config dispatch/registry helpers, JSON body parsing, and response header/session cookie helpers into the boundary module.
+- Add tests that exercise the boundary module directly (unit or lightweight integration), and keep contract/parity tests green during the extraction.
+
 Key outcomes:
 - Replace request‑shim call patterns with typed dependencies (`Annotated` aliases) for DB handles, session, and UI context.
 - Adopt Starlette/FastAPI session middleware and migrate template access via a thin, well‑tested compatibility layer during transition.
 - Remove remaining `TemplateRequest` surface only after templates are ported or an adapter is proven identical.
+- UI error rendering helpers live in [server/fishtest/http/ui_errors.py](server/fishtest/http/ui_errors.py), and [server/fishtest/http/errors.py](server/fishtest/http/errors.py) depends on that helper layer.
 
 Verification gates:
 - Contract tests (Milestone 6) remain green after each refactor.
@@ -192,30 +206,16 @@ Verification gates:
 
 Notes:
 - Avoid helper explosion and multi‑hop flow; the route layer should remain readable in a single pass.
+- No “glue” moniker should remain in HTTP helpers; rename any surviving helpers that still use that label.
 
 Metrics:
 - Hop count ≤ 1 per endpoint; helper calls ≤ 2 per endpoint in `http/api.py` and `http/views.py`.
 - No new route‑split folder tree; HTTP entrypoints remain the primary narrative.
 
-## Milestone N-2 — Optional: Pydantic (only when it buys real safety)
-
-Goal: allow Pydantic only where it materially reduces bugs/duplication, without duplicating vtjson validation across the whole codebase or changing externally-visible error semantics.
-
-Scope guidance:
-
-- Prefer vtjson as the protocol-validation source of truth unless we deliberately migrate a specific surface.
-- If Pydantic is used for request parsing, ensure validation failures are routed through existing error shaping (avoid leaking FastAPI default `422` behavior on worker/UI paths).
-- Any Pydantic introduction must be paired with contract tests that lock response shape + error strings + worker `duration` behavior.
-
-Non-goals:
-
-- No broad conversion of existing endpoints “for style”.
-- No replacement of vtjson across the codebase.
-
-## Milestone N-1 — Templates: Mako → Starlette Jinja2 (optional but recommended long-term)
+## Milestone N-2 — Templates: Mako → Starlette Jinja2 (optional but recommended long-term)
 
 Goal: remove the Mako/Pyramid-template compatibility layer and use the standard Starlette template integration.
-This is an architectural cleanup; it should happen only when Milestone 2 parity gates are solid.
+This is an architectural cleanup; it should happen only when Milestone parity gates are solid.
 
 Suggested approach (incremental):
 
@@ -239,6 +239,21 @@ Definition of done:
 - No Mako runtime dependency in the server.
 - All UI templates render via Starlette’s Jinja2 integration.
 - Template test coverage exists for at least: login page, one list page, one “detail-ish” page.
+
+## Milestone N-1 — Optional: Pydantic (only when it buys real safety)
+
+Goal: allow Pydantic only where it materially reduces bugs/duplication, without duplicating vtjson validation across the whole codebase or changing externally-visible error semantics.
+
+Scope guidance:
+
+- Prefer vtjson as the protocol-validation source of truth unless we deliberately migrate a specific surface.
+- If Pydantic is used for request parsing, ensure validation failures are routed through existing error shaping (avoid leaking FastAPI default `422` behavior on worker/UI paths).
+- Any Pydantic introduction must be paired with contract tests that lock response shape + error strings + worker `duration` behavior.
+
+Non-goals:
+
+- No broad conversion of existing endpoints “for style”.
+- No replacement of vtjson across the codebase.
 
 ## Milestone N — Delete legacy Pyramid code
 

@@ -45,18 +45,23 @@ upstream backend_8001 {
     keepalive 64;
 }
 
+upstream backend_8002 {
+    server 127.0.0.1:8002;
+    keepalive 64;
+}
+
 upstream backend_8003 {
-    server 127.0.0.1:8001;
+    server 127.0.0.1:8003;
     keepalive 64;
 }
 
 map $uri $backends {
     /tests                                   backend_8001;
-    ~^/api/(actions|active_runs|calc_elo)    backend_8003;
-    ~^/api/(nn|pgn|run_pgns)/                backend_8003;
+    ~^/api/(actions|active_runs|calc_elo)    backend_8002;
+    ~^/api/(nn|pgn|run_pgns)/                backend_8002;
     ~^/api/upload_pgn                        backend_8003;
-    ~^/tests/(finished|machines|user)        backend_8003;
-    ~^/(actions/|contributors)               backend_8003;
+    ~^/tests/(finished|machines|user)        backend_8002;
+    ~^/(actions/|contributors)               backend_8002;
     ~^/(api|tests)/                          backend_8000;
     default                                  backend_8001;
 }
@@ -212,7 +217,7 @@ unlink fishtest.conf
 ln -sf /etc/nginx/sites-available/fishtest-maintenance.conf fishtest-maintenance.conf
 systemctl reload nginx
 systemctl stop fishtest@{6543..6545}
-systemctl stop fishtest_fastapi@{8000..8002}
+systemctl stop fishtest_fastapi@{8000..8003}
 echo "restart mongod"
 systemctl restart mongod
 
@@ -233,7 +238,7 @@ git pull origin master
 # add here the upstream branch to be tested
 git remote add ppigazzini https://github.com/ppigazzini/fishtest
 git pull --no-edit --rebase ppigazzini fastapi
-git pull --no-edit --rebase ppigazzini fastapi_server_task_duration_180
+#git pull --no-edit --rebase ppigazzini fastapi_server_task_duration_180
 
 # add here the PRs to be tested
 #git pull --no-edit --rebase origin pull/2430/head
@@ -248,7 +253,7 @@ uv sync
 EOF
 
 # start fishtest
-systemctl start fishtest_fastapi@{8000..8002}
+systemctl start fishtest_fastapi@{8000..8003}
 unlink fishtest-maintenance.conf
 ln -sf /etc/nginx/sites-available/fishtest_fastapi.conf fishtest.conf
 systemctl reload nginx

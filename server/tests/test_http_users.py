@@ -4,6 +4,7 @@ import unittest
 from datetime import UTC, datetime
 
 from fishtest.run_cache import Prio
+from fishtest.util import PASSWORD_MAX_LENGTH
 from vtjson import ValidationError
 
 
@@ -187,6 +188,30 @@ class TestHttpUsers(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 302)
         self.assertTrue(response.headers.get("location", "").endswith("/login"))
+
+    def test_signup_rejects_too_long_password(self):
+        long_password = "A1!a" * 20
+        self.assertGreater(len(long_password), PASSWORD_MAX_LENGTH)
+        response = self.client.get("/signup")
+        self.assertEqual(response.status_code, 200)
+        csrf = self.fastapi_util.extract_csrf_token(response.text)
+        response = self.client.post(
+            "/signup",
+            data={
+                "username": "LongPasswordUser",
+                "password": long_password,
+                "password2": long_password,
+                "email": "joe@user.net",
+                "tests_repo": "https://github.com/official-stockfish/Stockfish",
+                "csrf_token": csrf,
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            f"Error! Password too long (max {PASSWORD_MAX_LENGTH} characters)",
+            response.text,
+        )
 
     def test_login_page_has_csrf_meta(self):
         response = self.client.get("/login")
