@@ -71,11 +71,15 @@ server/fishtest/
 │  ├─ api.py              # ALL /api/... endpoints (worker + public)
 │  ├─ views.py            # ALL UI endpoints (Mako HTML)
 │  ├─ errors.py           # Error shaping: API JSON vs UI HTML
+│  ├─ boundary.py         # Threadpool + sync/async boundary helpers
 │  ├─ middleware.py       # Middleware (shutdown guard, request.state attach, redirects)
 │  ├─ settings.py         # Env parsing + derived runtime settings
 │  ├─ dependencies.py     # Typed dependency getters (RunDb/UserDb/etc)
 │  ├─ cookie_session.py   # Cookie session + CSRF + flashes for UI
 │  ├─ csrf.py             # Shared CSRF validation helpers for UI POSTs
+│  ├─ ui_errors.py        # UI error rendering helpers (404/403)
+│  ├─ ui_context.py       # UI template context assembly helpers
+│  ├─ ui_pipeline.py      # UI dispatcher/response pipeline helpers
 │  ├─ template_request.py # UI request shim passed to Mako templates
 │  └─ mako.py             # Mako template lookup/render helpers
 ├─ api.py                 # Pyramid-era API module kept as a behavioral spec (tests import it)
@@ -192,6 +196,7 @@ Error handling:
 - Installed by the app factory via `install_error_handlers(app)`.
 - The worker-endpoint set used for worker-style validation errors is derived from the HTTP API router to avoid drift.
 - `/api/...` returns JSON errors (404 as JSON).
+- UI 404/403 rendering is implemented in `server/fishtest/http/ui_errors.py` (called by `errors.py`).
 - UI routes return an HTML 404 page rendered from `notfound.mak` (and commit the cookie session).
 
 Signals and shutdown:
@@ -318,10 +323,22 @@ This repo supports running **multiple FastAPI server processes** behind a revers
 all endpoints are safe to serve from any process. The main source of unsafety is **in-process state**
 in `RunDb` (scheduler, in-memory maps/locks, and the primary instance `run_cache.buffer(...)` write path).
 
+Routing criteria (for primary vs sticky vs default):
+
+- **Primary-only**: endpoints that rely on `run_cache.buffer(...)`, the scheduler, or other in-process
+  mutable state that is only safe on the primary instance.
+- **Sticky (single backend)**: endpoints that must be consistent with local filesystem state or cache
+  identity, but do not require primary.
+- **Default**: everything else should fall through to the reverse proxy default.
+
 Brief summary (see [4-VPS.md](4-VPS.md) for full routing matrix and nginx config):
 
-- **Primary-only**: worker mutation endpoints (`/api/request_task`, `/api/update_task`, etc.) and UI mutation endpoints
+- **Primary-only**: worker mutation endpoints that rely on primary-only state (`/api/request_task`, `/api/update_task`, etc.)
+  and UI mutation endpoints.
+  - Exception: `/api/upload_pgn` is routed to a non-primary backend for single-instance handling.
 - **Single-instance (not necessarily primary)**: network upload (`/upload`), user management (for cache consistency)
+  - `/upload` only writes network metadata to `nndb` and writes the file to `/var/www/fishtest/nn`.
+    It does not touch `run_cache` or scheduler state, so it does not require primary.
 - **Load-balance safe**: read-only endpoints
 
 ### 6.4 How `http/api.py` keeps Pyramid-era behavior

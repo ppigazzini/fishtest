@@ -143,10 +143,10 @@ Completed:
 - Mechanical port hotspots are in place and mounted:
 	- [server/fishtest/http/api.py](../../server/fishtest/http/api.py)
 	- [server/fishtest/http/views.py](../../server/fishtest/http/views.py)
-- UI error rendering parity is centralized in [server/fishtest/http/views.py](../../server/fishtest/http/views.py):
+- UI error rendering parity is centralized in [server/fishtest/http/ui_errors.py](../../server/fishtest/http/ui_errors.py):
 	- `render_notfound_response()`
 	- `render_forbidden_response()`
-- Central error handler delegates UI 404/401/403 rendering via [server/fishtest/http/errors.py](../../server/fishtest/http/errors.py).
+- Central error handler delegates UI 404/401/403 rendering via [server/fishtest/http/errors.py](../../server/fishtest/http/errors.py), which now calls into [server/fishtest/http/ui_errors.py](../../server/fishtest/http/ui_errors.py) instead of UI views.
 - Production deployment scaffolding exists (systemd + nginx), see [4-VPS.md](4-VPS.md).
 - Parity-check scripts used during the port live under [../tools/](../tools/) (route coverage and behavioral spot-checks).
 - Milestone 3 async/blocking boundaries are complete; see 2.1-ASYNC-INVENTORY.md for the inventory and invariants.

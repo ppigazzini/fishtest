@@ -1,4 +1,7 @@
-"""UI request context helpers for FastAPI HTTP views."""
+"""UI request context helpers for FastAPI HTTP views.
+
+Ownership: assemble the request-scoped context (DB handles + template request).
+"""
 
 from __future__ import annotations
 

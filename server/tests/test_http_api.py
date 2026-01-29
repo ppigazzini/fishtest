@@ -219,6 +219,17 @@ class TestHttpApi(unittest.TestCase):
         self.rundb.buffer(run, priority=Prio.SAVE_NOW)
         return str(run_id), 0
 
+    def _build_pgn_payload(self, run_id: str, task_id: int) -> str:
+        pgn_text = "1. e4 e5 2. d4 d5"
+        with io.BytesIO() as gz_buffer:
+            with gzip.GzipFile(
+                filename=f"{run_id}-{task_id}.pgn.gz",
+                mode="wb",
+                fileobj=gz_buffer,
+            ) as gz:
+                gz.write(pgn_text.encode())
+            return base64.b64encode(gz_buffer.getvalue()).decode()
+
     def _stop_all_runs(self) -> None:
         runs = self.rundb.runs.find({})
         for run in runs:
@@ -434,6 +445,139 @@ class TestHttpApi(unittest.TestCase):
         self.assertIn("Request_task:", body["error"])
         self.assertTrue(isinstance(body.get("duration"), (int, float)))
 
+    def test_task_endpoints_missing_run_id_is_validation_error(self):
+        endpoints = [
+            "/api/update_task",
+            "/api/beat",
+            "/api/request_spsa",
+            "/api/failed_task",
+            "/api/stop_run",
+            "/api/upload_pgn",
+        ]
+        pgn_payload = self._build_pgn_payload("missing-run", 0)
+        for path in endpoints:
+            payload = {
+                **self._payload(password=self.password),
+                "task_id": 0,
+            }
+            if path == "/api/upload_pgn":
+                payload["pgn"] = pgn_payload
+            response = self.client.post(path, json=payload)
+            self._assert_worker_error_response(
+                response,
+                status_code=400,
+                path=path,
+                contains="run_id",
+            )
+
+    def test_task_endpoints_missing_task_id_is_validation_error(self):
+        run_id, task_id = self._create_run_with_task()
+        endpoints = [
+            "/api/update_task",
+            "/api/beat",
+            "/api/request_spsa",
+            "/api/failed_task",
+            "/api/stop_run",
+            "/api/upload_pgn",
+        ]
+        pgn_payload = self._build_pgn_payload(run_id, task_id)
+        for path in endpoints:
+            payload = {
+                **self._payload(password=self.password),
+                "run_id": run_id,
+            }
+            if path == "/api/upload_pgn":
+                payload["pgn"] = pgn_payload
+            response = self.client.post(path, json=payload)
+            self._assert_worker_error_response(
+                response,
+                status_code=400,
+                path=path,
+                contains="task_id",
+            )
+
+    def test_task_endpoints_invalid_run_id_is_error(self):
+        endpoints = [
+            "/api/update_task",
+            "/api/beat",
+            "/api/request_spsa",
+            "/api/failed_task",
+            "/api/stop_run",
+            "/api/upload_pgn",
+        ]
+        pgn_payload = self._build_pgn_payload("0123456789abcdef01234567", 0)
+        for path in endpoints:
+            payload = {
+                **self._payload(password=self.password),
+                "run_id": "0123456789abcdef01234567",
+                "task_id": 0,
+            }
+            if path == "/api/upload_pgn":
+                payload["pgn"] = pgn_payload
+            response = self.client.post(path, json=payload)
+            self._assert_worker_error_response(
+                response,
+                status_code=400,
+                path=path,
+                contains="Invalid run_id",
+            )
+
+    def test_task_endpoints_invalid_task_id_is_error(self):
+        run_id, _task_id = self._create_run_with_task()
+        endpoints = [
+            "/api/update_task",
+            "/api/beat",
+            "/api/request_spsa",
+            "/api/failed_task",
+            "/api/stop_run",
+            "/api/upload_pgn",
+        ]
+        pgn_payload = self._build_pgn_payload(run_id, 0)
+        for path in endpoints:
+            payload = {
+                **self._payload(password=self.password),
+                "run_id": run_id,
+                "task_id": 99,
+            }
+            if path == "/api/upload_pgn":
+                payload["pgn"] = pgn_payload
+            response = self.client.post(path, json=payload)
+            self._assert_worker_error_response(
+                response,
+                status_code=400,
+                path=path,
+                contains="Invalid task_id",
+            )
+
+    def test_task_endpoints_mismatched_worker_info_is_error(self):
+        run_id, task_id = self._create_run_with_task()
+        endpoints = [
+            "/api/update_task",
+            "/api/beat",
+            "/api/request_spsa",
+            "/api/failed_task",
+            "/api/stop_run",
+            "/api/upload_pgn",
+        ]
+        pgn_payload = self._build_pgn_payload(run_id, task_id)
+        worker_info = copy.deepcopy(self.worker_info)
+        worker_info["unique_key"] = "f4f1a1b6-2dd0-4f2b-ae6e-3f6f3b3b4c7b"
+        for path in endpoints:
+            payload = {
+                **self._payload(password=self.password, worker_info=worker_info),
+                "run_id": run_id,
+                "task_id": task_id,
+            }
+            if path == "/api/upload_pgn":
+                payload["pgn"] = pgn_payload
+            response = self.client.post(path, json=payload)
+            self._assert_worker_error_response(
+                response,
+                status_code=400,
+                path=path,
+                contains="Invalid unique_key",
+            )
+
     def test_worker_log_ok(self):
         response = self.client.post(
             "/api/worker_log",
@@ -540,17 +684,59 @@ class TestHttpApi(unittest.TestCase):
         body = response.json()
         self.assertTrue(isinstance(body.get("duration"), (int, float)))
 
+    def test_stop_run_insufficient_cpu_hours_is_error(self):
+        run_id, task_id = self._create_run_with_task()
+        response = self.client.post(
+            "/api/stop_run",
+            json={
+                **self._payload(password=self.password),
+                "run_id": run_id,
+                "task_id": task_id,
+                "message": "stop run for test",
+            },
+        )
+        self._assert_worker_error_response(
+            response,
+            status_code=401,
+            path="/api/stop_run",
+            contains="too few games",
+        )
+
+    def test_stop_run_finished_run_is_error(self):
+        run_id, task_id = self._create_run_with_task()
+        run = self.rundb.get_run(run_id)
+        run["finished"] = True
+        self.rundb.buffer(run, priority=Prio.SAVE_NOW)
+        self.rundb.userdb.user_cache.update_one(
+            {"username": self.username},
+            {"$set": {"cpu_hours": 1000}},
+        )
+        try:
+            response = self.client.post(
+                "/api/stop_run",
+                json={
+                    **self._payload(password=self.password),
+                    "run_id": run_id,
+                    "task_id": task_id,
+                    "message": "stop run for test",
+                },
+            )
+        finally:
+            self.rundb.userdb.user_cache.update_one(
+                {"username": self.username},
+                {"$set": {"cpu_hours": 0}},
+            )
+
+        self._assert_worker_error_response(
+            response,
+            status_code=401,
+            path="/api/stop_run",
+            contains="already finished",
+        )
+
     def test_upload_pgn_ok(self):
         run_id, task_id = self._create_run_with_task()
-        pgn_text = "1. e4 e5 2. d4 d5"
-        with io.BytesIO() as gz_buffer:
-            with gzip.GzipFile(
-                filename=f"{run_id}-{task_id}.pgn.gz",
-                mode="wb",
-                fileobj=gz_buffer,
-            ) as gz:
-                gz.write(pgn_text.encode())
-            pgn_payload = base64.b64encode(gz_buffer.getvalue()).decode()
+        pgn_payload = self._build_pgn_payload(run_id, task_id)
 
         response = self.client.post(
             "/api/upload_pgn",
@@ -564,6 +750,58 @@ class TestHttpApi(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertTrue(isinstance(body.get("duration"), (int, float)))
+
+    def test_upload_pgn_missing_payload_is_error(self):
+        run_id, task_id = self._create_run_with_task()
+        response = self.client.post(
+            "/api/upload_pgn",
+            json={
+                **self._payload(password=self.password),
+                "run_id": run_id,
+                "task_id": task_id,
+            },
+        )
+        self._assert_worker_error_response(
+            response,
+            status_code=400,
+            path="/api/upload_pgn",
+            contains="Missing pgn",
+        )
+
+    def test_upload_pgn_invalid_base64_is_error(self):
+        run_id, task_id = self._create_run_with_task()
+        response = self.client.post(
+            "/api/upload_pgn",
+            json={
+                **self._payload(password=self.password),
+                "run_id": run_id,
+                "task_id": task_id,
+                "pgn": "not-base64",
+            },
+        )
+        self._assert_worker_error_response(
+            response,
+            status_code=400,
+            path="/api/upload_pgn",
+        )
+
+    def test_upload_pgn_invalid_gzip_is_error(self):
+        run_id, task_id = self._create_run_with_task()
+        invalid_payload = base64.b64encode(b"not-gzip").decode()
+        response = self.client.post(
+            "/api/upload_pgn",
+            json={
+                **self._payload(password=self.password),
+                "run_id": run_id,
+                "task_id": task_id,
+                "pgn": invalid_payload,
+            },
+        )
+        self._assert_worker_error_response(
+            response,
+            status_code=400,
+            path="/api/upload_pgn",
+        )
 
     def test_get_active_runs(self):
         run_id = self._create_run()

@@ -3,7 +3,7 @@
 """Parity check helper: crude similarity metrics for mechanical-port hotspots.
 
 Goal: keep diffs small and localized. This script is intentionally simple: it
-prints basic line counts and a difflib similarity ratio for key spec↔glue files.
+prints basic line counts and a difflib similarity ratio for key spec↔http files.
 
 It is NOT a correctness checker; it helps catch accidental large-churn edits.
 
@@ -27,12 +27,12 @@ PAIRS: list[tuple[str, Path, Path]] = [
     (
         "UI views",
         REPO_ROOT / "server" / "fishtest" / "views.py",
-        REPO_ROOT / "server" / "fishtest" / "glue" / "views.py",
+        REPO_ROOT / "server" / "fishtest" / "http" / "views.py",
     ),
     (
         "API routes",
         REPO_ROOT / "server" / "fishtest" / "api.py",
-        REPO_ROOT / "server" / "fishtest" / "glue" / "api.py",
+        REPO_ROOT / "server" / "fishtest" / "http" / "api.py",
     ),
 ]
 
@@ -45,7 +45,7 @@ def _read_norm_lines(path: Path) -> list[str]:
 
 
 def main() -> int:
-    """Print basic similarity metrics for key spec↔glue hotspots."""
+    """Print basic similarity metrics for key spec↔http hotspots."""
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--show",
@@ -54,18 +54,18 @@ def main() -> int:
     )
     args = ap.parse_args()
 
-    for label, spec, glue in PAIRS:
-        if not spec.exists() or not glue.exists():
-            print(f"{label}: missing file(s): {spec} {glue}")
+    for label, spec, http in PAIRS:
+        if not spec.exists() or not http.exists():
+            print(f"{label}: missing file(s): {spec} {http}")
             continue
 
         a = _read_norm_lines(spec)
-        b = _read_norm_lines(glue)
+        b = _read_norm_lines(http)
 
         ratio = difflib.SequenceMatcher(a=a, b=b).ratio()
         print(f"{label}:")
         print(f"  spec lines (non-empty): {len(a)}")
-        print(f"  glue lines (non-empty): {len(b)}")
+        print(f"  http lines (non-empty): {len(b)}")
         print(f"  similarity ratio: {ratio:.4f}")
 
         if args.show:
@@ -73,7 +73,7 @@ def main() -> int:
                 a,
                 b,
                 fromfile=str(spec.relative_to(REPO_ROOT)),
-                tofile=str(glue.relative_to(REPO_ROOT)),
+                tofile=str(http.relative_to(REPO_ROOT)),
                 lineterm="",
             )
             print("\n".join(diff))

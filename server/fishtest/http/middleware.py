@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
-from fishtest.http.api import WORKER_API_PATHS
+from fishtest.http.api import PRIMARY_ONLY_WORKER_API_PATHS
 from fishtest.http.cookie_session import (
     authenticated_user,
     clear_session_cookie,
@@ -103,7 +103,7 @@ class RejectNonPrimaryWorkerApiMiddleware(BaseHTTPMiddleware):
     ) -> Response:
         """Reject worker API calls on a non-primary instance with a stable error."""
         path = request.url.path
-        if path not in WORKER_API_PATHS:
+        if path not in PRIMARY_ONLY_WORKER_API_PATHS:
             return await call_next(request)
 
         rundb = getattr(request.app.state, "rundb", None)

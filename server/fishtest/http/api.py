@@ -9,32 +9,14 @@ from urllib.parse import urlparse
 import fishtest.github_api as gh
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
-from fishtest.http.dependencies import (
-    DependencyNotInitializedError,
-    get_actiondb,
-    get_rundb,
-    get_userdb,
-)
+from fishtest.http.boundary import ApiRequestShim, get_request_shim
 from fishtest.schemas import api_access_schema, api_schema, gzip_data
 from fishtest.stats.stat_util import SPRT_elo, get_elo
 from fishtest.util import strip_run, worker_name
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 from vtjson import ValidationError, validate
 
-"""Important note
-==============
-
-APIs hosted on the primary Fishtest instance have read and write access
-to the `run_cache` via `rundb.get_run()` and `rundb.buffer()`
-
-APIs hosted on secondary instances have read access to the `run`
-from the database via `rundb.get_run()`. However, they should not
-attempt to write to `run_cache` using `rundb.buffer()`.
-
-Proper configuration of `nginx` is crucial for this.
-"""
-
-WORKER_VERSION = 310
+WORKER_VERSION = 311
 
 WORKER_API_PATHS = {
     "/api/request_version",
@@ -47,6 +29,10 @@ WORKER_API_PATHS = {
     "/api/upload_pgn",
     "/api/worker_log",
 }
+
+# Primary-only worker endpoints exclude upload_pgn, which is routed to a
+# non-primary backend for single-instance handling.
+PRIMARY_ONLY_WORKER_API_PATHS = WORKER_API_PATHS - {"/api/upload_pgn"}
 
 router = APIRouter(tags=["api"], include_in_schema=False)
 
@@ -75,49 +61,6 @@ def _iter_filelike(fileobj, chunk_size=1024 * 1024):
         close = getattr(fileobj, "close", None)
         if callable(close):
             close()
-
-
-class _ResponseShim:
-    def __init__(self):
-        self.headers = {}
-
-
-class _RequestShim:
-    """Minimal request shim to keep port mechanical."""
-
-    def __init__(self, request, json_body=None, json_error=False, matchdict=None):
-        self._request = request
-        self._json_body = json_body
-        self._json_error = json_error
-        self.matchdict = matchdict or {}
-        self.params = request.query_params
-        self.headers = request.headers
-        self.cookies = request.cookies
-        self.url = request.url
-        self.scheme = request.url.scheme
-        self.host = request.headers.get("host") or request.url.netloc
-        self.host_url = str(request.base_url).rstrip("/")
-        self.remote_addr = request.client.host if request.client else None
-        self.response = _ResponseShim()
-
-        try:
-            self.rundb = get_rundb(request)
-        except DependencyNotInitializedError:
-            self.rundb = None
-        try:
-            self.userdb = get_userdb(request)
-        except DependencyNotInitializedError:
-            self.userdb = None
-        try:
-            self.actiondb = get_actiondb(request)
-        except DependencyNotInitializedError:
-            self.actiondb = None
-
-    @property
-    def json_body(self):
-        if self._json_error:
-            raise ValueError("request is not json encoded")
-        return self._json_body
 
 
 class GenericApi:
@@ -706,93 +649,81 @@ class UserApi(GenericApi):
         return RedirectResponse(f"{nn_base_url}/nn/{nn_id}", status_code=302)
 
 
-async def _make_request_shim(request, matchdict=None):
-    try:
-        body = await request.json()
-        return _RequestShim(
-            request, json_body=body, json_error=False, matchdict=matchdict
-        )
-    except Exception:
-        return _RequestShim(
-            request, json_body=None, json_error=True, matchdict=matchdict
-        )
-
-
 @router.post("/api/request_task")
 async def api_request_task(request: Request):
-    api = WorkerApi(await _make_request_shim(request))
+    api = WorkerApi(await get_request_shim(request))
     return await run_in_threadpool(api.request_task)
 
 
 @router.post("/api/update_task")
 async def api_update_task(request: Request):
-    api = WorkerApi(await _make_request_shim(request))
+    api = WorkerApi(await get_request_shim(request))
     return await run_in_threadpool(api.update_task)
 
 
 @router.post("/api/failed_task")
 async def api_failed_task(request: Request):
-    api = WorkerApi(await _make_request_shim(request))
+    api = WorkerApi(await get_request_shim(request))
     return await run_in_threadpool(api.failed_task)
 
 
 @router.post("/api/stop_run")
 async def api_stop_run(request: Request):
-    api = WorkerApi(await _make_request_shim(request))
+    api = WorkerApi(await get_request_shim(request))
     return await run_in_threadpool(api.stop_run)
 
 
 @router.post("/api/request_version")
 async def api_request_version(request: Request):
-    api = WorkerApi(await _make_request_shim(request))
+    api = WorkerApi(await get_request_shim(request))
     return await run_in_threadpool(api.request_version)
 
 
 @router.post("/api/beat")
 async def api_beat(request: Request):
-    api = WorkerApi(await _make_request_shim(request))
+    api = WorkerApi(await get_request_shim(request))
     return await run_in_threadpool(api.beat)
 
 
 @router.post("/api/request_spsa")
 async def api_request_spsa(request: Request):
-    api = WorkerApi(await _make_request_shim(request))
+    api = WorkerApi(await get_request_shim(request))
     return await run_in_threadpool(api.request_spsa)
 
 
 @router.post("/api/worker_log")
 async def api_worker_log(request: Request):
-    api = WorkerApi(await _make_request_shim(request))
+    api = WorkerApi(await get_request_shim(request))
     return await run_in_threadpool(api.worker_log)
 
 
 @router.post("/api/upload_pgn")
 async def api_upload_pgn(request: Request):
-    api = WorkerApi(await _make_request_shim(request))
+    api = WorkerApi(await get_request_shim(request))
     return await run_in_threadpool(api.upload_pgn)
 
 
 @router.get("/api/rate_limit")
 async def api_rate_limit(request: Request):
-    api = UserApi(_RequestShim(request))
+    api = UserApi(ApiRequestShim(request))
     return await run_in_threadpool(api.rate_limit)
 
 
 @router.get("/api/active_runs")
 async def api_active_runs(request: Request):
-    api = UserApi(_RequestShim(request))
+    api = UserApi(ApiRequestShim(request))
     return await run_in_threadpool(api.active_runs)
 
 
 @router.get("/api/finished_runs")
 async def api_finished_runs(request: Request):
-    api = UserApi(_RequestShim(request))
+    api = UserApi(ApiRequestShim(request))
     return await run_in_threadpool(api.finished_runs)
 
 
 @router.post("/api/actions")
 async def api_actions(request: Request):
-    api = UserApi(await _make_request_shim(request))
+    api = UserApi(await get_request_shim(request))
     result = await run_in_threadpool(api.actions)
     return JSONResponse(result, headers=api.request.response.headers)
 
@@ -804,7 +735,7 @@ async def api_actions_options(request: Request):
 
 @router.get("/api/get_run/{id}")
 async def api_get_run(id, request: Request):
-    api = UserApi(_RequestShim(request, matchdict={"id": id}))
+    api = UserApi(ApiRequestShim(request, matchdict={"id": id}))
     result = await run_in_threadpool(api.get_run)
     return JSONResponse(result, headers=api.request.response.headers)
 
@@ -816,37 +747,37 @@ async def api_get_run_options(id, request: Request):
 
 @router.get("/api/get_task/{id}/{task_id}")
 async def api_get_task(id, task_id, request: Request):
-    api = UserApi(_RequestShim(request, matchdict={"id": id, "task_id": task_id}))
+    api = UserApi(ApiRequestShim(request, matchdict={"id": id, "task_id": task_id}))
     return await run_in_threadpool(api.get_task)
 
 
 @router.get("/api/get_elo/{id}")
 async def api_get_elo(id, request: Request):
-    api = UserApi(_RequestShim(request, matchdict={"id": id}))
+    api = UserApi(ApiRequestShim(request, matchdict={"id": id}))
     return await run_in_threadpool(api.get_elo)
 
 
 @router.get("/api/calc_elo")
 async def api_calc_elo(request: Request):
-    api = UserApi(_RequestShim(request))
+    api = UserApi(ApiRequestShim(request))
     return await run_in_threadpool(api.calc_elo)
 
 
 @router.get("/api/pgn/{id}")
 async def api_download_pgn(id, request: Request):
-    api = UserApi(_RequestShim(request, matchdict={"id": id}))
+    api = UserApi(ApiRequestShim(request, matchdict={"id": id}))
     return await run_in_threadpool(api.download_pgn)
 
 
 @router.get("/api/run_pgns/{id}")
 async def api_download_run_pgns(id, request: Request):
-    api = UserApi(_RequestShim(request, matchdict={"id": id}))
+    api = UserApi(ApiRequestShim(request, matchdict={"id": id}))
     return await run_in_threadpool(api.download_run_pgns)
 
 
 @router.get("/api/nn/{id}")
 async def api_download_nn(id, request: Request):
-    api = UserApi(_RequestShim(request, matchdict={"id": id}))
+    api = UserApi(ApiRequestShim(request, matchdict={"id": id}))
     return await run_in_threadpool(api.download_nn)
 
 
