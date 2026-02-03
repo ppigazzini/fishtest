@@ -11,6 +11,9 @@ This directory contains *work-in-progress* docs for the Pyramid → FastAPI migr
 
 2. **Current repo snapshot (what exists today):**
    - [2-ARCHITECTURE.md](2-ARCHITECTURE.md)
+   - Template catalog: [2.2-MAKO.md](2.2-MAKO.md)
+   - New Mako plan: [2.4-MAKO-NEW.md](2.4-MAKO-NEW.md)
+   - Jinja2 plan: [2.3-JINJA2.md](2.3-JINJA2.md)
 
 3. **Async/blocking boundaries (runtime invariants):**
    - [2.1-ASYNC-INVENTORY.md](2.1-ASYNC-INVENTORY.md)
@@ -21,7 +24,7 @@ This directory contains *work-in-progress* docs for the Pyramid → FastAPI migr
 5. **How to iterate safely (day-to-day loop):**
    - Rules of engagement: [3.0-ITERATION-RULES.md](3.0-ITERATION-RULES.md)
    - Completed iteration records: [3.1-ITERATION.md](3.1-ITERATION.md), [3.2-ITERATION.md](3.2-ITERATION.md), [3.3-ITERATION.md](3.3-ITERATION.md), [3.4-ITERATION.md](3.4-ITERATION.md), [3.5-ITERATION.md](3.5-ITERATION.md)
-   - Current iteration plans: [3.6-ITERATION.md](3.6-ITERATION.md), [3.7-ITERATION.md](3.7-ITERATION.md)
+   - Current iteration plans: [3.6-ITERATION.md](3.6-ITERATION.md), [3.7-ITERATION.md](3.7-ITERATION.md), [3.8-ITERATION.md](3.8-ITERATION.md)
 
 6. **Deployment notes (systemd + nginx examples):**
    - [4-VPS.md](4-VPS.md)
@@ -32,6 +35,13 @@ This directory contains *work-in-progress* docs for the Pyramid → FastAPI migr
 8. **Reference guides (FastAPI/Starlette):**
    - [6-FASTAPI-REFERENCES.md](6-FASTAPI-REFERENCES.md)
    - [7-STARLETTE-REFERENCES.md](7-STARLETTE-REFERENCES.md)
+   - [9-JINJA2-REFERENCES.md](9-JINJA2-REFERENCES.md)
+
+9. **Template metrics:**
+   - [8-TEMPLATE-METRICS.md](8-TEMPLATE-METRICS.md)
+
+10. **Reports:**
+   - [10-CLAUDE-REPORT.md](10-CLAUDE-REPORT.md)
 
 ## Sources of truth (don’t mix these up)
 

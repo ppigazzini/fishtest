@@ -5,7 +5,6 @@ import re
 from datetime import UTC, datetime
 from functools import cache
 
-import fishtest.github_api as gh
 import fishtest.stats.stat_util
 import numpy as np
 import scipy.stats
@@ -595,6 +594,8 @@ def tests_repo(run):
 
 
 def diff_url(run, master_check=True):
+    import fishtest.github_api as gh
+
     tests_repo_ = tests_repo(run)
     user2, repo = gh.parse_repo(tests_repo_)
     sha2 = run["args"]["resolved_new"]

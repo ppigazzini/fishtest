@@ -212,33 +212,54 @@ Metrics:
 - Hop count ≤ 1 per endpoint; helper calls ≤ 2 per endpoint in `http/api.py` and `http/views.py`.
 - No new route‑split folder tree; HTTP entrypoints remain the primary narrative.
 
-## Milestone N-2 — Templates: Mako → Starlette Jinja2 (optional but recommended long-term)
+## Milestone 8 — Templates: parallel new Mako + Jinja2 (with shared helpers)
 
-Goal: remove the Mako/Pyramid-template compatibility layer and use the standard Starlette template integration.
-This is an architectural cleanup; it should happen only when Milestone parity gates are solid.
+Goal: modernize template rendering while preserving UI behavior by running two parallel tracks:
+- a cleaned-up Mako template set in `server/fishtest/templates_mako/`
+- a Jinja2 template set in `server/fishtest/templates_jinja2/`
 
-Suggested approach (incremental):
+This milestone focuses on parity, comparability, and a common helper base. It does not require an immediate full cutover to Jinja2.
 
-1. Introduce Jinja2 alongside Mako
-  - Add a Jinja2 template environment for a new template directory (e.g. `server/fishtest/templates_jinja2/`).
-  - Keep Mako templates working so the UI doesn’t need a flag-day conversion.
-2. Build compatibility helpers in Jinja2
-  - Recreate the handful of global functions/filters the templates rely on (e.g., `static_url` equivalent, formatting helpers).
-  - Keep URL generation and cache-busting semantics compatible until we decide to change them explicitly.
-3. Port templates page-by-page
-  - Start with low-risk pages (read-only pages like `/rate_limits`, `/contributors`).
-  - Then auth pages (`/login`) once the cookie + CSRF behavior is stable.
-  - Leave complex pages (run/task views) for last.
-4. Switch the renderer per-route
-  - Each UI route chooses Mako or Jinja2 until everything is ported.
-5. Delete Mako glue
-  - Remove the Mako environment, request wrapper, and any template shims once all routes render via Jinja2.
+Core objectives:
+- Clean up Mako templates (reduce embedded Python, clearer structure).
+- Build and use a shared helper base for both renderers.
+- Compare outputs between legacy Mako, new Mako, and Jinja2.
+- Adopt 2026 best practices for Mako and Jinja2 template structure.
+
+Hard constraint (non-negotiable):
+- MUST keep legacy Mako templates in [server/fishtest/templates](server/fishtest/templates) for upstream rebase safety. Do not delete, rename, or “clean up” legacy templates.
+
+Suggested approach (incremental, parallel):
+
+1. Add shared helper base
+  - Create a single helper module for filters/globals used by both renderers.
+  - Keep URL generation and cache-busting semantics compatible.
+2. Introduce the new Mako renderer
+  - Add `server/fishtest/templates_mako/` and a new Mako renderer.
+  - Keep legacy Mako templates intact for parity and rebase safety.
+3. Introduce Jinja2 alongside Mako
+  - Add Jinja2 environment for `server/fishtest/templates_jinja2/`.
+  - Keep dual-renderer support and per-template selection.
+4. Port templates page-by-page (two tracks)
+  - Convert to new Mako and Jinja2 in lockstep, starting with safer pages.
+  - Keep diffs minimal and reversible.
+5. Compare and measure
+  - Add parity tools to compare rendered HTML.
+  - Measure performance and complexity across implementations.
+
+Status:
+
+- Complete (2026-02-05); see [3.8-ITERATION.md](3.8-ITERATION.md).
+- Parity OK for legacy vs new Mako and legacy vs Jinja2; shared helper base in place.
+- Renderer selection is driven by a Python variable in the renderer module (not environment variables).
+- Metrics snapshot and scripts are tracked in [8-TEMPLATE-METRICS.md](8-TEMPLATE-METRICS.md).
 
 Definition of done:
 
-- No Mako runtime dependency in the server.
-- All UI templates render via Starlette’s Jinja2 integration.
-- Template test coverage exists for at least: login page, one list page, one “detail-ish” page.
+- New Mako templates render with parity to legacy Mako.
+- Jinja2 templates render with parity to legacy Mako.
+- A shared helper base is used by both renderers.
+- Parity comparison scripts exist for both tracks.
 
 ## Milestone N-1 — Optional: Pydantic (only when it buys real safety)
 

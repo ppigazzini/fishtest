@@ -1,0 +1,418 @@
+{
+  "_defaults": {
+    "request": {
+      "url": "/",
+      "GET": {},
+      "cookies": {},
+      "authenticated_userid": ""
+    },
+    "page_idx": 0,
+    "username": ""
+  },
+  "pagination.mak": {
+    "pages": [
+      {
+        "state": "active",
+        "url": "/tests?page=1",
+        "idx": 1
+      },
+      {
+        "state": "",
+        "url": "/tests?page=2",
+        "idx": 2
+      },
+      {
+        "state": "",
+        "url": "/tests?page=3",
+        "idx": 3
+      },
+      {
+        "state": "",
+        "url": "/tests?page=4",
+        "idx": 4
+      }
+    ]
+  },
+  "actions.mak": {
+    "actions": [
+      {
+        "time": 1700000000,
+        "action": "new_run",
+        "username": "alice",
+        "run": "run-1",
+        "run_id": "abc123"
+      }
+    ],
+    "action_param": "",
+    "username_param": "",
+    "text_param": "",
+    "run_id_param": "",
+    "approver": false,
+    "request": {
+      "url": "/actions",
+      "GET": {
+        "action": ""
+      },
+      "userdb": {
+        "users": [
+          {
+            "username": "alice"
+          }
+        ]
+      }
+    }
+  },
+  "machines.mak": {
+    "machines_list": [
+      {
+        "username": "alice",
+        "concurrency": 4,
+        "unique_key": "worker-1234",
+        "gcc_version": [
+          10,
+          2,
+          1
+        ],
+        "python_version": [
+          3,
+          11,
+          2
+        ],
+        "version": "1.0",
+        "modified": false,
+        "nps": 1000000,
+        "max_memory": 2048,
+        "uname": "Linux",
+        "worker_arch": "x86-64",
+        "last_updated": {
+          "__datetime__": "2026-02-04T00:00:00+00:00"
+        },
+        "run": {
+          "_id": "run1",
+          "args": {
+            "new_tag": "branch"
+          }
+        },
+        "task_id": 0
+      }
+    ]
+  },
+  "tasks.mak": {
+    "run": {
+      "_id": "run1",
+      "args": {
+        "tc": "10+0.1"
+      },
+      "results": {
+        "wins": 1,
+        "losses": 1,
+        "draws": 1
+      },
+      "tasks": [
+        {
+          "task_id": 0,
+          "active": false,
+          "num_games": 2,
+          "stats": {
+            "wins": 1,
+            "losses": 1,
+            "draws": 0,
+            "crashes": 0,
+            "time_losses": 0
+          },
+          "worker_info": {
+            "username": "alice",
+            "concurrency": 4,
+            "unique_key": "worker-1234",
+            "modified": false,
+            "gcc_version": [
+              10,
+              2,
+              1
+            ],
+            "python_version": [
+              3,
+              11,
+              2
+            ],
+            "version": "1.0",
+            "ARCH": "x86-64",
+            "worker_arch": "x86-64",
+            "uname": "Linux",
+            "max_memory": 2048
+          },
+          "last_updated": "2026-02-04 00:00:00"
+        }
+      ],
+      "bad_tasks": []
+    },
+    "show_task": -1,
+    "approver": false,
+    "chi2": {
+      "residual": {},
+      "z_95": 1.0,
+      "z_99": 2.0
+    }
+  },
+  "tests_stats.mak": {
+    "page_title": "run1",
+    "run": {
+      "_id": "run1",
+      "args": {
+        "tc": "10+0.1"
+      },
+      "results": {
+        "wins": 1,
+        "losses": 1,
+        "draws": 1
+      }
+    }
+  },
+  "elo_results.mak": {
+    "run": {
+      "_id": "run1",
+      "args": {
+        "tc": "10+0.1",
+        "new_tc": "10+0.1"
+      },
+      "results": {
+        "wins": 1,
+        "losses": 1,
+        "draws": 1
+      }
+    }
+  },
+  "tests_run.mak": {
+    "args": {
+      "base_tag": "master",
+      "base_signature": 123,
+      "tc": "10+0.1",
+      "new_tc": "10+0.1",
+      "tests_repo": "https://github.com/official-stockfish/Stockfish",
+      "resolved_base": "deadbeef",
+      "resolved_new": "cafebabe",
+      "num_games": 10000,
+      "priority": 0,
+      "auto_purge": false
+    },
+    "master_info": {
+      "bench": 123,
+      "message": "Commit message",
+      "date": "2026-02-04"
+    },
+    "pt_info": {
+      "pt_version": "v1",
+      "pt_branch": "master",
+      "pt_bench": 123
+    },
+    "tests_repo": "https://github.com/official-stockfish/Stockfish",
+    "supported_arches": ["x86-64"],
+    "supported_compilers": ["g++"],
+    "valid_books": ["book.epd"],
+    "is_rerun": false
+  },
+  "tests_view.mak": {
+    "page_title": "run1",
+    "document_size": 1234,
+    "warnings": [],
+    "notes": [],
+    "approver": false,
+    "can_modify_run": false,
+    "same_user": false,
+    "totals": "(0/0/0)",
+    "tasks_shown": false,
+    "show_task": -1,
+    "follow": 0,
+    "allow_github_api_calls": false,
+    "use_3dot_diff": false,
+    "chi2": {
+      "chi2": 0.0,
+      "dof": 0,
+      "p": 1.0
+    },
+    "run": {
+      "_id": "run1",
+      "args": {
+        "username": "alice",
+        "tc": "10+0.1",
+        "new_tc": "10+0.1",
+        "num_games": 10000,
+        "priority": 0,
+        "throughput": 1000,
+        "tests_repo": "https://github.com/official-stockfish/Stockfish",
+        "resolved_base": "deadbeef",
+        "resolved_new": "cafebabe"
+      },
+      "results": {
+        "wins": 1,
+        "losses": 1,
+        "draws": 1
+      },
+      "start_time": {
+        "__datetime__": "2026-02-04T00:00:00+00:00"
+      },
+      "last_updated": {
+        "__datetime__": "2026-02-04T00:00:00+00:00"
+      },
+      "finished": false,
+      "approver": ""
+    },
+    "run_args": [
+      ["username", "alice", ""],
+      ["resolved_new", "cafebabe", ""],
+      ["resolved_base", "deadbeef", ""]
+    ]
+  },
+  "contributors.mak": {
+    "approver": false,
+    "users": [
+      {
+        "username": "alice",
+        "last_updated": {
+          "__datetime__": "2026-02-04T00:00:00+00:00"
+        },
+        "tests": 1,
+        "games_per_hour": 10,
+        "cpu_hours": 100,
+        "games": 1000,
+        "tests_repo": "https://github.com/official-stockfish/Stockfish"
+      }
+    ]
+  },
+  "nns.mak": {
+    "master_only": false,
+    "nns": [
+      {
+        "time": {
+          "__datetime__": "2026-02-04T00:00:00+00:00"
+        },
+        "name": "nn-123",
+        "user": "alice",
+        "downloads": 0
+      }
+    ]
+  },
+  "run_table.mak": {
+    "runs": [
+      {
+        "_id": "run1",
+        "finished": true,
+        "start_time": {
+          "__datetime__": "2026-02-04T00:00:00+00:00"
+        },
+        "args": {
+          "username": "alice",
+          "new_tag": "branch",
+          "tests_repo": "https://github.com/official-stockfish/Stockfish",
+          "resolved_new": "cafebabe",
+          "resolved_base": "deadbeef",
+          "num_games": 1000,
+          "tc": "10+0.1",
+          "threads": 1,
+          "info": ""
+        },
+        "results": {
+          "wins": 1,
+          "losses": 1,
+          "draws": 1
+        }
+      }
+    ],
+    "pages": [],
+    "show_delete": false,
+    "header": "Finished",
+    "count": 1,
+    "toggle": null,
+    "alt": "No tests",
+    "title": "",
+    "username": "alice",
+    "page_idx": 0
+  },
+  "run_tables.mak": {
+    "username": "alice",
+    "page_idx": 0,
+    "runs": {
+      "pending": [],
+      "active": []
+    },
+    "failed_runs": [],
+    "finished_runs": [],
+    "num_finished_runs": 0,
+    "finished_runs_pages": []
+  },
+  "tests.mak": {
+    "page_idx": 0,
+    "cores": 0,
+    "nps": 0,
+    "games_per_minute": 0,
+    "pending_hours": 0,
+    "machines_shown": false,
+    "machines_count": 0,
+    "username": "alice",
+    "runs": {
+      "pending": [],
+      "active": []
+    },
+    "failed_runs": [],
+    "finished_runs": [],
+    "num_finished_runs": 0,
+    "finished_runs_pages": []
+  },
+  "tests_finished.mak": {
+    "finished_runs": [],
+    "num_finished_runs": 0,
+    "finished_runs_pages": []
+  },
+  "tests_user.mak": {
+    "username": "alice",
+    "is_approver": false,
+    "page_idx": 0,
+    "runs": {
+      "pending": [],
+      "active": []
+    },
+    "failed_runs": [],
+    "finished_runs": [],
+    "num_finished_runs": 0,
+    "finished_runs_pages": []
+  },
+  "tests_live_elo.mak": {
+    "page_title": "run1",
+    "run": {
+      "_id": "run1"
+    }
+  },
+  "user.mak": {
+    "profile": true,
+    "user": {
+      "username": "alice",
+      "email": "alice@example.com",
+      "groups": [],
+      "tests_repo": "https://github.com/official-stockfish/Stockfish",
+      "registration_time": {
+        "__datetime__": "2026-02-04T00:00:00+00:00"
+      }
+    },
+    "limit": 0,
+    "hours": 0,
+    "extract_repo_from_link": "Stockfish"
+  },
+  "user_management.mak": {
+    "all_users": [],
+    "pending_users": [],
+    "blocked_users": [],
+    "idle_users": [],
+    "approvers_users": []
+  },
+  "workers.mak": {
+    "show_admin": false,
+    "show_email": false,
+    "blocked_workers": [],
+    "worker_name": "worker-1234",
+    "message": "",
+    "last_updated": {
+      "__datetime__": "2026-02-04T00:00:00+00:00"
+    },
+    "blocked": false
+  }
+}

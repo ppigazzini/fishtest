@@ -10,13 +10,11 @@ from typing import TYPE_CHECKING
 from fastapi.responses import HTMLResponse
 from fishtest.http.boundary import build_template_context, commit_session_flags
 from fishtest.http.cookie_session import load_session
-from fishtest.http.mako import default_template_lookup, render_template
+from fishtest.http.template_renderer import render_template
 from starlette.concurrency import run_in_threadpool
 
 if TYPE_CHECKING:
     from fastapi import Request
-
-_TEMPLATE_LOOKUP = default_template_lookup()
 
 
 async def render_notfound_response(request: Request) -> HTMLResponse:
@@ -28,7 +26,6 @@ async def render_notfound_response(request: Request) -> HTMLResponse:
     # Mako rendering is sync and can be CPU heavy; keep it off the event loop.
     rendered = await run_in_threadpool(
         render_template,
-        lookup=_TEMPLATE_LOOKUP,
         template_name="notfound.mak",
         context=context,
     )
@@ -52,7 +49,6 @@ async def render_forbidden_response(request: Request) -> HTMLResponse:
 
     rendered = await run_in_threadpool(
         render_template,
-        lookup=_TEMPLATE_LOOKUP,
         template_name="login.mak",
         context=context,
     )

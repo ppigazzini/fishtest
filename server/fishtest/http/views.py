@@ -38,7 +38,7 @@ from fishtest.http.dependencies import (
     get_userdb,
     get_workerdb,
 )
-from fishtest.http.mako import default_template_lookup, render_template
+from fishtest.http.template_renderer import render_template
 from fishtest.http.ui_pipeline import apply_http_cache
 from fishtest.run_cache import Prio
 from fishtest.schemas import (
@@ -74,9 +74,6 @@ FORM_MAX_FIELDS = 200
 FORM_MAX_PART_SIZE = 200 * 1024 * 1024
 
 router = APIRouter(tags=["ui"], include_in_schema=False)
-_TEMPLATE_LOOKUP = default_template_lookup()
-
-
 _ROUTE_PATHS = {
     "home": "/",
     "login": "/login",
@@ -316,7 +313,6 @@ async def _dispatch_view(fn, cfg, request, path_params):
         context = result if isinstance(result, dict) else {}
         rendered = await run_in_threadpool(
             render_template,
-            lookup=_TEMPLATE_LOOKUP,
             template_name=renderer,
             context=build_template_context(request, session, context),
         )
