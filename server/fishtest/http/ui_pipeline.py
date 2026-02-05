@@ -31,6 +31,7 @@ def build_template_request(
         authenticated_userid=authenticated_user(session),
         userdb=get_userdb(request),
         url=str(request.url),
+        raw_request=request,
     )
 
 

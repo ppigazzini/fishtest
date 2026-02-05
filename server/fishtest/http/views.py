@@ -38,7 +38,7 @@ from fishtest.http.dependencies import (
     get_userdb,
     get_workerdb,
 )
-from fishtest.http.template_renderer import render_template
+from fishtest.http.template_renderer import render_template_to_response
 from fishtest.http.ui_pipeline import apply_http_cache
 from fishtest.run_cache import Prio
 from fishtest.schemas import (
@@ -311,13 +311,13 @@ async def _dispatch_view(fn, cfg, request, path_params):
     renderer = cfg.get("renderer")
     if isinstance(renderer, str) and renderer.endswith(".mak"):
         context = result if isinstance(result, dict) else {}
-        rendered = await run_in_threadpool(
-            render_template,
+        status_code = getattr(shim.response, "status", 200) or 200
+        response = await run_in_threadpool(
+            render_template_to_response,
             template_name=renderer,
             context=build_template_context(request, session, context),
+            status_code=int(status_code),
         )
-        status_code = getattr(shim.response, "status", 200) or 200
-        response = HTMLResponse(rendered.html, status_code=int(status_code))
     else:
         # Most UI endpoints either redirect or render templates.
         response = HTMLResponse("", status_code=204)

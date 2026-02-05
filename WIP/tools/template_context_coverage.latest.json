@@ -1,0 +1,1075 @@
+{
+  "missing": [
+    "actions.mak",
+    "actions.mak",
+    "contributors.mak",
+    "elo_results.mak",
+    "elo_results.mak",
+    "machines.mak",
+    "nns.mak",
+    "nns.mak",
+    "pagination.mak",
+    "run_table.mak",
+    "run_table.mak",
+    "run_tables.mak",
+    "tasks.mak",
+    "tasks.mak",
+    "tests.mak",
+    "tests.mak",
+    "tests_finished.mak",
+    "tests_run.mak",
+    "tests_run.mak",
+    "tests_stats.mak",
+    "tests_stats.mak",
+    "tests_view.mak",
+    "tests_view.mak",
+    "user.mak",
+    "user.mak",
+    "user_management.mak",
+    "workers.mak"
+  ],
+  "results": [
+    {
+      "engine": "mako",
+      "missing": [
+        "action",
+        "agent",
+        "agent_link",
+        "locals",
+        "n",
+        "u",
+        "user"
+      ],
+      "referenced": [
+        "action",
+        "action_param",
+        "actions",
+        "agent",
+        "agent_link",
+        "locals",
+        "n",
+        "request",
+        "run_id_param",
+        "text_param",
+        "u",
+        "user",
+        "username_param"
+      ],
+      "template": "actions.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [
+        "agent",
+        "agent_link",
+        "pages",
+        "short_agent",
+        "task_query",
+        "task_suffix"
+      ],
+      "referenced": [
+        "action_param",
+        "actions",
+        "agent",
+        "agent_link",
+        "approver",
+        "pages",
+        "request",
+        "run_id_param",
+        "short_agent",
+        "task_query",
+        "task_suffix",
+        "text_param",
+        "username_param"
+      ],
+      "template": "actions.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [
+        "UTC",
+        "index",
+        "u",
+        "user"
+      ],
+      "referenced": [
+        "UTC",
+        "approver",
+        "index",
+        "request",
+        "u",
+        "user",
+        "users"
+      ],
+      "template": "contributors.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [],
+      "referenced": [
+        "approver",
+        "request",
+        "users"
+      ],
+      "template": "contributors.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [
+        "elo_ptnml_run",
+        "helpers",
+        "i",
+        "info",
+        "l",
+        "list_info",
+        "n",
+        "nelo_summary",
+        "results_info",
+        "show_gauge"
+      ],
+      "referenced": [
+        "elo_ptnml_run",
+        "helpers",
+        "i",
+        "info",
+        "l",
+        "list_info",
+        "n",
+        "nelo_summary",
+        "results_info",
+        "run",
+        "show_gauge"
+      ],
+      "template": "elo_results.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [
+        "show_gauge"
+      ],
+      "referenced": [
+        "run",
+        "show_gauge"
+      ],
+      "template": "elo_results.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [],
+      "referenced": [
+        "request"
+      ],
+      "template": "login.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [],
+      "referenced": [
+        "request"
+      ],
+      "template": "login.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [
+        "branch",
+        "compiler",
+        "formatted_time_ago",
+        "gcc_version",
+        "helpers",
+        "locals",
+        "machine",
+        "python_version",
+        "run_id",
+        "sort_value_time_ago",
+        "task_id",
+        "version",
+        "worker_name_"
+      ],
+      "referenced": [
+        "branch",
+        "compiler",
+        "formatted_time_ago",
+        "gcc_version",
+        "helpers",
+        "locals",
+        "machine",
+        "machines_list",
+        "python_version",
+        "run_id",
+        "sort_value_time_ago",
+        "task_id",
+        "version",
+        "worker_name_"
+      ],
+      "template": "machines.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [],
+      "referenced": [
+        "machines_list"
+      ],
+      "template": "machines.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [],
+      "referenced": [
+        "request"
+      ],
+      "template": "nn_upload.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [],
+      "referenced": [
+        "request"
+      ],
+      "template": "nn_upload.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [
+        "locals",
+        "nn"
+      ],
+      "referenced": [
+        "locals",
+        "master_only",
+        "nn",
+        "nns",
+        "request"
+      ],
+      "template": "nns.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [
+        "pages"
+      ],
+      "referenced": [
+        "master_only",
+        "nns",
+        "pages",
+        "request"
+      ],
+      "template": "nns.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [],
+      "referenced": [],
+      "template": "notfound.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [],
+      "referenced": [],
+      "template": "notfound.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [
+        "page"
+      ],
+      "referenced": [
+        "page",
+        "pages"
+      ],
+      "template": "pagination.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [],
+      "referenced": [
+        "pages"
+      ],
+      "template": "pagination.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [],
+      "referenced": [],
+      "template": "rate_limits.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [],
+      "referenced": [],
+      "template": "rate_limits.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [
+        "cookie_name",
+        "run"
+      ],
+      "referenced": [
+        "alt",
+        "cookie_name",
+        "count",
+        "header",
+        "page_idx",
+        "request",
+        "run",
+        "runs",
+        "show_delete",
+        "title",
+        "toggle",
+        "username"
+      ],
+      "template": "run_table.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [
+        "cookie_name"
+      ],
+      "referenced": [
+        "alt",
+        "cookie_name",
+        "count",
+        "header",
+        "page_idx",
+        "pages",
+        "request",
+        "runs",
+        "show_delete",
+        "title",
+        "toggle",
+        "username"
+      ],
+      "template": "run_table.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [],
+      "referenced": [
+        "page_idx"
+      ],
+      "template": "run_tables.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [
+        "paused_runs",
+        "pending_approval_runs",
+        "prefix"
+      ],
+      "referenced": [
+        "failed_runs",
+        "finished_runs",
+        "finished_runs_pages",
+        "num_finished_runs",
+        "page_idx",
+        "paused_runs",
+        "pending_approval_runs",
+        "prefix",
+        "runs",
+        "username"
+      ],
+      "template": "run_tables.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [],
+      "referenced": [
+        "request"
+      ],
+      "template": "signup.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [],
+      "referenced": [
+        "request"
+      ],
+      "template": "signup.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [],
+      "referenced": [
+        "request"
+      ],
+      "template": "sprt_calc.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [],
+      "referenced": [
+        "request"
+      ],
+      "template": "sprt_calc.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [
+        "ARCH",
+        "active_style",
+        "compiler",
+        "d",
+        "gcc_version",
+        "helpers",
+        "p",
+        "python_version",
+        "stats",
+        "task",
+        "task_id",
+        "version",
+        "worker_arch"
+      ],
+      "referenced": [
+        "ARCH",
+        "active_style",
+        "approver",
+        "chi2",
+        "compiler",
+        "d",
+        "gcc_version",
+        "helpers",
+        "p",
+        "python_version",
+        "run",
+        "stats",
+        "task",
+        "task_id",
+        "version",
+        "worker_arch"
+      ],
+      "template": "tasks.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [
+        "ARCH",
+        "active_style",
+        "compiler",
+        "d",
+        "gcc_version",
+        "p",
+        "python_version",
+        "stats",
+        "task_id",
+        "total",
+        "version",
+        "worker_arch",
+        "worker_info",
+        "worker_username"
+      ],
+      "referenced": [
+        "ARCH",
+        "active_style",
+        "approver",
+        "chi2",
+        "compiler",
+        "d",
+        "gcc_version",
+        "p",
+        "python_version",
+        "run",
+        "show_task",
+        "stats",
+        "task_id",
+        "total",
+        "version",
+        "worker_arch",
+        "worker_info",
+        "worker_username"
+      ],
+      "template": "tasks.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [
+        "height",
+        "max_height",
+        "min_height"
+      ],
+      "referenced": [
+        "cores",
+        "games_per_minute",
+        "height",
+        "machines_count",
+        "machines_shown",
+        "max_height",
+        "min_height",
+        "page_idx",
+        "pending_hours",
+        "request"
+      ],
+      "template": "tests.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [
+        "height",
+        "max_height",
+        "min_height"
+      ],
+      "referenced": [
+        "cores",
+        "games_per_minute",
+        "height",
+        "machines_count",
+        "machines_shown",
+        "max_height",
+        "min_height",
+        "nps",
+        "page_idx",
+        "pending_hours",
+        "request"
+      ],
+      "template": "tests.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [
+        "title"
+      ],
+      "referenced": [
+        "request",
+        "title"
+      ],
+      "template": "tests_finished.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [],
+      "referenced": [
+        "finished_runs",
+        "finished_runs_pages",
+        "num_finished_runs",
+        "request"
+      ],
+      "template": "tests_finished.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [],
+      "referenced": [
+        "page_title",
+        "request",
+        "run"
+      ],
+      "template": "tests_live_elo.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [],
+      "referenced": [
+        "page_title",
+        "request",
+        "run"
+      ],
+      "template": "tests_live_elo.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [
+        "arch_filter",
+        "base_branch",
+        "book",
+        "comp",
+        "compiler",
+        "default_book",
+        "elo_model",
+        "fb",
+        "h",
+        "is_odds",
+        "json",
+        "latest_bench",
+        "n",
+        "pt_book",
+        "pt_branch",
+        "pt_signature",
+        "pt_version",
+        "rescheduled_from",
+        "test_book"
+      ],
+      "referenced": [
+        "arch_filter",
+        "args",
+        "base_branch",
+        "book",
+        "comp",
+        "compiler",
+        "default_book",
+        "elo_model",
+        "fb",
+        "h",
+        "is_odds",
+        "is_rerun",
+        "json",
+        "latest_bench",
+        "master_info",
+        "n",
+        "pt_book",
+        "pt_branch",
+        "pt_signature",
+        "pt_version",
+        "request",
+        "rescheduled_from",
+        "supported_arches",
+        "supported_compilers",
+        "test_book",
+        "valid_books"
+      ],
+      "template": "tests_run.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [
+        "rescheduled_from"
+      ],
+      "referenced": [
+        "args",
+        "is_rerun",
+        "master_info",
+        "pt_info",
+        "request",
+        "rescheduled_from",
+        "supported_arches",
+        "supported_compilers",
+        "valid_books"
+      ],
+      "template": "tests_run.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [
+        "LLRjumps3",
+        "LLRjumps5",
+        "alpha",
+        "batch_size_games",
+        "beta",
+        "elo0",
+        "elo1",
+        "elo_model",
+        "games3",
+        "games5",
+        "has_pentanomial",
+        "has_sprt",
+        "has_spsa",
+        "pdf3_s",
+        "pdf5_s",
+        "results3",
+        "results5"
+      ],
+      "referenced": [
+        "LLRjumps3",
+        "LLRjumps5",
+        "alpha",
+        "batch_size_games",
+        "beta",
+        "elo0",
+        "elo1",
+        "elo_model",
+        "games3",
+        "games5",
+        "has_pentanomial",
+        "has_sprt",
+        "has_spsa",
+        "page_title",
+        "pdf3_s",
+        "pdf5_s",
+        "results3",
+        "results5",
+        "run"
+      ],
+      "template": "tests_stats.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [
+        "LLR3",
+        "LLR3_alt",
+        "LLR3_alt2",
+        "LLR3_be",
+        "LLR3_exact",
+        "LLR3_l",
+        "LLR3_normalized",
+        "LLR3_normalized_alt",
+        "LLR3_u",
+        "LLR5",
+        "LLR5_alt",
+        "LLR5_alt2",
+        "LLR5_exact",
+        "LLR5_l",
+        "LLR5_normalized",
+        "LLR5_normalized_alt",
+        "LLR5_u",
+        "LLRjumps3",
+        "LLRjumps5",
+        "LOS3",
+        "LOS5",
+        "N5",
+        "R3_",
+        "RMS_bias",
+        "RMS_bias_elo",
+        "a3",
+        "a5",
+        "alpha",
+        "avg5",
+        "avg5_l",
+        "avg5_u",
+        "batch_size_games",
+        "batch_size_units",
+        "belo0",
+        "belo1",
+        "beta",
+        "elo0",
+        "elo0_",
+        "elo1",
+        "elo1_",
+        "elo3",
+        "elo3_l",
+        "elo3_u",
+        "elo5",
+        "elo5_l",
+        "elo5_u",
+        "elo95_3",
+        "elo95_5",
+        "elo_model",
+        "elo_model_",
+        "exkurt5",
+        "games5",
+        "lelo0",
+        "lelo03",
+        "lelo1",
+        "lelo13",
+        "llrjumps3_raw",
+        "llrjumps3_vals",
+        "llrjumps5_raw",
+        "llrjumps5_vals",
+        "nelo0",
+        "nelo03",
+        "nelo1",
+        "nelo13",
+        "nelo5",
+        "nelo5_l",
+        "nelo5_u",
+        "nt5",
+        "nt5_l",
+        "nt5_u",
+        "o",
+        "o0",
+        "o1",
+        "pdf5",
+        "pdf5_s",
+        "pentanomial_draw_ratio",
+        "ratio",
+        "results5",
+        "results5_",
+        "results5_DD_prob",
+        "results5_WL_prob",
+        "score0",
+        "score03",
+        "score1",
+        "score13",
+        "skewness5",
+        "sp",
+        "sqrt2",
+        "stdev5_per_game",
+        "stdev5_per_game_l",
+        "stdev5_per_game_u",
+        "t5",
+        "t5_l",
+        "t5_u",
+        "t5_var",
+        "var5",
+        "var5_per_game",
+        "var5_per_game_l",
+        "var5_per_game_u",
+        "var_diff",
+        "var_t5"
+      ],
+      "referenced": [
+        "LLR3",
+        "LLR3_alt",
+        "LLR3_alt2",
+        "LLR3_be",
+        "LLR3_exact",
+        "LLR3_l",
+        "LLR3_normalized",
+        "LLR3_normalized_alt",
+        "LLR3_u",
+        "LLR5",
+        "LLR5_alt",
+        "LLR5_alt2",
+        "LLR5_exact",
+        "LLR5_l",
+        "LLR5_normalized",
+        "LLR5_normalized_alt",
+        "LLR5_u",
+        "LLRjumps3",
+        "LLRjumps5",
+        "LOS3",
+        "LOS5",
+        "N5",
+        "R3_",
+        "RMS_bias",
+        "RMS_bias_elo",
+        "a3",
+        "a5",
+        "alpha",
+        "avg5",
+        "avg5_l",
+        "avg5_u",
+        "batch_size_games",
+        "batch_size_units",
+        "belo0",
+        "belo1",
+        "beta",
+        "elo0",
+        "elo0_",
+        "elo1",
+        "elo1_",
+        "elo3",
+        "elo3_l",
+        "elo3_u",
+        "elo5",
+        "elo5_l",
+        "elo5_u",
+        "elo95_3",
+        "elo95_5",
+        "elo_model",
+        "elo_model_",
+        "exkurt5",
+        "games5",
+        "lelo0",
+        "lelo03",
+        "lelo1",
+        "lelo13",
+        "llrjumps3_raw",
+        "llrjumps3_vals",
+        "llrjumps5_raw",
+        "llrjumps5_vals",
+        "nelo0",
+        "nelo03",
+        "nelo1",
+        "nelo13",
+        "nelo5",
+        "nelo5_l",
+        "nelo5_u",
+        "nt5",
+        "nt5_l",
+        "nt5_u",
+        "o",
+        "o0",
+        "o1",
+        "page_title",
+        "pdf5",
+        "pdf5_s",
+        "pentanomial_draw_ratio",
+        "ratio",
+        "results5",
+        "results5_",
+        "results5_DD_prob",
+        "results5_WL_prob",
+        "run",
+        "score0",
+        "score03",
+        "score1",
+        "score13",
+        "skewness5",
+        "sp",
+        "sqrt2",
+        "stdev5_per_game",
+        "stdev5_per_game_l",
+        "stdev5_per_game_u",
+        "t5",
+        "t5_l",
+        "t5_u",
+        "t5_var",
+        "var5",
+        "var5_per_game",
+        "var5_per_game_l",
+        "var5_per_game_u",
+        "var_diff",
+        "var_t5"
+      ],
+      "template": "tests_stats.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [],
+      "referenced": [
+        "is_approver",
+        "username"
+      ],
+      "template": "tests_user.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [],
+      "referenced": [
+        "is_approver",
+        "username"
+      ],
+      "template": "tests_user.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [
+        "arg",
+        "element",
+        "helpers",
+        "idx",
+        "json",
+        "n",
+        "note",
+        "row",
+        "spsa_data",
+        "warning"
+      ],
+      "referenced": [
+        "allow_github_api_calls",
+        "approver",
+        "arg",
+        "can_modify_run",
+        "chi2",
+        "document_size",
+        "element",
+        "follow",
+        "helpers",
+        "idx",
+        "json",
+        "n",
+        "note",
+        "notes",
+        "page_title",
+        "request",
+        "row",
+        "run",
+        "run_args",
+        "same_user",
+        "show_task",
+        "spsa_data",
+        "tasks_shown",
+        "totals",
+        "warning",
+        "warnings"
+      ],
+      "template": "tests_view.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [
+        "spsa_data"
+      ],
+      "referenced": [
+        "allow_github_api_calls",
+        "approver",
+        "can_modify_run",
+        "chi2",
+        "document_size",
+        "follow",
+        "notes",
+        "page_title",
+        "request",
+        "run",
+        "run_args",
+        "same_user",
+        "show_task",
+        "spsa_data",
+        "tasks_shown",
+        "totals",
+        "use_3dot_diff",
+        "warnings"
+      ],
+      "template": "tests_view.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [
+        "blocked"
+      ],
+      "referenced": [
+        "blocked",
+        "extract_repo_from_link",
+        "hours",
+        "limit",
+        "profile",
+        "request",
+        "user"
+      ],
+      "template": "user.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [
+        "blocked"
+      ],
+      "referenced": [
+        "blocked",
+        "extract_repo_from_link",
+        "hours",
+        "limit",
+        "profile",
+        "request",
+        "user"
+      ],
+      "template": "user.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [
+        "user"
+      ],
+      "referenced": [
+        "all_users",
+        "approvers_users",
+        "blocked_users",
+        "idle_users",
+        "pending_users",
+        "user"
+      ],
+      "template": "user_management.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [],
+      "referenced": [
+        "all_users",
+        "approvers_users",
+        "blocked_users",
+        "idle_users",
+        "pending_users"
+      ],
+      "template": "user_management.mak"
+    },
+    {
+      "engine": "mako",
+      "missing": [
+        "quote",
+        "w"
+      ],
+      "referenced": [
+        "blocked",
+        "blocked_workers",
+        "last_updated",
+        "message",
+        "quote",
+        "show_admin",
+        "show_email",
+        "w"
+      ],
+      "template": "workers.mak"
+    },
+    {
+      "engine": "jinja",
+      "missing": [],
+      "referenced": [
+        "blocked",
+        "blocked_workers",
+        "last_updated",
+        "message",
+        "show_admin",
+        "show_email"
+      ],
+      "template": "workers.mak"
+    }
+  ]
+}

@@ -15,12 +15,20 @@ import fishtest
 import fishtest.github_api as gh
 from fishtest.http import template_helpers as helpers
 from jinja2 import Environment, FileSystemLoader, Undefined, select_autoescape
+from starlette.templating import Jinja2Templates
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from fastapi import Request
+    from starlette.background import BackgroundTask
+    from starlette.responses import Response
+
 REPO_ROOT_DEPTH: Final[int] = 3
 TEMPLATES_DIR_ENV: Final[str] = "FISHTEST_JINJA_TEMPLATES_DIR"
+_MISSING_REQUEST_ERROR: Final[str] = (
+    "context must include TemplateRequest under 'request'"
+)
 
 
 def _repo_root() -> Path:
@@ -52,7 +60,7 @@ def default_environment() -> Environment:
     """Return a Jinja2 environment bound to the Jinja2 templates directory."""
     env = Environment(
         loader=FileSystemLoader(str(templates_dir())),
-        autoescape=select_autoescape(["html", "xml"]),
+        autoescape=select_autoescape(["html", "xml", "mak"]),
         undefined=MakoUndefined,
         extensions=["jinja2.ext.do"],
     )
@@ -95,6 +103,12 @@ def default_environment() -> Environment:
     return env
 
 
+def default_templates() -> Jinja2Templates:
+    """Return a Starlette Jinja2Templates instance with the custom environment."""
+    env = default_environment()
+    return Jinja2Templates(env=env)
+
+
 @dataclass(frozen=True)
 class RenderedTemplate:
     """Represents a rendered HTML payload."""
@@ -102,13 +116,47 @@ class RenderedTemplate:
     html: str
 
 
+@dataclass(frozen=True)
+class TemplateResponseOptions:
+    """Options for building a Jinja2 template response."""
+
+    status_code: int = 200
+    headers: Mapping[str, str] | None = None
+    media_type: str | None = None
+    background: BackgroundTask | None = None
+
+
 def render_template(
     *,
-    environment: Environment,
+    templates: Jinja2Templates,
     template_name: str,
     context: Mapping[str, object],
 ) -> RenderedTemplate:
     """Render a Jinja2 template to HTML."""
-    template = environment.get_template(template_name)
+    template = templates.get_template(template_name)
     html = template.render(**dict(context))
     return RenderedTemplate(html=html)
+
+
+def render_template_response(
+    *,
+    templates: Jinja2Templates,
+    request: Request,
+    template_name: str,
+    context: Mapping[str, object],
+    options: TemplateResponseOptions | None = None,
+) -> Response:
+    """Render a template and return a Starlette TemplateResponse."""
+    opts = options or TemplateResponseOptions()
+    context_dict = dict(context)
+    if "request" not in context_dict:
+        raise ValueError(_MISSING_REQUEST_ERROR)
+    return templates.TemplateResponse(
+        request=request,
+        name=template_name,
+        context=context_dict,
+        status_code=opts.status_code,
+        headers=opts.headers,
+        media_type=opts.media_type,
+        background=opts.background,
+    )

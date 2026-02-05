@@ -13,13 +13,14 @@ from __future__ import annotations
 import base64
 import hashlib
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from fastapi import Request
     from fishtest.http.cookie_session import CookieSession
     from fishtest.userdb import UserDb
 
@@ -28,6 +29,9 @@ _STATIC_DIR: Final[Path] = Path(__file__).resolve().parents[1] / "static"
 _STATIC_URL_PARAM: Final[str] = "x"
 _STATIC_TOKEN_CACHE_MAX: Final[int] = 1024
 _STATIC_TOKEN_CACHE: OrderedDict[str, str] = OrderedDict()
+_MISSING_RAW_REQUEST_ERROR: Final[str] = (
+    "TemplateRequest.url_for requires a FastAPI request"
+)
 
 
 def _cache_get(rel_path: str) -> str | None:
@@ -86,6 +90,7 @@ class TemplateRequest:
     authenticated_userid: str | None
     userdb: UserDb
     url: str
+    raw_request: Request | None = field(default=None, repr=False)
 
     @property
     def GET(self) -> Mapping[str, str]:  # noqa: N802
@@ -103,3 +108,9 @@ class TemplateRequest:
         if token is None:
             return url
         return f"{url}?{_STATIC_URL_PARAM}={token}"
+
+    def url_for(self, name: str, **path_params: object) -> str:
+        """Return a Starlette-style URL when a raw request is available."""
+        if self.raw_request is None:
+            raise RuntimeError(_MISSING_RAW_REQUEST_ERROR)
+        return str(self.raw_request.url_for(name, **path_params))

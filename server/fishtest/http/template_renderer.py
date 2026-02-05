@@ -2,24 +2,40 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Final, Literal
+from functools import cache
+from typing import TYPE_CHECKING, Final, Literal, Protocol, cast
 
 from fishtest.http import jinja as jinja_renderer
 from fishtest.http import mako as mako_renderer
 from fishtest.http import mako_new as mako_new_renderer
-from jinja2 import TemplateNotFound
+from starlette.responses import HTMLResponse
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Iterator, Mapping
+
+    from mako.lookup import TemplateLookup
+    from starlette.templating import Jinja2Templates
 
 TemplateEngine = Literal["mako", "mako_new", "jinja"]
 
 DEFAULT_ENGINE: Final = "jinja"
 
-_MAKO_LOOKUP = mako_renderer.default_template_lookup()
-_MAKO_NEW_LOOKUP = mako_new_renderer.default_template_lookup()
-_JINJA_ENV = jinja_renderer.default_environment()
+
+@cache
+def _mako_lookup() -> TemplateLookup:
+    return mako_renderer.default_template_lookup()
+
+
+@cache
+def _mako_new_lookup() -> TemplateLookup:
+    return mako_new_renderer.default_template_lookup()
+
+
+@cache
+def _jinja_templates() -> Jinja2Templates:
+    return jinja_renderer.default_templates()
 
 
 @dataclass(frozen=True)
@@ -38,19 +54,20 @@ class _EngineState:
 _STATE = _EngineState(engine=DEFAULT_ENGINE)
 
 
-def _jinja_template_exists(template_name: str) -> bool:
-    template_path = jinja_renderer.templates_dir() / template_name
-    return template_path.exists()
+class _TemplateDebugResponse(Protocol):
+    template: str
+    context: dict[str, object]
 
 
-def _mako_new_template_exists(template_name: str) -> bool:
-    template_path = mako_new_renderer.templates_dir() / template_name
-    return template_path.exists()
-
-
-def template_engine_for(_template_name: str) -> TemplateEngine:
-    """Return the renderer to use for a template name."""
-    return _STATE.engine
+@contextmanager
+def override_engine(engine: TemplateEngine) -> Iterator[None]:
+    """Temporarily override the template engine (test helper)."""
+    previous = _STATE.engine
+    _STATE.engine = engine
+    try:
+        yield
+    finally:
+        _STATE.engine = previous
 
 
 def set_template_engine(engine: TemplateEngine) -> None:
@@ -69,10 +86,10 @@ def render_template(
     context: Mapping[str, object],
 ) -> RenderedTemplate:
     """Render a template using the configured renderer."""
-    engine = template_engine_for(template_name)
+    engine = get_template_engine()
     if engine == "jinja":
         rendered = jinja_renderer.render_template(
-            environment=_JINJA_ENV,
+            templates=_jinja_templates(),
             template_name=template_name,
             context=context,
         )
@@ -80,18 +97,34 @@ def render_template(
 
     if engine == "mako_new":
         rendered = mako_new_renderer.render_template(
-            lookup=_MAKO_NEW_LOOKUP,
+            lookup=_mako_new_lookup(),
             template_name=template_name,
             context=context,
         )
         return RenderedTemplate(html=rendered.html, engine=engine)
 
     rendered = mako_renderer.render_template(
-        lookup=_MAKO_LOOKUP,
+        lookup=_mako_lookup(),
         template_name=template_name,
         context=context,
     )
     return RenderedTemplate(html=rendered.html, engine=engine)
+
+
+def render_template_to_response(
+    *,
+    template_name: str,
+    context: Mapping[str, object],
+    status_code: int = 200,
+) -> HTMLResponse:
+    """Render a template and return an HTMLResponse with debug metadata."""
+    rendered = render_template(template_name=template_name, context=context)
+    response = HTMLResponse(rendered.html, status_code=status_code)
+    # Attach debug-friendly attributes without changing the response body.
+    debug_response = cast("_TemplateDebugResponse", response)
+    debug_response.template = template_name
+    debug_response.context = dict(context)
+    return response
 
 
 def render_template_dual(
@@ -101,64 +134,13 @@ def render_template_dual(
 ) -> tuple[str, str]:
     """Render the template with both engines for parity checks."""
     mako_html = mako_renderer.render_template(
-        lookup=_MAKO_LOOKUP,
+        lookup=_mako_lookup(),
         template_name=template_name,
         context=context,
     ).html
     jinja_html = jinja_renderer.render_template(
-        environment=_JINJA_ENV,
+        templates=_jinja_templates(),
         template_name=template_name,
         context=context,
     ).html
     return mako_html, jinja_html
-
-
-def render_template_legacy_mako(
-    *,
-    template_name: str,
-    context: Mapping[str, object],
-) -> str:
-    """Render a template with the legacy Mako engine."""
-    return mako_renderer.render_template(
-        lookup=_MAKO_LOOKUP,
-        template_name=template_name,
-        context=context,
-    ).html
-
-
-def render_template_mako_new(
-    *,
-    template_name: str,
-    context: Mapping[str, object],
-) -> str:
-    """Render a template with the new Mako engine."""
-    return mako_new_renderer.render_template(
-        lookup=_MAKO_NEW_LOOKUP,
-        template_name=template_name,
-        context=context,
-    ).html
-
-
-def render_template_jinja(
-    *,
-    template_name: str,
-    context: Mapping[str, object],
-) -> str:
-    """Render a template with the Jinja2 engine."""
-    return jinja_renderer.render_template(
-        environment=_JINJA_ENV,
-        template_name=template_name,
-        context=context,
-    ).html
-
-
-def assert_jinja_template_exists(template_name: str) -> None:
-    """Raise TemplateNotFound if a Jinja2 template is missing."""
-    if not _jinja_template_exists(template_name):
-        raise TemplateNotFound(template_name)
-
-
-def assert_mako_new_template_exists(template_name: str) -> None:
-    """Raise TemplateNotFound if a new Mako template is missing."""
-    if not _mako_new_template_exists(template_name):
-        raise TemplateNotFound(template_name)

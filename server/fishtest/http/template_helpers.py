@@ -129,7 +129,7 @@ def results_pre_attrs(results_info: dict, run: dict) -> str:
     return ret
 
 
-def diff_url_for_run(run: dict, *, allow_github_api_calls: bool) -> str:
+def diff_url_for_run(run: dict, allow_github_api_calls: bool) -> str:  # noqa: FBT001
     """Build a diff URL for a run with optional GitHub API calls."""
     return diff_url(run, master_check=allow_github_api_calls)
 
