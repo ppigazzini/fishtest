@@ -41,7 +41,8 @@ This directory contains *work-in-progress* docs for the Pyramid → FastAPI migr
    - [8-TEMPLATE-METRICS.md](8-TEMPLATE-METRICS.md)
 
 10. **Reports:**
-   - [10-CLAUDE-REPORT.md](10-CLAUDE-REPORT.md)
+   - [90-CLAUDE-REPORT.md](90-CLAUDE-REPORT.md)
+   - [91-CLAUDE-M9.md](91-CLAUDE-M9.md)
 
 ## Sources of truth (don’t mix these up)
 

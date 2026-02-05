@@ -135,7 +135,7 @@ These folders are reference-only and MUST NOT be modified:
 - [fishtest-fastapi-draft/](../../fishtest-fastapi-draft) — first FastAPI draft snapshot (read-only)
 - [fishtest-fastapi-draft/WIP/](../../fishtest-fastapi-draft/WIP) contains docs from the first draft.
 
-## Current status (2026-01-29)
+## Current status (authoritative)
 
 Completed:
 
@@ -147,8 +147,9 @@ Completed:
 	- `render_notfound_response()`
 	- `render_forbidden_response()`
 - Central error handler delegates UI 404/401/403 rendering via [server/fishtest/http/errors.py](../../server/fishtest/http/errors.py), which now calls into [server/fishtest/http/ui_errors.py](../../server/fishtest/http/ui_errors.py) instead of UI views.
+- UI rendering attaches response metadata (`template`, `context`) for debug/test parity via the unified response adapter.
 - Production deployment scaffolding exists (systemd + nginx), see [4-VPS.md](4-VPS.md).
-- Parity-check scripts used during the port live under [../tools/](../tools/) (route coverage and behavioral spot-checks).
+- Parity tools live under [../tools/](../tools/): route coverage, AST parity, HTML parity, response parity, and context coverage.
 - Milestone 3 async/blocking boundaries are complete; see 2.1-ASYNC-INVENTORY.md for the inventory and invariants.
 - Lifespan startup/shutdown work and blocked-user lookup are offloaded to the threadpool.
 
@@ -246,7 +247,7 @@ Local dev (still flexible):
 - API/UI behavior matches Pyramid for the migrated surface (paths, status codes, response shapes, templates).
 - Diffs to upstream/master logic remain minimal and intentional (no formatting-only churn).
 
-## Immediate next steps
+## Ongoing practice
 
-- Keep tightening parity by chasing any remaining mismatches found during real usage (UI templates + worker endpoints).
-- When doing parity work, prefer changes in the HTTP hotspots over adding new endpoint modules.
+- Keep parity checks green for routes, AST, HTML output, and response metadata.
+- Prefer changes in the HTTP hotspots over adding new endpoint modules.

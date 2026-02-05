@@ -1,6 +1,17 @@
 #!/usr/bin/env python3
 # ruff: noqa: T201
-"""Analyze Mako templates and emit migration metrics."""
+"""Analyze Mako templates and emit migration metrics.
+
+Goal:
+    Count statements/expressions and feature usage to track Mako complexity.
+
+Usage:
+    python WIP/tools/templates_mako_metrics.py --json
+    python WIP/tools/templates_mako_metrics.py --templates-dir /path/to/dir
+
+Exit status:
+    0 always (informational)
+"""
 
 from __future__ import annotations
 

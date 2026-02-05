@@ -1,16 +1,33 @@
 #!/usr/bin/env python3
 # ruff: noqa: T201
-"""Compare rendered HTML between template engines."""
+"""Compare rendered HTML between template engines.
+
+Goal:
+    Render the same template with two engines and compare raw and normalized HTML.
+    Normalization removes whitespace and tag gaps to focus on semantic parity.
+
+Usage:
+    python WIP/tools/compare_template_parity.py --left-engine mako --right-engine jinja
+    python WIP/tools/compare_template_parity.py --templates tests_view.mak,tests.mak
+    python WIP/tools/compare_template_parity.py --json --show-diff
+
+Exit status:
+    0 if all templates match (normalized)
+    1 if any template differs (normalized)
+    2 on missing template or render error
+"""
 
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import re
 import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from difflib import unified_diff
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
@@ -43,8 +60,57 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _TAG_GAP_RE = re.compile(r">\s+<")
 
 
+class _DomNormalizer(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        ordered = sorted(attrs, key=lambda item: item[0])
+        rendered = " ".join(
+            f'{name}="{html.escape(value or "", quote=True)}"'
+            for name, value in ordered
+        )
+        suffix = f" {rendered}" if rendered else ""
+        self._parts.append(f"<{tag}{suffix}>")
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        ordered = sorted(attrs, key=lambda item: item[0])
+        rendered = " ".join(
+            f'{name}="{html.escape(value or "", quote=True)}"'
+            for name, value in ordered
+        )
+        suffix = f" {rendered}" if rendered else ""
+        self._parts.append(f"<{tag}{suffix} />")
+
+    def handle_endtag(self, tag: str) -> None:
+        self._parts.append(f"</{tag}>")
+
+    def handle_data(self, data: str) -> None:
+        self._parts.append(data)
+
+    def handle_comment(self, data: str) -> None:
+        self._parts.append(f"<!--{data}-->")
+
+    def handle_entityref(self, name: str) -> None:
+        self._parts.append(f"&{name};")
+
+    def handle_charref(self, name: str) -> None:
+        self._parts.append(f"&#{name};")
+
+    def normalized(self) -> str:
+        return "".join(self._parts)
+
+
+def _normalize_dom(html_text: str) -> str:
+    parser = _DomNormalizer()
+    parser.feed(html_text)
+    return parser.normalized()
+
+
 def normalize_html(html: str) -> str:
-    value = _TAG_GAP_RE.sub("><", html)
+    value = _normalize_dom(html)
+    value = _TAG_GAP_RE.sub("><", value)
     value = _WHITESPACE_RE.sub(" ", value)
     return value.strip()
 

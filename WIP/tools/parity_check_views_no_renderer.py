@@ -2,11 +2,14 @@
 # ruff: noqa: T201
 """Inventory: UI routes with @view_config but no renderer.
 
-This replicates the small check used during the parity sweep to find which UI
-routes return redirects/Response objects rather than rendering a template.
+Goal:
+    Find UI routes that return redirects/Response objects rather than templates.
 
 Usage:
-  python WIP/parity_check_views_no_renderer.py
+    python WIP/parity_check_views_no_renderer.py
+
+Exit status:
+    0 always (informational)
 """
 
 from __future__ import annotations

@@ -39,6 +39,12 @@ Curated web references and a short project-focused synthesis for the Mako -> Jin
 - Use `StrictUndefined` in tests to catch missing keys early, while keeping production lenient if needed.
 - Add filters via `templates.env.filters[...]` or provide a custom `jinja2.Environment`.
 
+### 4.1) Environment lifecycle and globals
+
+- Create one `Environment` per app; avoid changing globals after templates load.
+- Keep globals minimal and audited; prefer explicit context for render-specific values.
+- Use `pass_context` or `pass_eval_context` for filters that need escaping semantics.
+
 ### 5) Context processors vs explicit context
 
 - Context processors are useful for shared globals but make migration harder to audit.
@@ -64,3 +70,11 @@ Curated web references and a short project-focused synthesis for the Mako -> Jin
 - Introduce Jinja2 rendering behind a per-template feature map.
 - Convert hardest templates first and validate with DOM diff checks.
 - Remove Mako runtime dependencies only after full parity is proven.
+
+## Project-specific notes (current)
+
+- The Jinja2 environment uses `select_autoescape(["html", "xml", "mak"])` to align `.mak` template names with autoescape defaults.
+- `MakoUndefined` is used to render missing values as `UNDEFINED` for parity with legacy Mako.
+- Rendering is synchronous and must run off the event loop (threadpool).
+- Response parity checks compare status, content type, cache-control, set-cookie, and debug metadata (`template`, `context`).
+- Context coverage is tracked via [WIP/tools/template_context_coverage.py](WIP/tools/template_context_coverage.py) to surface missing keys in parity contexts.

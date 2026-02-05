@@ -18,6 +18,7 @@ import fishtest.github_api as gh
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from fishtest import schemas
 from fishtest.http.api import router as api_router
 from fishtest.http.errors import install_error_handlers
 from fishtest.http.middleware import (
@@ -114,6 +115,9 @@ def create_app() -> FastAPI:
         app.state.userdb = rundb.userdb
         app.state.actiondb = rundb.actiondb
         app.state.workerdb = rundb.workerdb
+
+        # All instances should use the same user schema.
+        schemas.legacy_usernames = set(rundb.kvstore.get("legacy_usernames", []))
 
         if settings.is_primary_instance:
             await run_in_threadpool(gh.init, rundb.kvstore, rundb.actiondb)

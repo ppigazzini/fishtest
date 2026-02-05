@@ -62,6 +62,13 @@ form = await request.form(max_files=1, max_fields=20, max_part_size=200 * 1024 *
 ### 7) Thread pool limits
 - Sync functions and file I/O consume threadpool tokens; keep blocking DB and filesystem work off the event loop.
 
+### 8) Templates (Jinja2Templates)
+- `Jinja2Templates` accepts either `directory` or `env`, not both.
+- `TemplateResponse(request, name, context=...)` sets `request` in context and applies `context_processors`.
+- `url_for` is injected via `pass_context` and uses the request in context.
+- Context processors must be sync functions.
+- Template responses expose `.template` and `.context` in tests.
+
 ## Quick “use this when…” cheatsheet
 
 - Cross-cutting guards: middleware (ASGI-first).

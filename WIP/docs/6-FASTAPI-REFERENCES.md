@@ -98,6 +98,11 @@ app = FastAPI(lifespan=lifespan)
 - Ensure redirects and URL generation use correct scheme/host behind nginx.
 - Use FastAPI’s `root_path` guidance when deploying behind a reverse proxy.
 
+### 8) Templates (FastAPI wrappers)
+- FastAPI re-exports Starlette `Jinja2Templates` in `fastapi.templating`.
+- `TemplateResponse` is called with keyword args: `request=`, `name=`, `context=`.
+- `request` must be in the template context for `url_for` to work.
+
 ## Quick “use this when…” cheatsheet
 
 - Split/organize routes: `APIRouter` + `include_router` → Bigger Applications.

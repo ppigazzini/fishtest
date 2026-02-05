@@ -261,6 +261,19 @@ Definition of done:
 - A shared helper base is used by both renderers.
 - Parity comparison scripts exist for both tracks.
 
+## Milestone 9 — Template rendering alignment (Starlette Jinja2 + Mako)
+
+Goal: align template rendering with Starlette best practices while preserving UI parity, and document ASGI-specific risks and choices.
+
+Status:
+- In progress (2026-02-05); see [3.9-ITERATION.md](3.9-ITERATION.md).
+
+Definition of done:
+- Jinja2 rendering uses Starlette `Jinja2Templates` directly or a compatible wrapper with `TemplateResponse`, `url_for`, and optional `context_processors`.
+- Mako rendering provides a TemplateResponse-equivalent path with request context and debug info.
+- ASGI risks/choices for Jinja2 and Mako are documented in architecture and reference docs.
+- Parity remains green for legacy/new Mako and Jinja2.
+
 ## Milestone N-1 — Optional: Pydantic (only when it buys real safety)
 
 Goal: allow Pydantic only where it materially reduces bugs/duplication, without duplicating vtjson validation across the whole codebase or changing externally-visible error semantics.

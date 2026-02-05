@@ -446,6 +446,15 @@ What it does:
 - Uses `strict_undefined=False` to match Pyramid’s historical template behavior.
 - Provides `render_template(lookup=..., template_name=..., context=...) -> RenderedTemplate`.
 
+#### `server/fishtest/http/jinja.py` and `server/fishtest/http/mako_new.py`
+
+Purpose: parallel renderers for Jinja2 and the new Mako templates used for parity checks.
+
+Notes:
+- Jinja2 rendering uses Starlette `Jinja2Templates` with a custom `Environment` and autoescape enabled for `.mak`.
+- New Mako exposes a `TemplateResponse`-style wrapper that emits debug metadata when enabled.
+- UI rendering uses a unified response adapter that attaches `template` and `context` to responses for test/debug parity.
+
 #### `server/fishtest/http/template_request.py:TemplateRequest`
 
 Purpose: provide a small “request-like” object passed to templates as `request`.
@@ -459,6 +468,12 @@ This object deliberately implements only the minimal surface area that templates
 - `request.static_url("fishtest:static/...")`: maps old Pyramid asset specs to `/static/...`
 
 The key idea: UI route handlers can stay small and predictable, while the templates remain largely unchanged.
+
+Note on `url_for` in templates:
+
+- Jinja2 templates can call `url_for(...)` via Starlette's injected global (added by `Jinja2Templates`).
+- Mako templates and legacy call sites use `request.url_for(...)` on `TemplateRequest`.
+- Both paths ultimately delegate to the raw FastAPI `Request.url_for(...)`, so routes resolve consistently.
 
 #### `server/fishtest/http/csrf.py`
 

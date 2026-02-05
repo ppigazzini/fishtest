@@ -51,6 +51,10 @@ Why: `import="*"` is slower and makes dependencies implicit. Explicit imports ar
 - Set `filesystem_checks=False` in production for stable deployments.
 - Consider `collection_size` to bound in-memory template cache.
 
+### 9) Runtime behavior and errors
+- `format_exceptions=True` can render HTML error output during template execution.
+- `strict_undefined=True` is useful in tests to surface missing context early.
+
 Why: This reduces repeated compilation and avoids filesystem stats on every request.
 
 ### 6) Strict undefined in tests
@@ -141,3 +145,10 @@ ${render_badge("Stable")}
 - No `import="*"` namespaces.
 - Output parity checked vs legacy Mako.
 - Any `|n` usage justified and reviewed.
+
+## Project-specific notes (current)
+
+- New Mako templates use `TemplateLookup` with `default_filters=["h"]` and `strict_undefined=False` for parity safety.
+- `MakoTemplateResponse` emits debug metadata when request extensions include `http.response.debug`.
+- Response parity checks validate status, headers, and debug metadata, not just HTML.
+- Context coverage is tracked via [WIP/tools/template_context_coverage.py](WIP/tools/template_context_coverage.py).
