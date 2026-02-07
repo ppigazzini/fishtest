@@ -6,6 +6,7 @@ import binascii
 from urllib.parse import quote_plus
 
 from fishtest.stats import LLRcalc, stat_util
+from fishtest.stats import sprt as sprt_module
 from fishtest.util import (
     diff_url,
     display_residual,
@@ -84,20 +85,37 @@ def is_elo_pentanomial_run(run: dict) -> bool:
     return "sprt" not in args and "spsa" not in args and "pentanomial" in results
 
 
+def _nelo_pentanomial_details(results5: list[int]) -> dict:
+    nelo_coeff = LLRcalc.nelo_divided_by_nt / (2**0.5)
+    z975 = stat_util.Phi_inv(0.975)
+    n5, pdf5 = LLRcalc.results_to_pdf(results5)
+    avg5, var5, skewness5, exkurt5 = LLRcalc.stats_ex(pdf5)
+    t5, var_t5 = t_conf(avg5, var5, skewness5, exkurt5)
+    nelo5 = nelo_coeff * t5
+    nelo5_delta = nelo_coeff * z975 * (var_t5 / n5) ** 0.5
+    return {
+        "n5": n5,
+        "pdf5": pdf5,
+        "avg5": avg5,
+        "var5": var5,
+        "skewness5": skewness5,
+        "exkurt5": exkurt5,
+        "t5": t5,
+        "var_t5": var_t5,
+        "nelo5": nelo5,
+        "nelo5_delta": nelo5_delta,
+    }
+
+
 def nelo_pentanomial_summary(run: dict) -> str | None:
     """Build a summary line for Elo pentanomial results."""
     if not is_elo_pentanomial_run(run):
         return None
 
     results5 = run["results"]["pentanomial"]
-    nelo_coeff = LLRcalc.nelo_divided_by_nt / (2**0.5)
-    z975 = stat_util.Phi_inv(0.975)
-
-    n5, pdf5 = LLRcalc.results_to_pdf(results5)
-    avg5, var5, skewness5, exkurt5 = LLRcalc.stats_ex(pdf5)
-    t5, var_t5 = t_conf(avg5, var5, skewness5, exkurt5)
-    nelo5 = nelo_coeff * t5
-    nelo5_delta = nelo_coeff * z975 * (var_t5 / n5) ** 0.5
+    details = _nelo_pentanomial_details(results5)
+    nelo5 = details["nelo5"]
+    nelo5_delta = details["nelo5_delta"]
 
     if any(results5[0:2]):
         pairs_ratio = sum(results5[3:]) / sum(results5[0:2])
@@ -110,6 +128,519 @@ def nelo_pentanomial_summary(run: dict) -> str | None:
         f"nElo: {nelo5:.2f} &plusmn; {nelo5_delta:.1f} (95%) "
         f"PairsRatio: {pairs_ratio:.2f}"
     )
+
+
+def build_tests_stats_context(run: dict) -> dict:
+    """Build a template-friendly stats payload for tests_stats."""
+    args = run.get("args", {})
+    results = run.get("results", {})
+    has_sprt = "sprt" in args
+    has_pentanomial = "pentanomial" in results
+    has_spsa = "spsa" in args
+
+    z975 = stat_util.Phi_inv(0.975)
+    nelo_divided_by_nt = LLRcalc.nelo_divided_by_nt
+
+    results3 = [results["losses"], results["draws"], results["wins"]]
+    results3_ = LLRcalc.regularize(results3)
+    draw_ratio = results3_[1] / sum(results3_)
+    n3, pdf3 = LLRcalc.results_to_pdf(results3)
+    games3 = n3
+    avg3, var3, skewness3, exkurt3 = LLRcalc.stats_ex(pdf3)
+    stdev3 = var3**0.5
+    pdf3_s = pdf_to_string(pdf3)
+    avg3_l = avg3 - z975 * (var3 / n3) ** 0.5
+    avg3_u = avg3 + z975 * (var3 / n3) ** 0.5
+    var3_l = var3 * (1 - z975 * ((exkurt3 + 2) / n3) ** 0.5)
+    var3_u = var3 * (1 + z975 * ((exkurt3 + 2) / n3) ** 0.5)
+    stdev3_l = var3_l**0.5 if var3_l >= 0 else 0.0
+    stdev3_u = var3_u**0.5
+    t3, var_t3 = t_conf(avg3, var3, skewness3, exkurt3)
+    t3_l = t3 - z975 * (var_t3 / n3) ** 0.5
+    t3_u = t3 + z975 * (var_t3 / n3) ** 0.5
+    nelo3 = nelo_divided_by_nt * t3
+    nelo3_l = nelo_divided_by_nt * t3_l
+    nelo3_u = nelo_divided_by_nt * t3_u
+
+    pent = {}
+    results5 = None
+    results5_ = None
+    n5 = None
+    pdf5 = None
+    if has_pentanomial:
+        results5 = results["pentanomial"]
+        results5_ = LLRcalc.regularize(results5)
+        pentanomial_draw_ratio = results5_[2] / sum(results5_)
+        details5 = _nelo_pentanomial_details(results5)
+        n5 = details5["n5"]
+        pdf5 = details5["pdf5"]
+        avg5 = details5["avg5"]
+        var5 = details5["var5"]
+        skewness5 = details5["skewness5"]
+        exkurt5 = details5["exkurt5"]
+        t5 = details5["t5"]
+        var_t5 = details5["var_t5"]
+
+        games5 = 2 * n5
+        var5_per_game = 2 * var5
+        stdev5_per_game = var5_per_game**0.5
+        pdf5_s = pdf_to_string(pdf5)
+        avg5_l = avg5 - z975 * (var5 / n5) ** 0.5
+        avg5_u = avg5 + z975 * (var5 / n5) ** 0.5
+        var5_per_game_l = var5_per_game * (1 - z975 * ((exkurt5 + 2) / n5) ** 0.5)
+        var5_per_game_u = var5_per_game * (1 + z975 * ((exkurt5 + 2) / n5) ** 0.5)
+        stdev5_per_game_l = var5_per_game_l**0.5 if var5_per_game_l >= 0 else 0.0
+        stdev5_per_game_u = var5_per_game_u**0.5
+        t5_l = t5 - z975 * (var_t5 / n5) ** 0.5
+        t5_u = t5 + z975 * (var_t5 / n5) ** 0.5
+        sqrt2 = 2**0.5
+        nt5 = t5 / sqrt2
+        nt5_l = t5_l / sqrt2
+        nt5_u = t5_u / sqrt2
+        nelo5 = nelo_divided_by_nt * nt5
+        nelo5_l = nelo_divided_by_nt * nt5_l
+        nelo5_u = nelo_divided_by_nt * nt5_u
+        results5_DD_prob = draw_ratio - (results5_[1] + results5_[3]) / (2 * n5)
+        results5_WL_prob = results5_[2] / n5 - results5_DD_prob
+        ratio = var5_per_game / var3
+        var_diff = var3 - var5_per_game
+        rms_bias = var_diff**0.5 if var_diff >= 0 else 0
+        rms_bias_elo = stat_util.elo(0.5 + rms_bias)
+
+        pent = {
+            "results5": results5,
+            "draw_ratio": pentanomial_draw_ratio,
+            "games5": games5,
+            "n5": n5,
+            "pdf5": pdf5,
+            "pdf5_s": pdf5_s,
+            "avg5": avg5,
+            "avg5_l": avg5_l,
+            "avg5_u": avg5_u,
+            "var5": var5,
+            "skewness5": skewness5,
+            "exkurt5": exkurt5,
+            "var5_per_game": var5_per_game,
+            "var5_per_game_l": var5_per_game_l,
+            "var5_per_game_u": var5_per_game_u,
+            "stdev5_per_game": stdev5_per_game,
+            "stdev5_per_game_l": stdev5_per_game_l,
+            "stdev5_per_game_u": stdev5_per_game_u,
+            "nelo5": nelo5,
+            "nelo5_l": nelo5_l,
+            "nelo5_u": nelo5_u,
+            "results5_DD_prob": results5_DD_prob,
+            "results5_WL_prob": results5_WL_prob,
+            "ratio": ratio,
+            "var_diff": var_diff,
+            "rms_bias": rms_bias,
+            "rms_bias_elo": rms_bias_elo,
+        }
+
+    drawelo = stat_util.draw_elo_calc(results3_)
+
+    sigma = stdev5_per_game if has_pentanomial else stdev3
+
+    sprt = {}
+    if has_sprt:
+        sprt_args = args["sprt"]
+        elo_model = sprt_args.get("elo_model", "BayesElo")
+        alpha = sprt_args["alpha"]
+        beta = sprt_args["beta"]
+        elo0 = sprt_args["elo0"]
+        elo1 = sprt_args["elo1"]
+        batch_size_units = sprt_args.get("batch_size", 1)
+        batch_size_games = 2 * batch_size_units if has_pentanomial else 1
+        overshoot = sprt_args.get("overshoot", None)
+
+        belo0 = None
+        belo1 = None
+        if elo_model == "BayesElo":
+            belo0 = elo0
+            belo1 = elo1
+            elo0_ = stat_util.bayeselo_to_elo(belo0, drawelo)
+            elo1_ = stat_util.bayeselo_to_elo(belo1, drawelo)
+            elo_model_ = "logistic"
+        else:
+            elo0_ = elo0
+            elo1_ = elo1
+            elo_model_ = elo_model
+
+        if elo_model_ == "logistic":
+            lelo0 = elo0_
+            lelo1 = elo1_
+            lelo03 = lelo0
+            lelo13 = lelo1
+            score0 = stat_util.L(lelo0)
+            score1 = stat_util.L(lelo1)
+            score03 = score0
+            score13 = score1
+            nelo0 = nelo_divided_by_nt * (score0 - 0.5) / sigma
+            nelo1 = nelo_divided_by_nt * (score1 - 0.5) / sigma
+            nelo03 = nelo_divided_by_nt * (score03 - 0.5) / stdev3
+            nelo13 = nelo_divided_by_nt * (score13 - 0.5) / stdev3
+        else:
+            nelo0 = elo0_
+            nelo1 = elo1_
+            nelo03 = nelo0
+            nelo13 = nelo1
+            score0 = nelo0 / nelo_divided_by_nt * stdev3 + 0.5
+            score1 = nelo1 / nelo_divided_by_nt * stdev3 + 0.5
+            score03 = score0
+            score13 = score1
+            lelo0 = stat_util.elo(score0)
+            lelo1 = stat_util.elo(score1)
+            lelo03 = lelo0
+            lelo13 = lelo1
+
+        if belo0 is None:
+            belo0 = stat_util.elo_to_bayeselo(lelo03, draw_ratio)[0]
+            belo1 = stat_util.elo_to_bayeselo(lelo13, draw_ratio)[0]
+
+        llrjumps3 = list_to_string(
+            [item[0] for item in LLRcalc.LLRjumps(pdf3, score0, score1)]
+        )
+        sp = sprt_module.sprt(alpha=alpha, beta=beta, elo0=lelo0, elo1=lelo1)
+        sp.set_state(results3_)
+        a3 = sp.analytics()
+        llr3_l = a3["a"]
+        llr3_u = a3["b"]
+        if elo_model_ == "logistic":
+            llr3 = LLRcalc.LLR_logistic(lelo03, lelo13, results3_)
+        else:
+            llr3 = LLRcalc.LLR_normalized(nelo03, nelo13, results3_)
+
+        elo3_l = a3["ci"][0]
+        elo3_u = a3["ci"][1]
+        elo3 = a3["elo"]
+        los3 = a3["LOS"]
+        llr3_exact = n3 * LLRcalc.LLR(pdf3, score03, score13)
+        llr3_alt = n3 * LLRcalc.LLR_alt(pdf3, score03, score13)
+        llr3_alt2 = n3 * LLRcalc.LLR_alt2(pdf3, score03, score13)
+        llr3_normalized = LLRcalc.LLR_normalized(nelo03, nelo13, results3_)
+        llr3_normalized_alt = LLRcalc.LLR_normalized_alt(nelo03, nelo13, results3_)
+        llr3_be = stat_util.LLRlegacy(belo0, belo1, results3_)
+
+        sprt = {
+            "elo_model": elo_model,
+            "alpha": alpha,
+            "beta": beta,
+            "elo0": elo0,
+            "elo1": elo1,
+            "batch_size_games": batch_size_games,
+            "lelo0": lelo0,
+            "lelo1": lelo1,
+            "nelo0": nelo0,
+            "nelo1": nelo1,
+            "belo0": belo0,
+            "belo1": belo1,
+            "score0": score0,
+            "score1": score1,
+            "llr3": llr3,
+            "llr3_l": llr3_l,
+            "llr3_u": llr3_u,
+            "elo3": elo3,
+            "elo3_l": elo3_l,
+            "elo3_u": elo3_u,
+            "los3": los3,
+            "llr3_exact": llr3_exact,
+            "llr3_alt": llr3_alt,
+            "llr3_alt2": llr3_alt2,
+            "llr3_normalized": llr3_normalized,
+            "llr3_normalized_alt": llr3_normalized_alt,
+            "llr3_be": llr3_be,
+            "llrjumps3": llrjumps3,
+        }
+
+        if has_pentanomial and results5_ is not None and pdf5 is not None:
+            llrjumps5 = list_to_string(
+                [item[0] for item in LLRcalc.LLRjumps(pdf5, score0, score1)]
+            )
+            sp = sprt_module.sprt(alpha=alpha, beta=beta, elo0=lelo0, elo1=lelo1)
+            sp.set_state(results5_)
+            a5 = sp.analytics()
+            llr5_l = a5["a"]
+            llr5_u = a5["b"]
+            if elo_model_ == "logistic":
+                llr5 = LLRcalc.LLR_logistic(lelo0, lelo1, results5_)
+            else:
+                llr5 = LLRcalc.LLR_normalized(nelo0, nelo1, results5_)
+
+            o0 = 0
+            o1 = 0
+            if overshoot is not None:
+                o0 = (
+                    -overshoot["sq0"] / overshoot["m0"] / 2
+                    if overshoot["m0"] != 0
+                    else 0
+                )
+                o1 = (
+                    overshoot["sq1"] / overshoot["m1"] / 2
+                    if overshoot["m1"] != 0
+                    else 0
+                )
+
+            elo5_l = a5["ci"][0]
+            elo5_u = a5["ci"][1]
+            elo5 = a5["elo"]
+            los5 = a5["LOS"]
+            llr5_exact = n5 * LLRcalc.LLR(pdf5, score0, score1)
+            llr5_alt = n5 * LLRcalc.LLR_alt(pdf5, score0, score1)
+            llr5_alt2 = n5 * LLRcalc.LLR_alt2(pdf5, score0, score1)
+            llr5_normalized = LLRcalc.LLR_normalized(nelo0, nelo1, results5_)
+            llr5_normalized_alt = LLRcalc.LLR_normalized_alt(nelo0, nelo1, results5_)
+
+            sprt.update(
+                {
+                    "llr5": llr5,
+                    "llr5_l": llr5_l,
+                    "llr5_u": llr5_u,
+                    "elo5": elo5,
+                    "elo5_l": elo5_l,
+                    "elo5_u": elo5_u,
+                    "los5": los5,
+                    "llr5_exact": llr5_exact,
+                    "llr5_alt": llr5_alt,
+                    "llr5_alt2": llr5_alt2,
+                    "llr5_normalized": llr5_normalized,
+                    "llr5_normalized_alt": llr5_normalized_alt,
+                    "llrjumps5": llrjumps5,
+                    "overshoot0": o0,
+                    "overshoot1": o1,
+                }
+            )
+    else:
+        elo3, elo95_3, los3 = stat_util.get_elo(results3_)
+        sprt = {
+            "elo3": elo3,
+            "elo3_l": elo3 - elo95_3,
+            "elo3_u": elo3 + elo95_3,
+            "los3": los3,
+        }
+        if has_pentanomial and results5_ is not None:
+            elo5, elo95_5, los5 = stat_util.get_elo(results5_)
+            sprt.update(
+                {
+                    "elo5": elo5,
+                    "elo5_l": elo5 - elo95_5,
+                    "elo5_u": elo5 + elo95_5,
+                    "los5": los5,
+                }
+            )
+
+    context_rows = [
+        ("Base TC", args.get("tc", "?")),
+        ("Test TC", args.get("new_tc", args.get("tc", "?"))),
+        ("Book", args.get("book", "?")),
+        ("Threads", args.get("threads", "?")),
+        ("Base options", args.get("base_options", "?")),
+        ("New options", args.get("new_options", "?")),
+    ]
+
+    sprt_rows = []
+    sprt_bounds_rows = []
+    if has_sprt:
+        sprt_rows = [
+            ("Alpha", sprt["alpha"]),
+            ("Beta", sprt["beta"]),
+            (f"Elo0 ({sprt['elo_model']})", sprt["elo0"]),
+            (f"Elo1 ({sprt['elo_model']})", sprt["elo1"]),
+            ("Batch size (games)", sprt["batch_size_games"]),
+        ]
+        sprt_bounds_rows = [
+            {
+                "label": "H0",
+                "logistic": f"{sprt['lelo0']:.3f}",
+                "normalized": f"{sprt['nelo0']:.3f}",
+                "bayes": f"{sprt['belo0']:.3f}",
+                "score": f"{sprt['score0']:.5f}",
+            },
+            {
+                "label": "H1",
+                "logistic": f"{sprt['lelo1']:.3f}",
+                "normalized": f"{sprt['nelo1']:.3f}",
+                "bayes": f"{sprt['belo1']:.3f}",
+                "score": f"{sprt['score1']:.5f}",
+            },
+        ]
+
+    draw_rows = [("Draw ratio", f"{draw_ratio:.5f}")]
+    if has_pentanomial:
+        draw_rows.append(("Pentanomial draw ratio", f"{pent['draw_ratio']:.5f}"))
+    draw_rows.append(("DrawElo (BayesElo)", f"{drawelo:.2f}"))
+
+    pent_rows = {}
+    if has_pentanomial:
+        pent_rows = {
+            "basic_rows": [
+                (
+                    "Elo",
+                    f"{sprt['elo5']:.4f} [{sprt['elo5_l']:.4f}, {sprt['elo5_u']:.4f}]",
+                ),
+                ("LOS(1-p)", f"{sprt['los5']:.5f}"),
+            ],
+            "aux_rows": [
+                ("Games", f"{int(pent['games5'])}"),
+                ("Results [0-2]", str(pent["results5"])),
+                ("Distribution", pent["pdf5_s"]),
+                (
+                    "(DD,WL) split",
+                    f"({pent['results5_DD_prob']:.5f}, {pent['results5_WL_prob']:.5f})",
+                ),
+                ("Expected value", f"{pent['avg5']:.5f}"),
+                ("Variance", f"{pent['var5']:.5f}"),
+                ("Skewness", f"{pent['skewness5']:.5f}"),
+                ("Excess kurtosis", f"{pent['exkurt5']:.5f}"),
+            ],
+        }
+        if has_sprt:
+            pent_rows["basic_rows"].append(
+                (
+                    "LLR",
+                    f"{sprt['llr5']:.4f} [{sprt['llr5_l']:.4f}, {sprt['llr5_u']:.4f}]",
+                )
+            )
+            pent_rows["llr_rows"] = [
+                ("Logistic (exact)", f"{sprt['llr5_exact']:.5f}"),
+                ("Logistic (alt)", f"{sprt['llr5_alt']:.5f}"),
+                ("Logistic (alt2)", f"{sprt['llr5_alt2']:.5f}"),
+                ("Normalized (exact)", f"{sprt['llr5_normalized']:.5f}"),
+                ("Normalized (alt)", f"{sprt['llr5_normalized_alt']:.5f}"),
+            ]
+            pent_rows["aux_rows"].append(("Score", f"{pent['avg5']:.5f}"))
+        else:
+            pent_rows["aux_rows"].append(
+                (
+                    "Score",
+                    f"{pent['avg5']:.5f} [{pent['avg5_l']:.5f}, {pent['avg5_u']:.5f}]",
+                )
+            )
+
+        pent_rows["aux_rows"].extend(
+            [
+                (
+                    "Variance/game",
+                    f"{pent['var5_per_game']:.5f} [{pent['var5_per_game_l']:.5f}, {pent['var5_per_game_u']:.5f}]",
+                ),
+                (
+                    "Stdev/game",
+                    f"{pent['stdev5_per_game']:.5f} [{pent['stdev5_per_game_l']:.5f}, {pent['stdev5_per_game_u']:.5f}]",
+                ),
+            ]
+        )
+
+        if has_sprt:
+            pent_rows["aux_rows"].append(("Normalized Elo", f"{pent['nelo5']:.2f}"))
+            pent_rows["aux_rows"].append(("LLR jumps [0-2]", sprt["llrjumps5"]))
+            pent_rows["aux_rows"].append(
+                (
+                    "Expected overshoot [H0,H1]",
+                    f"[{sprt['overshoot0']:.5f}, {sprt['overshoot1']:.5f}]",
+                )
+            )
+        else:
+            pent_rows["aux_rows"].append(
+                (
+                    "Normalized Elo",
+                    f"{pent['nelo5']:.2f} [{pent['nelo5_l']:.2f}, {pent['nelo5_u']:.2f}]",
+                )
+            )
+
+        pent_rows["comparison_rows"] = [
+            ("Variance ratio (pentanomial/trinomial)", f"{pent['ratio']:.5f}"),
+            ("Variance difference (trinomial-pentanomial)", f"{pent['var_diff']:.5f}"),
+            ("RMS bias", f"{pent['rms_bias']:.5f}"),
+            ("RMS bias (Elo)", f"{pent['rms_bias_elo']:.3f}"),
+        ]
+
+    tri_rows = {
+        "basic_rows": [
+            (
+                "Elo",
+                f"{sprt['elo3']:.4f} [{sprt['elo3_l']:.4f}, {sprt['elo3_u']:.4f}]",
+            ),
+            ("LOS(1-p)", f"{sprt['los3']:.5f}"),
+        ],
+        "aux_rows": [
+            ("Games", f"{int(games3)}"),
+            ("Results [losses, draws, wins]", str(results3)),
+            ("Distribution {loss ratio, draw ratio, win ratio}", pdf3_s),
+            ("Expected value", f"{avg3:.5f}"),
+            ("Variance", f"{var3:.5f}"),
+            ("Skewness", f"{skewness3:.5f}"),
+            ("Excess kurtosis", f"{exkurt3:.5f}"),
+        ],
+    }
+
+    if has_sprt:
+        tri_rows["basic_rows"].append(
+            (
+                "LLR",
+                f"{sprt['llr3']:.4f} [{sprt['llr3_l']:.4f}, {sprt['llr3_u']:.4f}]",
+            )
+        )
+        tri_rows["llr_rows"] = [
+            ("Logistic (exact)", f"{sprt['llr3_exact']:.5f}"),
+            ("Logistic (alt)", f"{sprt['llr3_alt']:.5f}"),
+            ("Logistic (alt2)", f"{sprt['llr3_alt2']:.5f}"),
+            ("Normalized (exact)", f"{sprt['llr3_normalized']:.5f}"),
+            ("Normalized (alt)", f"{sprt['llr3_normalized_alt']:.5f}"),
+            ("BayesElo", f"{sprt['llr3_be']:.5f}"),
+        ]
+        tri_rows["aux_rows"].append(("Score", f"{avg3:.5f}"))
+        tri_rows["aux_rows"].append(("Normalized Elo", f"{nelo3:.2f}"))
+        tri_rows["aux_rows"].append(("LLR jumps [loss, draw, win]", sprt["llrjumps3"]))
+    else:
+        tri_rows["aux_rows"].append(
+            ("Score", f"{avg3:.5f} [{avg3_l:.5f}, {avg3_u:.5f}]")
+        )
+        tri_rows["aux_rows"].append(
+            (
+                "Normalized Elo",
+                f"{nelo3:.2f} [{nelo3_l:.2f}, {nelo3_u:.2f}]",
+            )
+        )
+
+    tri_rows["aux_rows"].extend(
+        [
+            ("Variance/game", f"{var3:.5f} [{var3_l:.5f}, {var3_u:.5f}]"),
+            ("Stdev/game", f"{stdev3:.5f} [{stdev3_l:.5f}, {stdev3_u:.5f}]"),
+        ]
+    )
+
+    return {
+        "run_id": str(run.get("_id", "")),
+        "has_sprt": has_sprt,
+        "has_pentanomial": has_pentanomial,
+        "has_spsa": has_spsa,
+        "context_rows": context_rows,
+        "sprt_rows": sprt_rows,
+        "draw_rows": draw_rows,
+        "sprt_bounds_rows": sprt_bounds_rows,
+        "sprt_note": (
+            "Note: normalized Elo is inversely proportional to the square root of the number "
+            "of games it takes on average to detect a given strength difference with a given "
+            "level of significance. It is given by logistic_elo/(2*standard_deviation_per_game). "
+            "In other words if the draw ratio is zero and Elo differences are small then normalized "
+            "Elo and logistic Elo coincide."
+        ),
+        "pentanomial": pent_rows,
+        "trinomial": tri_rows,
+        "tri_note": (
+            "Note: The following quantities are computed using the incorrect trinomial model and so "
+            "they should be taken with a grain of salt. The trinomial quantities are listed because "
+            "they serve as a sanity check for the correct pentanomial quantities and moreover it is "
+            "possible to extract some genuinely interesting information from the comparison between the two."
+        ),
+        "llr_note": (
+            "Note: The quantities labeled alt and alt2 are various approximations for the exact quantities. "
+            "Simulations indicate that the exact quantities perform better under extreme conditions."
+        ),
+        "bayes_note": (
+            "Note: BayesElo is the LLR as computed using the BayesElo model. It is not clear how to "
+            "generalize it to the pentanomial case."
+        ),
+    }
 
 
 def results_pre_attrs(results_info: dict, run: dict) -> str:
@@ -187,6 +718,7 @@ __all__ = [
     "is_active_sprt_ltc",
     "is_elo_pentanomial_run",
     "list_to_string",
+    "build_tests_stats_context",
     "nelo_pentanomial_summary",
     "pdf_to_string",
     "results_pre_attrs",

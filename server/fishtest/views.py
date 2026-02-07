@@ -14,6 +14,7 @@ import fishtest.github_api as gh
 import fishtest.stats.stat_util
 import regex
 import requests
+from fishtest.http.template_helpers import build_tests_stats_context
 from fishtest.run_cache import Prio
 from fishtest.schemas import (
     RUN_VERSION,
@@ -1596,7 +1597,11 @@ def tests_stats(request):
     run = request.rundb.get_run(request.matchdict["id"])
     if run is None:
         raise HTTPNotFound()
-    return {"run": run, "page_title": get_page_title(run)}
+    return {
+        "run": run,
+        "page_title": get_page_title(run),
+        "stats": build_tests_stats_context(run),
+    }
 
 
 @view_config(route_name="tests_tasks", renderer="tasks.mak")

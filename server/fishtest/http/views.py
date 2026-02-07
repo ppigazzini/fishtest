@@ -38,6 +38,7 @@ from fishtest.http.dependencies import (
     get_userdb,
     get_workerdb,
 )
+from fishtest.http.template_helpers import build_tests_stats_context
 from fishtest.http.template_renderer import render_template_to_response
 from fishtest.http.ui_pipeline import apply_http_cache
 from fishtest.run_cache import Prio
@@ -2011,7 +2012,11 @@ def tests_stats(request):
     run = request.rundb.get_run(request.matchdict["id"])
     if run is None:
         raise HTTPNotFound()
-    return {"run": run, "page_title": get_page_title(run)}
+    return {
+        "run": run,
+        "page_title": get_page_title(run),
+        "stats": build_tests_stats_context(run),
+    }
 
 
 @view_config(route_name="tests_tasks", renderer="tasks.mak")
