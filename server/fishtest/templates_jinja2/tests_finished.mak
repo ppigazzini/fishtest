@@ -1,28 +1,15 @@
 {% extends "base.mak" %}
 
+{% block title %}Finished Tests{{ title_suffix }} | Stockfish Testing{% endblock %}
+
 {% block body %}
-{% set title = "" %}
-{% if "ltc_only" in request.url %}
-  {% set title = title ~ " - LTC" %}
-{% endif %}
-{% if "success_only" in request.url %}
-  {% set title = title ~ " - Greens" %}
-{% endif %}
-{% if "yellow_only" in request.url %}
-  {% set title = title ~ " - Yellows" %}
-{% endif %}
-
-<script>
-  document.title =  "Finishes Test{{ title }} | Stockfish Testing";
-</script>
-
 <h2>
   Finished Tests
-  {% if 'success_only' in request.url %}
+  {% if filters.success_only %}
     - Greens
-  {% elif 'yellow_only' in request.url %}
+  {% elif filters.yellow_only %}
     - Yellows
-  {% elif 'ltc_only' in request.url %}
+  {% elif filters.ltc_only %}
     - LTC
   {% endif %}
 </h2>
@@ -32,8 +19,11 @@
   header='Finished',
   count=num_finished_runs,
   pages=finished_runs_pages,
-  title=title,
-  toggle=None
+  title_suffix=title_suffix,
+  toggle=None,
+  toggle_state='Show',
+  page_idx=0,
+  username=""
 %}
   {% include "run_table.mak" %}
 {% endwith %}

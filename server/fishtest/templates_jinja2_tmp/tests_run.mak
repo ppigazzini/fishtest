@@ -1,29 +1,26 @@
 {% extends "base.mak" %}
 
-{% block title %}Create New Test | Stockfish Testing{% endblock %}
-
 {% block body %}
-{% set args = form_values %}
-{% set valid_books = books.valid_books %}
-{% set supported_compilers = supported.compilers %}
-{% set supported_arches = supported.arches %}
-{% set tests_repo = form_values.tests_repo %}
-{% set pt_info = pt_context %}
-{% set master_info = {'message': pt_context.master_message, 'date': pt_context.master_date} %}
 {% set elo_model = "normalized" %}
-{% set test_book = books.test_book %}
-{% set pt_book = books.pt_book %}
-{% set base_branch = form_values.base_branch %}
-{% set latest_bench = form_values.base_signature %}
-{% set pt_version = pt_context.pt_version %}
-{% set pt_branch = pt_context.pt_branch %}
-{% set pt_signature = pt_context.pt_signature %}
-{% set tc = form_values.tc %}
-{% set new_tc = form_values.new_tc %}
-{% set default_book = books.default_book %}
-{% set is_odds = flags.is_odds %}
-{% set arch_filter = form_values.arch_filter %}
-{% set compiler = form_values.compiler %}
+{% set test_book = "UHO_Lichess_4852_v1.epd" %}
+{% set pt_book = "UHO_Lichess_4852_v1.epd" %}
+
+{% set setup = tests_run_setup(args, master_info, pt_info, test_book) %}
+{% set base_branch = setup["base_branch"] %}
+{% set latest_bench = setup["latest_bench"] %}
+{% set pt_version = setup["pt_version"] %}
+{% set pt_branch = setup["pt_branch"] %}
+{% set pt_signature = setup["pt_signature"] %}
+{% set tc = setup["tc"] %}
+{% set new_tc = setup["new_tc"] %}
+{% set default_book = setup["default_book"] %}
+{% set is_odds = setup["is_odds"] %}
+{% set arch_filter = setup["arch_filter"] %}
+{% set compiler = setup["compiler"] %}
+
+<script>
+  document.title = "Create New Test | Stockfish Testing";
+</script>
 
 <header style="text-align: center; padding-top: 7px">
   <h2>Create New Test</h2>
@@ -34,8 +31,7 @@
   </div>
 </header>
 
-<form id="create-new-test" action="{{ form.action_url }}" method="POST">
-  <input type="hidden" name="csrf_token" value="{{ form.csrf_token }}">
+<form id="create-new-test" action="{{ request.url }}" method="POST">
   <div class="container mt-4 mb-2">
     <div class="row">
       <div class="mb-2 container d-flex justify-content-center">
@@ -364,10 +360,10 @@
                 <div class="col-12 col-md">
                   <label for="bounds" class="form-label">SPRT Bounds</label>
                   <select class="form-select" id="bounds" name="bounds">
-                    <option value="standard STC">Standard STC {{ bounds_labels.standard_stc }}</option>
-                    <option value="standard LTC">Standard LTC {{ bounds_labels.standard_ltc }}</option>
-                    <option value="regression STC">Non-regression STC {{ bounds_labels.regression_stc }}</option>
-                    <option value="regression LTC">Non-regression LTC {{ bounds_labels.regression_ltc }}</option>
+                    <option value="standard STC">Standard STC {{ format_bounds(elo_model, 0.0, 2.0) }}</option>
+                    <option value="standard LTC">Standard LTC {{ format_bounds(elo_model, 0.5, 2.5) }}</option>
+                    <option value="regression STC">Non-regression STC {{ format_bounds(elo_model, -1.75, 0.25) }}</option>
+                    <option value="regression LTC">Non-regression LTC {{ format_bounds(elo_model, -1.75, 0.25) }}</option>
                     <option value="custom" {{ "selected" if is_rerun else "" }}>Custom bounds...</option>
                   </select>
                 </div>
@@ -1122,7 +1118,7 @@
   });
 </script>
 
-<script src="{{ static_url("fishtest:static/js/spsa_new.js") }}"></script>
+<script src="{{ request.static_url("fishtest:static/js/spsa_new.js") }}"></script>
 
 <script>
   function spsaWork() {

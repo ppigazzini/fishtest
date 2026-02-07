@@ -1,8 +1,10 @@
 {% extends "base.mak" %}
 
-{% block title %}Neural Network Upload | Stockfish Testing{% endblock %}
-
 {% block body %}
+<script>
+  document.title = "Neural Network Upload | Stockfish Testing";
+</script>
+
 <div class="col-limited-size">
   <header class="text-md-center py-2">
     <h2>Neural Network Upload</h2>
@@ -11,7 +13,7 @@
         Please read the
         <a
           class="alert-link"
-          href="{{ testing_guidelines_url }}"
+          href="https://github.com/official-stockfish/fishtest/wiki/Creating-my-first-test"
           >Testing Guidelines</a
         >
         before uploading your network.
@@ -20,21 +22,21 @@
         By uploading, you license your network under a
         <a
           class="alert-link"
-          href="{{ cc0_url }}"
+          href="https://creativecommons.org/share-your-work/public-domain/cc0/"
           >CC0</a
         >
         license.
       </p>
       <p class="mb-0">
         Your uploaded network will be available for public download and listed
-        on the <a class="alert-link" href="{{ nn_stats_url }}">NN stats page</a>.
+        on the <a class="alert-link" href="/nns">NN stats page</a>.
       </p>
     </div>
   </header>
 
   <form
     id="upload-nn"
-    action="{{ upload_url }}"
+    action="{{ request.url }}"
     method="POST"
     enctype="multipart/form-data"
   >

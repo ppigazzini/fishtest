@@ -1,8 +1,12 @@
 {% extends "base.mak" %}
 
-{% block title %}Contributors{% if is_monthly %} - Top Month{% endif %} | Stockfish Testing{% endblock %}
-
 {% block body %}
+<script>
+  document.title =
+    'Contributors{{ " - Top Month" if "monthly" in request.url else "" }} | Stockfish Testing';
+</script>
+
+
 <script>
   (async () => {
     await DOMContentLoaded();
@@ -29,10 +33,26 @@
 
 <h2>
   Contributors
-  {% if is_monthly %}
+  {% if 'monthly' in request.url %}
     - Top Month
   {% endif %}
 </h2>
+
+{% set counts = namespace(testers=0, developers=0, active_testers=0, cpu_hours=0, games=0, tests=0) %}
+{% for u in users %}
+  {% if u['last_updated'] != datetime.datetime.min.replace(tzinfo=datetime.UTC) %}
+    {% set counts.testers = counts.testers + 1 %}
+  {% endif %}
+  {% if u['tests'] > 0 %}
+    {% set counts.developers = counts.developers + 1 %}
+  {% endif %}
+  {% if u['games_per_hour'] > 0 %}
+    {% set counts.active_testers = counts.active_testers + 1 %}
+  {% endif %}
+  {% set counts.cpu_hours = counts.cpu_hours + u['cpu_hours'] %}
+  {% set counts.games = counts.games + u['games'] %}
+  {% set counts.tests = counts.tests + u['tests'] %}
+{% endfor %}
 
 <div class="row g-3 mb-3">
   <div class="col-6 col-sm">
@@ -40,7 +60,7 @@
       <div class="card-header text-nowrap" title="Testers">Testers</div>
       <div class="card-body">
         <h4 class="card-title mb-0 monospace">
-          {{ summary.testers }}
+          {{ counts.testers }}
         </h4>
       </div>
     </div>
@@ -51,7 +71,7 @@
       <div class="card-header text-nowrap" title="Developers">Developers</div>
       <div class="card-body">
         <h4 class="card-title mb-0 monospace">
-          {{ summary.developers }}
+          {{ counts.developers }}
         </h4>
       </div>
     </div>
@@ -62,7 +82,7 @@
       <div class="card-header text-nowrap" title="Active testers">Active testers</div>
       <div class="card-body">
         <h4 class="card-title mb-0 monospace">
-          {{ summary.active_testers }}
+          {{ counts.active_testers }}
         </h4>
       </div>
     </div>
@@ -73,7 +93,7 @@
       <div class="card-header text-nowrap" title="CPU years">CPU years</div>
       <div class="card-body">
         <h4 class="card-title mb-0 monospace">
-          {{ summary.cpu_years }}
+          {{ "{0:.2f}".format(counts.cpu_hours / (24 * 365)) }}
         </h4>
       </div>
     </div>
@@ -84,7 +104,7 @@
       <div class="card-header text-nowrap" title="Games played">Games played</div>
       <div class="card-body">
         <h4 class="card-title mb-0 monospace">
-          {{ summary.games }}
+          {{ counts.games }}
         </h4>
       </div>
     </div>
@@ -95,7 +115,7 @@
       <div class="card-header text-nowrap" title="Tests submitted">Tests submitted</div>
       <div class="card-body">
         <h4 class="card-title mb-0 monospace">
-          {{ summary.tests }}
+          {{ counts.tests }}
         </h4>
       </div>
     </div>
@@ -133,21 +153,23 @@
         <tr>
           <td class="rank">{{ loop.index }}</td>
           <td>
-          {% if is_approver and user.info_url %}
-            <a href="{{ user.info_url }}">{{ user.username }}</a>
+          {% if approver %}
+            <a href="/user/{{ user['username'] }}">
+              {{ user['username'] }}
+            </a>
           {% else %}
-            {{ user.username }}
+            {{ user['username'] }}
           {% endif %}
           </td>
-          <td data-sort-value="{{ user.last_updated_sort }}" class="text-end">{{ user.last_updated_label }}</td>
-          <td class="text-end">{{ user.games_per_hour }}</td>
-          <td class="text-end">{{ user.cpu_hours }}</td>
-          <td class="text-end">{{ user.games }}</td>
+          <td data-sort-value="{{ -user['last_updated'].timestamp() }}" class="text-end">{{ format_time_ago(user['last_updated']) }}</td>
+          <td class="text-end">{{ user['games_per_hour'] | int }}</td>
+          <td class="text-end">{{ user['cpu_hours'] | int }}</td>
+          <td class="text-end">{{ user['games'] | int }}</td>
           <td class="text-end">
-            <a href="{{ user.tests_user_url }}">{{ user.tests }}</a>
+            <a href="/tests/user/{{ urllib.quote(user['username']) }}">{{ user['tests'] }} </a>
           </td>
           <td class="user-repo">
-            <a href="{{ user.tests_repo_url }}" target="_blank" rel="noopener">{{ user.tests_repo }}</a>
+            <a href="{{ user['tests_repo'] }}" target="_blank" rel="noopener">{{ user['tests_repo'] }}</a>
           </td>
         </tr>
       {% else %}

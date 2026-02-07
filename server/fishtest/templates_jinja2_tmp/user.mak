@@ -1,10 +1,9 @@
 {% extends "base.mak" %}
 
-{% block title %}{{ "Profile" if profile else "User Management" }} | Stockfish Testing{% endblock %}
-
 {% block body %}
 {% if profile %}
   <script>
+    document.title = "Profile | Stockfish Testing";
     async function handleGitHubToken() {
       await DOMContentLoaded();
       document.getElementById("github_token").value = localStorage.getItem("github_token") || "";
@@ -17,6 +16,10 @@
     }
     handleGitHubToken();
   </script>
+{% else %}
+  <script>
+    document.title = "User Management | Stockfish Testing";
+  </script>
 {% endif %}
 
 <div class="col-limited-size">
@@ -28,7 +31,7 @@
     {% endif %}
     <div class="alert alert-info">
       <h4 class="alert-heading">
-        <a href="{{ urls.tests_user_prefix ~ user.username }}" class="alert-link col-6 text-break">{{ user.username }}</a>
+        <a href="/tests/user/{{ user['username'] }}" class="alert-link col-6 text-break">{{ user['username'] }}</a>
       </h4>
       <ul class="list-group list-group-flush">
         <li class="list-group-item bg-transparent text-break">Registered: {{ format_date(user['registration_time'] if 'registration_time' in user else 'Unknown') }}</li>
@@ -55,7 +58,7 @@
     </div>
   </header>
 
-  <form id="profile_form" action="{{ post_url }}" method="POST">
+  <form id="profile_form" action="{{ request.url }}" method="POST">
     <input
       type="hidden"
       name="user"
@@ -191,7 +194,7 @@
               This reduces the potential impact if the token is accidentally exposed or misused.
               </p>
               <!-- Verification that things are working as expected -->
-              <p>After installing the token you may check <a href="{{ urls.rate_limits }}">here</a> to verify that the procedure has worked.</p>
+              <p>After installing the token you may check <a href=/rate_limits>here</a> to verify that the procedure has worked.</p>
               <!-- Instructions on how to obtain the token -->
               <h4>Instructions for generating a new token:</h4>
               <ol>
@@ -269,5 +272,5 @@
   </form>
 </div>
 
-<script src="{{ static_url('fishtest:static/js/toggle_password.js') }}"></script>
+<script src="{{ request.static_url('fishtest:static/js/toggle_password.js') }}"></script>
 {% endblock %}
