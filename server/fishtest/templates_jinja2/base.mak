@@ -5,6 +5,13 @@
 {% endif %}
 {% set pending_users_count = pending_users_count if pending_users_count is defined else 0 %}
 {% set flash = flash if flash is defined else {"error": [], "warning": [], "info": []} %}
+{% if csrf_token is not defined %}
+  {% if request is defined and request.session is defined %}
+    {% set csrf_token = request.session.get_csrf_token() %}
+  {% else %}
+    {% set csrf_token = "" %}
+  {% endif %}
+{% endif %}
 {% set home_url = urls.home %}
 {% set login_url = urls.login %}
 {% set signup_url = urls.signup %}
