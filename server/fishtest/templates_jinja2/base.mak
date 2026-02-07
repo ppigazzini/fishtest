@@ -4,7 +4,6 @@
   {% set static_url = request.static_url %}
 {% endif %}
 {% set pending_users_count = pending_users_count if pending_users_count is defined else 0 %}
-{% set flash = flash if flash is defined else {"error": [], "warning": [], "info": []} %}
 {% if csrf_token is not defined %}
   {% if request is defined and request.session is defined %}
     {% set csrf_token = request.session.get_csrf_token() %}
@@ -529,8 +528,9 @@
                   });
                 </script>
               </div>
-              {% if flash.error %}
-                {% for message in flash.error %}
+              {% if request.session.peek_flash('error') %}
+                {% set flash = request.session.pop_flash('error') %}
+                {% for message in flash %}
                 <div class="alert alert-danger alert-dismissible">
                   {{ message }}
                   <button
@@ -542,8 +542,9 @@
                 </div>
                 {% endfor %}
               {% endif %}
-              {% if flash.warning %}
-                {% for message in flash.warning %}
+              {% if request.session.peek_flash('warning') %}
+                {% set flash = request.session.pop_flash('warning') %}
+                {% for message in flash %}
                 <div class="alert alert-warning alert-dismissible">
                   {{ message }}
                   <button
@@ -555,8 +556,9 @@
                 </div>
                 {% endfor %}
               {% endif %}
-              {% if flash.info %}
-                {% for message in flash.info %}
+              {% if request.session.peek_flash() %}
+                {% set flash = request.session.pop_flash() %}
+                {% for message in flash %}
                   <div class="alert alert-success alert-dismissible">
                     {{ message }}
                     <button
