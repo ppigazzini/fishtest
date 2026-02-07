@@ -54,6 +54,7 @@ from fishtest.util import (
     email_valid,
     format_bounds,
     format_date,
+    format_time_ago,
     get_chi2,
     get_hash,
     get_tc_ratio,
@@ -913,7 +914,7 @@ def actions(request):
             time_label = ""
         else:
             time_label = datetime.utcfromtimestamp(float(time_value)).strftime(
-                "%y&#8209;%m&#8209;%d %H:%M:%S"
+                "%y-%m-%d %H:%M:%S"
             )
 
         time_query = {
@@ -2132,7 +2133,48 @@ def tests_tasks(request):
 
 @view_config(route_name="tests_machines", http_cache=10, renderer="machines.mak")
 def tests_machines(request):
-    return {"machines_list": request.rundb.get_machines()}
+    def _clip_long(text: str, max_length: int = 20) -> str:
+        if len(text) > max_length:
+            return text[:max_length] + "..."
+        return text
+
+    machines_list = request.rundb.get_machines()
+    machines = []
+    for machine in machines_list:
+        gcc_version = ".".join(str(m) for m in machine.get("gcc_version", []))
+        compiler = machine.get("compiler", "g++")
+        python_version = ".".join(str(m) for m in machine.get("python_version", []))
+        version = str(machine.get("version", "")) + "*" * machine.get("modified", False)
+        worker_short = machine.get("unique_key", "").split("-")[0]
+        worker_url = f"/workers/{worker_name(machine, short=True)}"
+        formatted_time_ago = format_time_ago(machine["last_updated"])
+        sort_value_time_ago = -machine["last_updated"].timestamp()
+        branch = machine["run"]["args"]["new_tag"]
+        task_id = str(machine["task_id"])
+        run_id = str(machine["run"]["_id"])
+
+        machines.append(
+            {
+                "username": machine["username"],
+                "country_code": machine.get("country_code", "").lower(),
+                "concurrency": machine["concurrency"],
+                "worker_url": worker_url,
+                "worker_short": worker_short,
+                "nps_m": f"{machine['nps'] / 1000000:.2f}",
+                "max_memory": machine["max_memory"],
+                "system": machine["uname"],
+                "worker_arch": machine["worker_arch"],
+                "compiler_label": f"{compiler} {gcc_version}",
+                "python_label": python_version,
+                "version_label": version,
+                "run_url": f"/tests/view/{run_id}?show_task={task_id}",
+                "run_label": f"{_clip_long(branch)}/{task_id}",
+                "last_active_label": formatted_time_ago,
+                "last_active_sort": sort_value_time_ago,
+            }
+        )
+
+    return {"machines_list": machines_list, "machines": machines}
 
 
 @view_config(route_name="tests_view", renderer="tests_view.mak")
@@ -2520,6 +2562,7 @@ def homepage_results(request):
         "pending_hours": "{:.1f}".format(pending_hours),
         "cores": cores,
         "nps": nps,
+        "nps_m": f"{nps / 1000000:.0f}M",
         "games_per_minute": int(games_per_minute),
     }
 
