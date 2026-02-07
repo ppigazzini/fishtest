@@ -1,6 +1,6 @@
 {% extends "base.mak" %}
 
-{% block title %}{{ "Profile" if profile else "User Management" }} | Stockfish Testing{% endblock %}
+{% block title %}{{ page_title }}{% endblock %}
 
 {% block body %}
 {% if profile %}
@@ -28,26 +28,26 @@
     {% endif %}
     <div class="alert alert-info">
       <h4 class="alert-heading">
-        <a href="{{ urls.tests_user_prefix ~ user.username }}" class="alert-link col-6 text-break">{{ user.username }}</a>
+        <a href="{{ user.tests_user_url }}" class="alert-link col-6 text-break">{{ user.username }}</a>
       </h4>
       <ul class="list-group list-group-flush">
-        <li class="list-group-item bg-transparent text-break">Registered: {{ format_date(user['registration_time'] if 'registration_time' in user else 'Unknown') }}</li>
+        <li class="list-group-item bg-transparent text-break">Registered: {{ user.registration_time_label }}</li>
         {% if not profile %}
           <li class="list-group-item bg-transparent text-break">Tests Repository:
-            {% if user['tests_repo'] %}
-              <a class="alert-link" href="{{ user['tests_repo'] }}">{{ extract_repo_from_link }}</a>
+            {% if user.tests_repo_url %}
+              <a class="alert-link" href="{{ user.tests_repo_url }}">{{ user.tests_repo_label }}</a>
             {% else %}
               <span>-</span>
             {% endif %}
           </li>
           <li class="list-group-item bg-transparent text-break">Email:
-            <a href="mailto:{{ user['email'] }}?Subject=Fishtest%20Account" class="alert-link">
-              {{ user['email'] }}
+            <a href="{{ user.email_url }}" class="alert-link">
+              {{ user.email }}
             </a>
           </li>
         {% endif %}
         <li class="list-group-item bg-transparent text-break">
-          Groups: {{ format_group(user['groups']) }}
+          Groups: {{ user.groups_label }}
         </li>
         <li class="list-group-item bg-transparent text-break">Machine Limit: {{ limit }}</li>
         <li class="list-group-item bg-transparent text-break">CPU-Hours: {{ hours }}</li>
@@ -59,7 +59,7 @@
     <input
       type="hidden"
       name="user"
-      value="{{ user['username'] }}"
+      value="{{ user.username }}"
     >
     {% if profile %}
       <div class="form-floating mb-3">
@@ -68,7 +68,7 @@
           class="form-control mb-3"
           id="email"
           name="email"
-          value="{{ user['email'] }}"
+          value="{{ user.email }}"
           placeholder="Email"
           required
         />
@@ -132,7 +132,7 @@
             class="form-control"
             id="tests_repo"
             name="tests_repo"
-            value="{{ user['tests_repo'] }}"
+            value="{{ user.tests_repo }}"
             placeholder="GitHub Stockfish fork URL"
           >
           <label for="tests_repo" class="d-flex align-items-end">Tests Repository</label>
@@ -208,7 +208,7 @@
         </div>
       </div>
       <button type="submit" class="btn btn-primary w-100">Save</button>
-    {% elif 'pending' in user and user['pending'] %}
+    {% elif user.pending %}
       <div class="alert alert-dark mb-3">
         <label class="mb-2 h5">User Approval:</label>
         <div class="w-100 d-flex justify-content-between">
@@ -249,8 +249,7 @@
         </div>
       </div>
     {% else %}
-      {% set blocked = user['blocked'] if 'blocked' in user else False %}
-      {% if blocked %}
+      {% if user.blocked %}
         <button
           class="btn btn-primary w-100"
           name="blocked"

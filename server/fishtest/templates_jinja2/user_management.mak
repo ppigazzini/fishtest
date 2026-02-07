@@ -106,7 +106,7 @@
   <tbody id="all-users" class="d-none">
       {% for user in all_users %}
         <tr>
-          <td style="width:20%">{{ user.username }}</td>
+          <td style="width:20%"><a href="{{ user.user_url }}">{{ user.username }}</a></td>
           <td style="width:20%">{{ user.registration_time_label }}</td>
           <td style="width:20%">{{ user.groups_label }}</td>
           <td style="width:40%">{{ user.email }}</td>
@@ -121,7 +121,7 @@
   <tbody id="pending-users">
       {% for user in pending_users %}
         <tr>
-          <td style="width:20%">{{ user.username }}</td>
+          <td style="width:20%"><a href="{{ user.user_url }}">{{ user.username }}</a></td>
           <td style="width:20%">{{ user.registration_time_label }}</td>
           <td style="width:20%">{{ user.groups_label }}</td>
           <td style="width:40%">{{ user.email }}</td>
@@ -136,7 +136,7 @@
   <tbody id="blocked-users" class="d-none">
     {% for user in blocked_users %}
       <tr>
-        <td style="width:20%">{{ user.username }}</td>
+        <td style="width:20%"><a href="{{ user.user_url }}">{{ user.username }}</a></td>
         <td style="width:20%">{{ user.registration_time_label }}</td>
         <td style="width:20%">{{ user.groups_label }}</td>
         <td style="width:40%">{{ user.email }}</td>
@@ -151,7 +151,7 @@
   <tbody id="idle-users" class="d-none">
     {% for user in idle_users %}
       <tr>
-        <td style="width:20%">{{ user.username }}</td>
+        <td style="width:20%"><a href="{{ user.user_url }}">{{ user.username }}</a></td>
         <td style="width:20%">{{ user.registration_time_label }}</td>
         <td style="width:20%">{{ user.groups_label }}</td>
         <td style="width:40%">{{ user.email }}</td>
@@ -167,7 +167,7 @@
   <tbody id="approvers-users" class="d-none">
     {% for user in approvers_users %}
       <tr>
-          <td style="width:20%">{{ user.username }}</td>
+          <td style="width:20%"><a href="{{ user.user_url }}">{{ user.username }}</a></td>
           <td style="width:20%">{{ user.registration_time_label }}</td>
           <td style="width:20%">{{ user.groups_label }}</td>
           <td style="width:40%">{{ user.email }}</td>

@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 import re
 import sys
 from dataclasses import asdict, dataclass
@@ -43,8 +44,13 @@ from fishtest.http import jinja as jinja_renderer  # noqa: E402
 from fishtest.http import template_helpers as helpers  # noqa: E402
 
 DEFAULT_MAKO_DIR = REPO_ROOT / "server" / "fishtest" / "templates"
-DEFAULT_JINJA_DIR = REPO_ROOT / "server" / "fishtest" / "templates_jinja2"
+DEFAULT_JINJA_DIR = REPO_ROOT / "server" / "fishtest" / "templates_jinja2_tmp"
 SKIP_TEMPLATES = {"base.mak"}
+
+os.environ.setdefault(
+    jinja_renderer.TEMPLATES_DIR_ENV,
+    str(DEFAULT_JINJA_DIR),
+)
 
 
 @dataclass(frozen=True)
@@ -186,6 +192,15 @@ def _with_request_stub(context: dict[str, Any]) -> dict[str, Any]:
 
 
 def _with_helpers(context: dict[str, Any]) -> dict[str, Any]:
+    context.setdefault("csrf_token", "csrf-token")
+    context.setdefault("theme", "")
+    context.setdefault("current_user", None)
+    context.setdefault("pending_users_count", 0)
+    context.setdefault("flash", {"error": [], "warning": [], "info": []})
+    context.setdefault("page_title", "")
+    context.setdefault("urls", {})
+    context.setdefault("static_url", lambda asset: f"/static/{asset}")
+    context.setdefault("url_for", lambda name, **params: f"/url/{name}")
     context.setdefault("display_residual", helpers.display_residual)
     context.setdefault("format_bounds", helpers.format_bounds)
     context.setdefault("format_date", helpers.format_date)

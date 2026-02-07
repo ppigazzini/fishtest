@@ -1,8 +1,9 @@
 {% extends "base.mak" %}
 
+{% block title %}Workers Management | Stockfish Testing{% endblock %}
+
 {% block body %}
 <script>
-  document.title = "Workers Management | Stockfish Testing";
 
   async function handleToggleWorkers() {
     await DOMContentLoaded();
@@ -59,7 +60,7 @@
 {% if show_admin %}
   <h3>{{ worker_name }}</h3>
   <form method="POST">
-    <div class="mb-3">Last changed: {{ format_time_ago(last_updated) if last_updated is not none else "Never" }}</div>
+    <div class="mb-3">Last changed: {{ last_updated_label or "Never" }}</div>
     <div class="mb-3">
       <label for="messageInput" class="form-label">Issue</label>
       <textarea
@@ -125,18 +126,14 @@
     {% else %}
       {% for w in blocked_workers %}
         <tr>
-          <td><a href="/workers/{{ w['worker_name'] }}">{{ w["worker_name"] }}</a></td>
-          <td>{{ format_time_ago(w["last_updated"]) if w["last_updated"] is not none else "Never" }}</td>
+          <td><a href="{{ w.worker_url }}">{{ w.worker_name }}</a></td>
+          <td>{{ w.last_updated_label }}</td>
           <td>
-            <a
-              href="/actions?text=%22{{ w['worker_name'] }}%22">/actions?text="{{ w['worker_name'] }}"</a
-            >
+            <a href="{{ w.actions_url }}">{{ w.actions_label }}</a>
           </td>
           {% if show_email %}
             <td>
-              <a
-                href="mailto:{{ w['owner_email'] }}?subject={{ urllib.quote(w['subject']) }}&body={{ urllib.quote(w['body'].replace('\n','\r\n')) }}" target="_blank" rel="noopener noreferrer">{{ w['owner_email'] }}
-              </a>
+              <a href="{{ w.owner_email_url }}" target="_blank" rel="noopener noreferrer">{{ w.owner_email }}</a>
           {% endif %}
         </tr>
       {% endfor %}
