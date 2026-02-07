@@ -37,11 +37,13 @@ if str(SERVER_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVER_ROOT))
 
 from fishtest.http import jinja as jinja_renderer  # noqa: E402
+from fishtest.http import jinja_tmp as jinja_tmp_renderer  # noqa: E402
 from fishtest.http import template_helpers as helpers  # noqa: E402
 
 DEFAULT_CONTEXT = REPO_ROOT / "WIP" / "tools" / "template_parity_context.json"
-DEFAULT_MAKO_DIR = REPO_ROOT / "server" / "fishtest" / "templates_mako"
+DEFAULT_MAKO_DIR = REPO_ROOT / "server" / "fishtest" / "templates"
 DEFAULT_JINJA_DIR = REPO_ROOT / "server" / "fishtest" / "templates_jinja2"
+DEFAULT_JINJA_TMP_DIR = REPO_ROOT / "server" / "fishtest" / "templates_jinja2_tmp"
 SKIP_TEMPLATES = {"base.mak"}
 
 MAKO_EXPR_RE = re.compile(r"\$\{(.*?)\}", re.DOTALL)
@@ -199,20 +201,26 @@ def main() -> int:
         "--engine",
         type=str,
         default="both",
-        choices=["mako", "jinja", "both"],
+        choices=["mako", "jinja", "jinja_tmp", "both"],
         help="Template engine to analyze.",
     )
     parser.add_argument(
         "--mako-dir",
         type=Path,
         default=DEFAULT_MAKO_DIR,
-        help="Path to new Mako templates.",
+        help="Path to legacy Mako templates.",
     )
     parser.add_argument(
         "--jinja-dir",
         type=Path,
         default=DEFAULT_JINJA_DIR,
         help="Path to Jinja2 templates.",
+    )
+    parser.add_argument(
+        "--jinja-tmp-dir",
+        type=Path,
+        default=DEFAULT_JINJA_TMP_DIR,
+        help="Path to Jinja2 tmp templates.",
     )
     parser.add_argument(
         "--templates",
@@ -229,13 +237,16 @@ def main() -> int:
 
     context_map = _load_context(args.context)
     env = jinja_renderer.default_environment()
+    env_tmp = jinja_tmp_renderer.default_environment()
     allowed = _allowed_names(env)
+    allowed_tmp = _allowed_names(env_tmp)
 
     templates = [item.strip() for item in args.templates.split(",") if item.strip()]
     if not templates:
         mako_templates = _template_names(args.mako_dir)
         jinja_templates = _template_names(args.jinja_dir)
-        templates = sorted(mako_templates | jinja_templates)
+        jinja_tmp_templates = _template_names(args.jinja_tmp_dir)
+        templates = sorted(mako_templates | jinja_templates | jinja_tmp_templates)
 
     if not templates:
         print("No templates to analyze.")
@@ -274,6 +285,22 @@ def main() -> int:
                     CoverageResult(
                         template=template,
                         engine="jinja",
+                        missing=missing,
+                        referenced=sorted(referenced),
+                    )
+                )
+
+        if args.engine in {"jinja_tmp", "both"}:
+            jinja_path = args.jinja_tmp_dir / template
+            if jinja_path.exists():
+                source = jinja_path.read_text(encoding="utf-8")
+                referenced = _jinja_names(env_tmp, source) - allowed_tmp
+                missing = sorted(referenced - context_keys)
+                has_missing = has_missing or bool(missing)
+                results.append(
+                    CoverageResult(
+                        template=template,
+                        engine="jinja_tmp",
                         missing=missing,
                         referenced=sorted(referenced),
                     )

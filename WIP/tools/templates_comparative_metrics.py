@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect comparative template metrics for legacy Mako, new Mako, and Jinja2.
+"""Collect comparative template metrics for legacy Mako and Jinja2.
 
 Goal:
     Produce a single JSON snapshot comparing totals and complexity signals across
@@ -27,8 +27,8 @@ SERVER_ROOT = REPO_ROOT / "server" / "fishtest"
 
 ENGINE_DIRS = {
     "mako_legacy": SERVER_ROOT / "templates",
-    "mako_new": SERVER_ROOT / "templates_mako",
     "jinja2": SERVER_ROOT / "templates_jinja2",
+    "jinja2_tmp": SERVER_ROOT / "templates_jinja2_tmp",
 }
 
 MAKO_STATEMENT_RE = re.compile(r"^\s*%")

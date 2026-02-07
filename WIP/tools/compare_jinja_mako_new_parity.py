@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Run parity checks for Jinja2 vs new Mako templates.
+"""Run parity checks for legacy Mako vs Jinja2 templates.
 
 Goal:
-    Provide a single, easy-to-spot entry point for comparing Jinja2 output
-    against the new Mako templates using the shared parity tool.
+    Provide a single, easy-to-spot entry point for comparing legacy Mako output
+    against Jinja2 templates using the shared parity tool.
 
 Usage:
     python WIP/tools/compare_jinja_mako_new_parity.py
+    python WIP/tools/compare_jinja_mako_new_parity.py --jinja-tmp
+    python WIP/tools/compare_jinja_mako_new_parity.py --jinja-dir server/fishtest/templates_jinja2
     python WIP/tools/compare_jinja_mako_new_parity.py --templates tests_view.mak
-    python WIP/tools/compare_jinja_mako_new_parity.py --json --show-diff
 
 Exit status:
     0 if all templates match (normalized)
@@ -37,12 +38,21 @@ def _run_parity(args: argparse.Namespace) -> int:
     argv = [
         "compare_template_response_parity",
         "--left-engine",
-        "jinja",
+        "mako",
         "--right-engine",
-        "mako_new",
+        "jinja_tmp",
         "--context",
         str(args.context),
     ]
+    if args.jinja_tmp:
+        argv.extend(
+            [
+                "--jinja-tmp-dir",
+                str(_repo_root() / "server" / "fishtest" / "templates_jinja2_tmp"),
+            ]
+        )
+    if args.jinja_dir is not None:
+        argv.extend(["--jinja-dir", str(args.jinja_dir)])
     if args.templates:
         argv.extend(["--templates", args.templates])
     if args.json:
@@ -73,6 +83,17 @@ def main() -> int:
         help="Comma-separated list of template names.",
     )
     parser.add_argument(
+        "--jinja-dir",
+        type=Path,
+        default=None,
+        help="Path to templates_jinja2 for the jinja engine.",
+    )
+    parser.add_argument(
+        "--jinja-tmp",
+        action="store_true",
+        help="Use templates_jinja2_tmp for the jinja_tmp engine.",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="Emit JSON to stdout.",
@@ -84,7 +105,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    banner = "=== JINJA2 VS MAKO_NEW PARITY CHECK ==="
+    banner = "=== MAKO VS JINJA2 PARITY CHECK ==="
     print(banner)
     print(f"Context:   {args.context}\n")
 

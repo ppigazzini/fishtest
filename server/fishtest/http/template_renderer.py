@@ -8,8 +8,8 @@ from functools import cache
 from typing import TYPE_CHECKING, Final, Literal, Protocol, cast
 
 from fishtest.http import jinja as jinja_renderer
+from fishtest.http import jinja_tmp as jinja_tmp_renderer
 from fishtest.http import mako as mako_renderer
-from fishtest.http import mako_new as mako_new_renderer
 from starlette.responses import HTMLResponse
 
 if TYPE_CHECKING:
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from mako.lookup import TemplateLookup
     from starlette.templating import Jinja2Templates
 
-TemplateEngine = Literal["mako", "mako_new", "jinja"]
+TemplateEngine = Literal["mako", "jinja", "jinja_tmp"]
 
 DEFAULT_ENGINE: Final = "jinja"
 
@@ -29,13 +29,14 @@ def _mako_lookup() -> TemplateLookup:
 
 
 @cache
-def _mako_new_lookup() -> TemplateLookup:
-    return mako_new_renderer.default_template_lookup()
-
-
 @cache
 def _jinja_templates() -> Jinja2Templates:
     return jinja_renderer.default_templates()
+
+
+@cache
+def _jinja_tmp_templates() -> Jinja2Templates:
+    return jinja_tmp_renderer.default_templates()
 
 
 @dataclass(frozen=True)
@@ -95,9 +96,9 @@ def render_template(
         )
         return RenderedTemplate(html=rendered.html, engine=engine)
 
-    if engine == "mako_new":
-        rendered = mako_new_renderer.render_template(
-            lookup=_mako_new_lookup(),
+    if engine == "jinja_tmp":
+        rendered = jinja_renderer.render_template(
+            templates=_jinja_tmp_templates(),
             template_name=template_name,
             context=context,
         )
