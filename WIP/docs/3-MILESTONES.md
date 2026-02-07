@@ -274,6 +274,22 @@ Definition of done:
 - ASGI risks/choices for Jinja2 and Mako are documented in architecture and reference docs.
 - Parity remains green for legacy/new Mako and Jinja2.
 
+## Milestone 10 — Jinja2 idiomatic cutover (retain legacy Mako for rebase)
+
+Goal: ship a **clean, idiomatic Jinja2** UI while keeping the legacy Mako path only for upstream rebase safety.
+
+Scope and intent:
+- The legacy Mako templates in [server/fishtest/templates](server/fishtest/templates) remain untouched and runnable for rebase parity.
+- The parity-tracking Jinja2 set is moved to a separate folder (for example `templates_jinja2_tmp`) and remains comparable to legacy Mako.
+- The **new** Jinja2 set in [server/fishtest/templates_jinja2](server/fishtest/templates_jinja2) is idiomatic and **not** required to be line-for-line comparable with Mako.
+- New Mako templates and their renderer are retired (do not maintain `templates_mako` beyond Milestone 9).
+
+Definition of done:
+- Jinja2 templates in [server/fishtest/templates_jinja2](server/fishtest/templates_jinja2) are idiomatic (macros, explicit context, minimal request coupling).
+- Legacy Mako templates remain runnable for rebase safety, but no new work lands there.
+- Parity scripts continue to track legacy Mako vs the parity Jinja2 set (temporary path), while the new Jinja2 set is validated via tests and UI checks rather than line parity.
+- Rendering stays off the event loop; `TemplateResponse` usage remains aligned with Starlette.
+
 ## Milestone N-1 — Optional: Pydantic (only when it buys real safety)
 
 Goal: allow Pydantic only where it materially reduces bugs/duplication, without duplicating vtjson validation across the whole codebase or changing externally-visible error semantics.
