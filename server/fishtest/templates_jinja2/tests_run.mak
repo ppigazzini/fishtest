@@ -1,11 +1,26 @@
 {% extends "base.mak" %}
 
-{% block title %}Create New Test | Stockfish Testing{% endblock %}
-
 {% block body %}
-{% set test_book = books.test_book %}
-{% set pt_book = books.pt_book %}
-{% set default_book = books.default_book %}
+{% set elo_model = "normalized" %}
+{% set test_book = "UHO_Lichess_4852_v1.epd" %}
+{% set pt_book = "UHO_Lichess_4852_v1.epd" %}
+
+{% set setup = tests_run_setup(args, master_info, pt_info, test_book) %}
+{% set base_branch = setup["base_branch"] %}
+{% set latest_bench = setup["latest_bench"] %}
+{% set pt_version = setup["pt_version"] %}
+{% set pt_branch = setup["pt_branch"] %}
+{% set pt_signature = setup["pt_signature"] %}
+{% set tc = setup["tc"] %}
+{% set new_tc = setup["new_tc"] %}
+{% set default_book = setup["default_book"] %}
+{% set is_odds = setup["is_odds"] %}
+{% set arch_filter = setup["arch_filter"] %}
+{% set compiler = setup["compiler"] %}
+
+<script>
+  document.title = "Create New Test | Stockfish Testing";
+</script>
 
 <header style="text-align: center; padding-top: 7px">
   <h2>Create New Test</h2>
@@ -16,8 +31,7 @@
   </div>
 </header>
 
-<form id="create-new-test" action="{{ form.action_url }}" method="POST">
-  <input type="hidden" name="csrf_token" value="{{ form.csrf_token }}">
+<form id="create-new-test" action="{{ request.url }}" method="POST">
   <div class="container mt-4 mb-2">
     <div class="row">
       <div class="mb-2 container d-flex justify-content-center">
@@ -33,21 +47,160 @@
               <div class="mb-2">
                 <label class="form-label">Test type <i class="fa-solid fa-ellipsis" role="button" data-bs-toggle="collapse" data-bs-target=".collapse-type" title="Toggle more tests"></i></label>
                 <div class="list-group list-group-checkable flex-row row row-cols-2 row-cols-xl-4 g-1 text-center">
-                  {% for preset in preset_tests %}
-                    <div class="col{% if preset.collapsed %} collapse collapse-type{% endif %}">
-                      <input
-                        class="list-group-item-check pe-none"
-                        type="radio"
-                        name="test-type"
-                        id="{{ preset.id }}"
-                        data-options='{{ preset.options_json | e }}'
-                        {{ "checked" if preset.checked else "" }}
-                      >
-                      <label class="list-group-item rounded-3" for="{{ preset.id }}" title="{{ preset.title }}">
-                        {{ preset.label }}
-                      </label>
-                    </div>
-                  {% endfor %}
+                  <div class="col">
+                    <input class="list-group-item-check pe-none" type="radio" name="test-type" id="stc_test"
+                      data-options='{
+                        "name": "STC",
+                        "tc": "10+0.1",
+                        "new_tc": "10+0.1",
+                        "throughput": "100",
+                        "threads": 1,
+                        "options": "Hash=16",
+                        "book": "{{ test_book }}",
+                        "stop_rule": "stop-rule-sprt",
+                        "bounds": "standard STC",
+                        "base_branch": "{{ base_branch }}",
+                        "base_signature": {{ latest_bench }}
+                      }'
+                      checked>
+                    <label class="list-group-item rounded-3" for="stc_test" title="Short time control | Single-threaded">
+                      STC
+                    </label>
+                  </div>
+
+                  <div class="col">
+                    <input class="list-group-item-check pe-none" type="radio" name="test-type" id="ltc_test"
+                      data-options='{
+                        "name": "LTC",
+                        "tc": "60+0.6",
+                        "new_tc": "60+0.6",
+                        "throughput": "100",
+                        "threads": 1,
+                        "options": "Hash=64",
+                        "book": "{{ test_book }}",
+                        "stop_rule": "stop-rule-sprt",
+                        "bounds": "standard LTC"
+                      }'>
+                    <label class="list-group-item rounded-3" for="ltc_test" title="Long time control | Single-threaded">
+                      LTC
+                    </label>
+                  </div>
+
+                  <div class="col">
+                    <input class="list-group-item-check pe-none" type="radio" name="test-type" id="stc_smp_test"
+                      data-options='{
+                        "name": "STC SMP",
+                        "tc": "5+0.05",
+                        "new_tc": "5+0.05",
+                        "throughput": "100",
+                        "threads": 8,
+                        "options": "Hash=64",
+                        "book": "{{ test_book }}",
+                        "stop_rule": "stop-rule-sprt",
+                        "bounds": "standard STC"
+                      }'>
+                    <label class="list-group-item rounded-3" for="stc_smp_test" title="Short time control | Multi-threaded">
+                      STC SMP
+                    </label>
+                  </div>
+
+                  <div class="col">
+                    <input class="list-group-item-check pe-none" type="radio" name="test-type" id="ltc_smp_test"
+                      data-options='{
+                        "name": "LTC SMP",
+                        "tc": "20+0.2",
+                        "new_tc": "20+0.2",
+                        "throughput": "100",
+                        "threads": 8,
+                        "options": "Hash=256",
+                        "book": "{{ test_book }}",
+                        "stop_rule": "stop-rule-sprt",
+                        "bounds": "standard LTC"
+                      }'>
+                    <label class="list-group-item rounded-3" for="ltc_smp_test" title="Long time control | Multi-threaded">
+                      LTC SMP
+                    </label>
+                  </div>
+
+                  <div class="col collapse collapse-type">
+                    <input class="list-group-item-check pe-none" type="radio" name="test-type" id="vltc_test"
+                      data-options='{
+                        "name": "VLTC",
+                        "tc": "180+1.8",
+                        "new_tc": "180+1.8",
+                        "throughput": "50",
+                        "threads": 1,
+                        "options": "Hash=192",
+                        "book": "{{ test_book }}",
+                        "stop_rule": "stop-rule-sprt",
+                        "bounds": "standard STC"
+                      }'>
+                    <label class="list-group-item rounded-3" for="vltc_test" title="Very long time control | Single-threaded">
+                      VLTC
+                    </label>
+                  </div>
+
+                  <div class="col collapse collapse-type">
+                    <input class="list-group-item-check pe-none" type="radio" name="test-type" id="vltc_smp_test"
+                      data-options='{
+                        "name": "VLTC SMP",
+                        "tc": "60+0.6",
+                        "new_tc": "60+0.6",
+                        "throughput": "50",
+                        "threads": 8,
+                        "options": "Hash=512",
+                        "book": "{{ test_book }}",
+                        "stop_rule": "stop-rule-sprt",
+                        "bounds": "standard LTC"
+                      }'>
+                    <label class="list-group-item rounded-3" for="vltc_smp_test" title="Very long time control | Multi-threaded">
+                      VLTC SMP
+                    </label>
+                  </div>
+
+                  <div class="col collapse collapse-type">
+                    <input class="list-group-item-check pe-none" type="radio" name="test-type" id="pt_test"
+                      data-options='{
+                        "name": "PT",
+                        "tc": "60+0.6",
+                        "new_tc": "60+0.6",
+                        "throughput": "100",
+                        "threads": 1,
+                        "options": "Hash=64",
+                        "book": "{{ pt_book }}",
+                        "stop_rule": "stop-rule-games",
+                        "games": 60000,
+                        "test_branch": "master",
+                        "base_branch": "{{ pt_branch }}",
+                        "test_signature": {{ latest_bench }},
+                        "base_signature": {{ pt_signature }}
+                      }'>
+                    <label class="list-group-item rounded-3" for="pt_test" title="Progression test | Single-threaded">
+                      PT
+                    </label>
+                  </div>
+
+                  <div class="col collapse collapse-type">
+                    <input class="list-group-item-check pe-none" type="radio" name="test-type" id="pt_smp_test"
+                      data-options='{
+                        "name": "PT SMP",
+                        "tc": "60+0.6",
+                        "new_tc": "60+0.6",
+                        "throughput": "100",
+                        "threads": 8,
+                        "options": "Hash=512",
+                        "book": "{{ pt_book }}",
+                        "stop_rule": "stop-rule-games",
+                        "games": 60000,
+                        "test_branch": "master",
+                        "base_branch": "{{ pt_branch }}",
+                        "test_signature": {{ latest_bench }},
+                        "base_signature": {{ pt_signature }}
+                      }'>
+                    <label class="list-group-item rounded-3" for="pt_smp_test" title="Progression test | Multi-threaded">
+                      PT SMP
+                    </label>
+                  </div>
                 </div>
               </div>
 
@@ -58,7 +211,7 @@
                   name="tests-repo"
                   id="tests-repo"
                   class="form-control"
-                  value="{{ form_values.tests_repo }}" {{ "readonly" if is_rerun else "" }}
+                  value="{{ args.get("tests_repo", tests_repo) }}" {{ "readonly" if is_rerun else "" }}
                   placeholder="https://github.com/username/Stockfish"
                 >
               </div>
@@ -70,7 +223,7 @@
                   name="test-branch"
                   id="test-branch"
                   class="form-control"
-                  value="{{ form_values.new_tag }}" {{ "readonly" if is_rerun else "" }}
+                  value="{{ args.get("new_tag", "") }}" {{ "readonly" if is_rerun else "" }}
                   placeholder="Your test branch name"
                 >
               </div>
@@ -82,7 +235,7 @@
                   name="base-branch"
                   id="base-branch"
                   class="form-control"
-                  value="{{ form_values.base_branch }}" {{ "readonly" if is_rerun else "" }}
+                  value="{{ base_branch }}" {{ "readonly" if is_rerun else "" }}
                 >
               </div>
 
@@ -96,7 +249,7 @@
                   class="form-control no-arrows"
                   onwheel="this.blur()"
                   placeholder="Defaults to last commit message"
-                  value="{{ form_values.new_signature }}" {{ "readonly" if is_rerun else "" }}
+                  value="{{ args.get("new_signature", "") }}" {{ "readonly" if is_rerun else "" }}
                 >
               </div>
 
@@ -109,7 +262,7 @@
                   min="0"
                   class="form-control no-arrows"
                   onwheel="this.blur()"
-                  value="{{ form_values.base_signature }}" {{ "readonly" if is_rerun else "" }}
+                  value="{{ latest_bench }}" {{ "readonly" if is_rerun else "" }}
                 >
               </div>
 
@@ -120,7 +273,7 @@
                   name="new-options"
                   id="new-options"
                   class="form-control"
-                  value="{{ form_values.new_options }}"
+                  value="{{ args.get("new_options", "Hash=16") }}"
                 >
               </div>
 
@@ -131,7 +284,7 @@
                   name="base-options"
                   id="base-options"
                   class="form-control"
-                  value="{{ form_values.base_options }}"
+                  value="{{ args.get("base_options", "Hash=16") }}"
                 >
               </div>
 
@@ -143,7 +296,7 @@
                   id="run-info"
                   class="form-control"
                   rows="4"
-                >{{ form_values.info }}</textarea>
+                >{{ args.get("info", "") }}</textarea>
               </div>
             </div>
           </div>
@@ -152,32 +305,20 @@
 
           <div class="col-12 col-md-6 mb-2">
             <div class="mb-2">
-              <input type="hidden" name="stop_rule" id="stop_rule_field" value="{{ form_values.stop_rule }}">
+              <input type="hidden" name="stop_rule" id="stop_rule_field" value="sprt">
               <label class="form-label">Stop rule</label>
               <div class="list-group list-group-checkable flex-row row row-cols-3 g-1 text-center">
                 <div class="col">
-                  <input
-                    class="list-group-item-check pe-none"
-                    type="radio"
-                    name="stop-rule"
-                    id="stop-rule-sprt"
-                    value="stop-rule-sprt"
-                    {{ "checked" if form_values.stop_rule == "sprt" else "" }}
-                  >
+                  <input class="list-group-item-check pe-none" type="radio" name="stop-rule" id="stop-rule-sprt"
+                    value="stop-rule-sprt" checked>
                   <label class="list-group-item rounded-3" for="stop-rule-sprt" title="Sequential probability ratio test">
                     SPRT
                   </label>
                 </div>
 
                 <div class="col">
-                  <input
-                    class="list-group-item-check pe-none"
-                    type="radio"
-                    name="stop-rule"
-                    id="stop-rule-games"
-                    value="stop-rule-games"
-                    {{ "checked" if form_values.stop_rule == "games" else "" }}
-                  >
+                  <input class="list-group-item-check pe-none" type="radio" name="stop-rule" id="stop-rule-games"
+                    value="stop-rule-games">
                   <label class="list-group-item rounded-3" for="stop-rule-games" title="Fixed amount of games">
                     Games
                   </label>
@@ -190,7 +331,6 @@
                     name="stop-rule"
                     id="stop-rule-spsa"
                     value="stop-rule-spsa"
-                    {{ "checked" if form_values.stop_rule == "spsa" else "" }}
                   >
                   <label class="list-group-item rounded-3" for="stop-rule-spsa" title="Simultaneous perturbation stochastic approximation">
                     SPSA
@@ -200,7 +340,7 @@
             </div>
 
             {# This only appears when games or spsa is selected #}
-            <div class="mb-2 stop-rule stop-rule-games stop-rule-spsa" style="{{ "" if flags.show_games_fields or flags.show_spsa_fields else "display: none" }}">
+            <div class="mb-2 stop-rule stop-rule-games stop-rule-spsa" style="{{ "display: none" if (args.get("sprt") or not is_rerun) else "" }}">
               <label for="num-games" class="form-label">Amount of games</label>
               <input
                 type="number"
@@ -209,28 +349,28 @@
                 step="1000"
                 id="num-games"
                 class="form-control"
-                value="{{ form_values.num_games }}"
+                value="{{ args.get("num_games", 60000) }}"
               >
             </div>
 
             {# This only appears when sprt is selected #}
-            <div class="mb-2 stop-rule stop-rule-sprt" style="{{ "" if flags.show_sprt_fields else "display: none" }}">
-              <input type="hidden" name="elo_model" id="elo_model_field" value="{{ form_values.elo_model }}">
+            <div class="mb-2 stop-rule stop-rule-sprt">
+              <input type="hidden" name="elo_model" id="elo_model_field" value={{ elo_model }}>
               <div class="row gx-1">
                 <div class="col-12 col-md">
                   <label for="bounds" class="form-label">SPRT Bounds</label>
                   <select class="form-select" id="bounds" name="bounds">
-                    <option value="standard STC" {{ "selected" if form_values.bounds == "standard STC" else "" }}>Standard STC {{ bounds_labels.standard_stc }}</option>
-                    <option value="standard LTC" {{ "selected" if form_values.bounds == "standard LTC" else "" }}>Standard LTC {{ bounds_labels.standard_ltc }}</option>
-                    <option value="regression STC" {{ "selected" if form_values.bounds == "regression STC" else "" }}>Non-regression STC {{ bounds_labels.regression_stc }}</option>
-                    <option value="regression LTC" {{ "selected" if form_values.bounds == "regression LTC" else "" }}>Non-regression LTC {{ bounds_labels.regression_ltc }}</option>
-                    <option value="custom" {{ "selected" if form_values.bounds == "custom" else "" }}>Custom bounds...</option>
+                    <option value="standard STC">Standard STC {{ format_bounds(elo_model, 0.0, 2.0) }}</option>
+                    <option value="standard LTC">Standard LTC {{ format_bounds(elo_model, 0.5, 2.5) }}</option>
+                    <option value="regression STC">Non-regression STC {{ format_bounds(elo_model, -1.75, 0.25) }}</option>
+                    <option value="regression LTC">Non-regression LTC {{ format_bounds(elo_model, -1.75, 0.25) }}</option>
+                    <option value="custom" {{ "selected" if is_rerun else "" }}>Custom bounds...</option>
                   </select>
                 </div>
                 {# This only appears when custom bounds are selected #}
                 <div
                   class="col-6 col-md-4 col-lg-3 mt-2 mt-md-0 custom-bounds"
-                  style="{{ "" if form_values.bounds == "custom" else "display: none" }}"
+                  style="{{ args.get("sprt") or "display: none" }}"
                 >
                   <label for="sprt_elo0" class="form-label">SPRT Elo0</label>
                   <input
@@ -239,12 +379,12 @@
                     name="sprt_elo0"
                     id="sprt_elo0"
                     class="form-control"
-                    value="{{ form_values.sprt.elo0 }}"
+                    value="{{ args.get("sprt", {"elo0": 0.0})["elo0"] }}"
                   >
                 </div>
                 <div
                   class="col-6 col-md-4 col-lg-3 mt-2 mt-md-0 custom-bounds"
-                  style="{{ "" if form_values.bounds == "custom" else "display: none" }}"
+                  style="{{ args.get("sprt") or "display: none" }}"
                 >
                   <label for="sprt_elo1" class="form-label">SPRT Elo1</label>
                   <input
@@ -253,7 +393,7 @@
                     name="sprt_elo1"
                     id="sprt_elo1"
                     class="form-control"
-                    value="{{ form_values.sprt.elo1 }}"
+                    value="{{ args.get("sprt", {"elo1": 2.0})["elo1"] }}"
                   >
                 </div>
               </div>
@@ -262,7 +402,7 @@
             {# This only appears when spsa is selected #}
             <div
               class="mb-2 stop-rule stop-rule-spsa"
-              style="{{ "" if flags.show_spsa_fields else "display: none" }}"
+              style="{{ args.get("spsa") or "display: none" }}"
             >
               <div class="row gx-1">
                 <div class="col-4">
@@ -276,7 +416,7 @@
                       name="spsa_A"
                       id="spsa_A"
                       class="form-control"
-                      value="{{ form_values.spsa.A }}"
+                      value="{{ args.get("spsa", {"A": "0.1"})["A"] }}"
                     >
                   </div>
                 </div>
@@ -290,7 +430,7 @@
                       name="spsa_alpha"
                       id="spsa_alpha"
                       class="form-control"
-                      value="{{ form_values.spsa.alpha }}"
+                      value="{{ args.get("spsa", {"alpha": "0.602"})["alpha"] }}"
                     >
                   </div>
                 </div>
@@ -304,7 +444,7 @@
                       name="spsa_gamma"
                       id="spsa_gamma"
                       class="form-control"
-                      value="{{ form_values.spsa.gamma }}"
+                      value="{{ args.get("spsa", {"gamma": "0.101"})["gamma"] }}"
                     >
                   </div>
                 </div>
@@ -317,7 +457,7 @@
                   id="spsa_raw_params"
                   class="form-control"
                   placeholder="Paste values printed at the startup of the code here"
-                >{{ form_values.spsa.raw_params }}</textarea>
+                >{{ args.get("spsa", {"raw_params": ""})["raw_params"] }}</textarea>
               </div>
 
               <div class="mb-2 form-check">
@@ -385,7 +525,7 @@
                     name="threads"
                     id="threads"
                     class="form-control"
-                    value="{{ form_values.threads }}"
+                    value="{{ args.get("threads", 1) }}"
                   >
                 </div>
                 <div class="col mb-2">
@@ -395,17 +535,17 @@
                     name="tc"
                     id="tc"
                     class="form-control"
-                    value="{{ form_values.tc }}"
+                    value="{{ args.get("tc", "10+0.1") }}"
                   >
                 </div>
-                <div class="col mb-2 new_tc" style="{{ "" if flags.is_odds else "display: none" }}">
+                <div class="col mb-2 new_tc" style="display: none;">
                   <label for="new_tc" class="form-label">Test TC</label>
                   <input
                     type="text"
                     name="new_tc"
                     id="new_tc"
                     class="form-control"
-                    value="{{ form_values.new_tc }}"
+                    value="{{ args.get("new_tc", "10+0.1") }}"
                   >
                 </div>
                 <div class="col mb-2">
@@ -415,29 +555,29 @@
                     name="priority"
                     id="priority"
                     class="form-control"
-                    value="{{ form_values.priority }}"
+                    value="{{ args.get("priority", 0) }}"
                   >
                 </div>
                 <div class="col mb-2">
                   <label for="throughput" class="form-label">Throughput</label>
                   <select class="form-select" id="throughput" name="throughput">
-                    <option value="10" {{ "selected" if form_values.throughput == "10" else "" }}>10%</option>
-                    <option value="25" {{ "selected" if form_values.throughput == "25" else "" }}>25%</option>
-                    <option value="50" {{ "selected" if form_values.throughput == "50" else "" }}>50%</option>
-                    <option value="100" {{ "selected" if form_values.throughput == "100" else "" }}>100%</option>
-                    <option value="200" class="text-bg-danger" {{ "selected" if form_values.throughput == "200" else "" }}>200%</option>
+                    <option value="10">10%</option>
+                    <option value="25">25%</option>
+                    <option value="50">50%</option>
+                    <option value="100" selected>100%</option>
+                    <option value="200" class="text-bg-danger">200%</option>
                   </select>
                 </div>
               </div>
             </div>
 
-            <div id="test-book" class="mb-2" style="{{ "" if flags.show_book_fields else "display: none" }}">
+            <div id="test-book" class="mb-2" style="display: none;">
               <div class="row gx-1">
                 <div class="col">
                   <label for="book" class="form-label">Book</label>
                   <select name="book" id="book" class="form-select">
-                    {% for book in books.valid_books %}
-                      <option value="{{ book }}" {{ "selected" if form_values.book == book else "" }}>{{ book }}</option>
+                    {% for book in valid_books %}
+                      <option value="{{ book }}" {{ "selected" if default_book == book else "" }}>{{ book }}</option>
                     {% endfor %}
                   </select>
                 </div>
@@ -449,13 +589,13 @@
                     name="book-depth"
                     id="book-depth"
                     class="form-control"
-                    value="{{ form_values.book_depth }}"
+                    value="{{ args.get("book_depth", 8) }}"
                   >
                 </div>
               </div>
             </div>
 
-            <div id="arch-filter" class="mb-2" style="{{ "" if flags.show_arch_filter else "display: none" }}">
+            <div id="arch-filter" class="mb-2" style="display: none;">
               <div class="row gx-2 mb-2">
                 <div class="col">
                   <label for="arch-filter-input" class="form-label">Arch filter (regular expression)</label>
@@ -464,7 +604,7 @@
                     autocomplete="off"
                     name="arch-filter"
                     class="form-control"
-                    value='{{ form_values.arch_filter | e }}'
+                    value='{{ arch_filter | e }}'
                   >
                 </div>
               </div>
@@ -474,13 +614,13 @@
               </div>
             </div>
 
-            <div id="compiler" class="mb-2" style="{{ "" if flags.show_compiler else "display: none" }}">
+            <div id="compiler" class="mb-2" style="display: none;">
               <div class="row gx-2 mb-2">
                 <div class="col">
                   <label for="compiler-select" class="form-label">Compiler</label>
                   <select id="compiler-select" name="compiler" class="form-select">
-                    {% for comp in supported.compilers %}
-                      <option value="{{ comp }}" {{ "selected" if comp == form_values.compiler else "" }}>{{ comp }}</option>
+                    {% for comp in supported_compilers %}
+                      <option value="{{ comp }}" {{ "selected" if comp == compiler else "" }}>{{ comp }}</option>
                     {% endfor %}
                   </select>
                 </div>
@@ -489,6 +629,7 @@
 
             <div><hr></div>
 
+            <!-- Check boxes for advanced options -->
             <div class="row gx-0">
               <div class="col-6 col-lg-4 mb-2 form-check">
                 <label class="form-check-label" for="checkbox-auto-purge">Auto-purge</label>
@@ -497,7 +638,7 @@
                   class="form-check-input"
                   id="checkbox-auto-purge"
                   name="auto-purge"
-                  {{ "checked" if form_values.auto_purge else "" }}
+                  checked
                 >
               </div>
               <div class="col-6 col-lg-4 mb-2 form-check">
@@ -507,7 +648,7 @@
                   class="form-check-input"
                   name="checkbox-arch-filter"
                   id="checkbox-arch-filter"
-                  {{ "checked" if flags.arch_filter_enabled else "" }}
+                  {{ "checked" if arch_filter != "" else "" }}
                 >
               </div>
               <div class="col-6 col-lg-4 mb-2 form-check">
@@ -517,7 +658,7 @@
                   class="form-check-input"
                   name="checkbox-compiler"
                   id="checkbox-compiler"
-                  {{ "checked" if flags.compiler_enabled else "" }}
+                  {{ "checked" if compiler != "" else "" }}
                 >
               </div>
               <div class="col-6 col-lg-4 mb-2 form-check">
@@ -527,7 +668,7 @@
                   class="form-check-input"
                   id="checkbox-time-odds"
                   name="odds"
-                  {{ "checked" if flags.is_odds else "" }}
+                  {{ "checked" if is_odds else "" }}
                 >
               </div>
               <div class="col-6 col-lg-4 mb-2 form-check">
@@ -536,7 +677,7 @@
                   type="checkbox"
                   class="form-check-input"
                   id="checkbox-book-visibility"
-                  {{ "checked" if flags.custom_book_enabled else "" }}
+                  {{ "checked" if default_book != test_book else "" }}
                 >
               </div>
               <div class="col-6 col-lg-4 mb-2 form-check">
@@ -546,7 +687,7 @@
                   class="form-check-input"
                   id="checkbox-adjudication"
                   name="adjudication"
-                  {{ "checked" if not form_values.adjudication else "" }}
+                  {{ "checked" if not args.get("adjudication", True) else "" }}
                 >
               </div>
             </div>
@@ -554,11 +695,11 @@
         </div>
       </div>
 
-      {% if form_values.resolved_base %}
-        <input type="hidden" name="resolved_base" value="{{ form_values.resolved_base }}">
-        <input type="hidden" name="resolved_new" value="{{ form_values.resolved_new }}">
-        <input type="hidden" name="msg_base" value="{{ form_values.msg_base }}">
-        <input type="hidden" name="msg_new" value="{{ form_values.msg_new }}">
+      {% if "resolved_base" in args %}
+        <input type="hidden" name="resolved_base" value="{{ args["resolved_base"] }}">
+        <input type="hidden" name="resolved_new" value="{{ args["resolved_new"] }}">
+        <input type="hidden" name="msg_base" value="{{ args.get("msg_base", "") }}">
+        <input type="hidden" name="msg_new" value="{{ args.get("msg_new", "") }}">
       {% endif %}
 
       {% if is_rerun %}
@@ -571,11 +712,14 @@
 <script>
   let submitted = false;
   window.addEventListener("pageshow", () => {
+    // make sure submitted is set back to false
     submitted = false;
 
+    // make sure the submit test button is enabled again and has the correct text.
     document.getElementById('submit-test').disabled = false;
     document.getElementById('submit-test').textContent = 'Submit test';
 
+    // Also make sure that the fields have the right visibility.
     updateOdds(document.getElementById('checkbox-time-odds'));
     toggleBook(document.getElementById('checkbox-book-visibility'));
     toggleArchFilter(document.getElementById('checkbox-arch-filter'));
@@ -592,7 +736,6 @@
   };
 
   const isRun = {{ "true" if is_rerun else "false" }};
-  const ptContext = {{ pt_context | tojson }};
 
   function handleLtcSpsaThroughput() {
     const ltcTestRadio = document.getElementById("ltc_test");
@@ -600,15 +743,18 @@
     const throughputSelect = document.getElementById("throughput");
     if (!ltcTestRadio || !spsaRadio || !throughputSelect) return;
 
+    // Non-LTC test selected: leave throughput as already set elsewhere.
     if (!ltcTestRadio.checked) return;
 
     if (spsaRadio.checked) {
+      // Case: LTC + SPSA -> set recommended 50% throughput.
       if ([...throughputSelect.options].some(o => o.value === "50")) {
         throughputSelect.value = "50";
       }
       return;
     }
 
+    // Case: LTC without SPSA -> restore LTC default from its data-options.
     try {
       const ltcOptions = JSON.parse(ltcTestRadio.dataset.options || "{}");
       if (ltcOptions.throughput) {
@@ -629,10 +775,8 @@
         .querySelectorAll(".custom-bounds")
         .forEach((bound) => (bound.style.display = "none"));
       const bounds = presetBounds[selectedBounds];
-      if (bounds) {
-        document.getElementById("sprt_elo0").value = bounds[0];
-        document.getElementById("sprt_elo1").value = bounds[1];
-      }
+      document.getElementById("sprt_elo0").value = bounds[0];
+      document.getElementById("sprt_elo1").value = bounds[1];
     }
   }
 
@@ -654,6 +798,7 @@
   let initialBaseSignature = document.getElementById("base-signature").value;
   let spsa = false;
 
+  // Test type is changed
   document.querySelectorAll("[name=test-type]").forEach((btn) =>
     btn.addEventListener("click", (e) => {
       if (!spsa) {
@@ -662,6 +807,7 @@
       }
       const btn = e.target;
 
+      // choose test type - STC, LTC - sets preset values
       let testOptions = null;
       if (btn.dataset.options) testOptions = btn.dataset.options;
 
@@ -702,7 +848,7 @@
         document.getElementById("book").value = book;
         toggleBookDepth(book);
 
-        document.getElementById("checkbox-book-visibility").checked = (book !== "{{ test_book }}");
+        document.getElementById("checkbox-book-visibility").checked = (book != "{{ test_book }}");
         toggleBook(document.getElementById("checkbox-book-visibility"));
 
         document.getElementById(stop_rule).click();
@@ -735,7 +881,7 @@
         if (name === "PT" || name === "PT SMP") {
           let info = (name === "PT SMP") ? "SMP " : "";
           info +=
-            `Progression test of "${ptContext.master_message}" of ${ptContext.master_date} vs ${ptContext.pt_version}.`;
+            'Progression test of "{{ master_info["message"] }}" of {{ master_info["date"] }} vs {{ pt_version }}.';
           document.getElementById("run-info").value = info;
         }
 
@@ -755,24 +901,28 @@
       document.getElementById("test-signature").value;
   }
 
+  // Stop rule is changed
   document.querySelectorAll("[name=stop-rule]").forEach((btn) =>
     btn.addEventListener("click", function () {
       stopRule = btn.value;
       handleLtcSpsaThroughput();
 
       if (stopRule) {
+        // Hide all elements that have the class "stop-rule"
         document
           .querySelectorAll(".stop-rule")
           .forEach((el) => (el.style.display = "none"));
 
         document.getElementById("stop_rule_field").value = stopRule.substring(10);
 
+        // Show all elements that have the class with the same name as the selected stop rule
         document
           .querySelectorAll("." + stopRule)
           .forEach((el) => (el.style.display = ""));
 
         if (!isRun) {
           if (stopRule === "stop-rule-spsa") {
+            // base branch and test branch should be the same for SPSA tests
             document.getElementById("base-branch").readOnly = true;
             document.getElementById("base-branch").value = document.getElementById("test-branch").value;
             document
@@ -805,6 +955,7 @@
     })
   );
 
+  // Only .pgn book types have a book_depth field
   toggleBookDepth(document.getElementById("book").value);
   document.getElementById("book").addEventListener("input", (e) => {
     toggleBookDepth(e.target.value);
@@ -817,32 +968,36 @@
       const baseSig = parseInt(document.getElementById("base-signature").value);
       const sigDiffThreshold = 50;
 
+      // Only perform check if both values are valid numbers
+      // Remember that test signature is not required
       if (!isNaN(testSig) && !isNaN(baseSig)) {
         let percentageDiff = baseSig ? (Math.abs(testSig - baseSig) / baseSig) * 100 : (testSig ? Infinity : 0);
 
         if (percentageDiff > sigDiffThreshold) {
-          const message = "The test signature (" + testSig + ") and base signature (" + baseSig + ") differ by more than " + sigDiffThreshold + "%\.\n\nThis is highly unusual. Are you sure you want to proceed?\n\nPlease join our Discord server if you have any questions.";
+          const message = "The test signature (" + testSig + ") and base signature (" + baseSig + ") differ by more than " + sigDiffThreshold + "%.\n\nThis is highly unusual. Are you sure you want to proceed?\n\nPlease join our Discord server if you have any questions.";
           if (!confirm(message)) {
-            e.preventDefault();
-            return;
+            e.preventDefault(); // Stop the form submission
+            return; // Exit the event handler
           }
         }
       }
 
-      const ret = spsaWork();
+      const ret = spsaWork(); // Last check that all spsa data are consistent.
       if (!ret) {
         return false;
       }
+      // we want to be able to register users for their own tests
       if (supportsNotifications() && Notification.permission === "default") {
         Notification.requestPermission();
       }
       if (submitted) {
+        // Don't allow submitting the form more than once
         e.preventDefault();
         return;
       }
       submitted = true;
       const submitButton = document.getElementById("submit-test");
-      submitButton.setAttribute("disabled", "");
+      submitButton.setAttribute("disabled","");
       submitButton.replaceChildren();
       const spinner = document.createElement("div");
       spinner.className = "spinner-border spinner-border-sm";
@@ -850,8 +1005,10 @@
       submitButton.append(spinner, " Submitting...");
     });
 
+  // If the test is a reschedule
   if (isRun) {
-    const tc = {{ form_values.tc | tojson }};
+    // Select the correct fields by default for re-runs
+    const tc = '{{ args.get("tc") | e }}';
     if (tc === "10+0.1") {
       document.getElementById("stc_test").checked = true;
     } else if (tc === "5+0.05") {
@@ -862,7 +1019,7 @@
       document.getElementById("vltc_test").checked = true;
     }
 
-    const threads = {{ form_values.threads | tojson }};
+    const threads = '{{ args.get("threads") | e }}';
     if (tc === "60+0.6") {
       if (threads === "1") {
         document.getElementById("ltc_test").checked = true;
@@ -871,12 +1028,13 @@
       }
     }
 
-    {% if form_values.stop_rule == "spsa" %}
+    {% if args.get("spsa") %}
       document.getElementById('stop-rule-spsa').click();
-    {% elif form_values.stop_rule == "games" %}
+    {% elif not args.get("sprt") %}
       document.getElementById('stop-rule-games').click();
     {% endif %}
   } else {
+    // Focus the "Test branch" field on page load for new tests
     document.getElementById('test-branch').focus();
   }
 
@@ -915,18 +1073,18 @@
 
   function updateSupportedArches() {
     const errorCSS = "color: red;";
-    const supportedArches = {{ supported.arches | tojson }};
+    const supportedArches = {{ supported_arches | tojson }};
     const archFilterInputElement = document.getElementById('arch-filter-input');
     let filteredArches;
     try {
       const archFilter = new RegExp(archFilterInputElement.value);
       filteredArches = supportedArches.filter(str => archFilter.test(str));
-      if (filteredArches.length === 0) {
+      if(filteredArches.length === 0) {
         archFilterInputElement.style.cssText = errorCSS;
       } else {
         archFilterInputElement.style.cssText = "";
       }
-    } catch (e) {
+    } catch(e) {
       archFilterInputElement.style.cssText = errorCSS;
       return;
     }
@@ -955,15 +1113,16 @@
     toggleCompiler(e.target);
   });
 
-  document.getElementById('arch-filter-input').addEventListener("input", () => {
+  document.getElementById('arch-filter-input').addEventListener("input", (e) => {
     updateSupportedArches();
   });
 </script>
 
-<script src="{{ static_url("fishtest:static/js/spsa_new.js") }}"></script>
+<script src="{{ request.static_url("fishtest:static/js/spsa_new.js") }}"></script>
 
 <script>
   function spsaWork() {
+    /* parsing/computing */
     if (!document.getElementById('autoselect').checked) {
       return true;
     }
@@ -973,6 +1132,7 @@
       alertError("Unable to parse spsa parameters.");
       return false;
     }
+    /* estimate the draw ratio */
     const tc = document.getElementById('tc').value;
     const dr = drawRatio(tc);
     if (dr === null) {
@@ -982,6 +1142,7 @@
     s.draw_ratio = dr;
     s = spsaCompute(s);
     const fs = spsaToFishtest(s);
+    /* Let's go */
     document.getElementById("spsa_A").value = 0;
     document.getElementById("spsa_alpha").value = 0.0;
     document.getElementById("spsa_gamma").value = 0.0;
@@ -998,6 +1159,7 @@
 
   function spsaEvents() {
     if (document.getElementById('autoselect')["checked"]) {
+      /* save old stuff */
       saved_A = document.getElementById("spsa_A").value;
       saved_alpha = document.getElementById("spsa_alpha").value;
       saved_gamma = document.getElementById("spsa_gamma").value;

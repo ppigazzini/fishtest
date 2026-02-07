@@ -1,8 +1,10 @@
 {% extends "base.mak" %}
 
-{% block title %}Page not found{% endblock %}
-
 {% block body %}
+
+<script>
+  document.title = "Page not found";
+</script>
 
 <style>
   .error-container {

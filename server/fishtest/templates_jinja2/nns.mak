@@ -1,8 +1,10 @@
 {% extends "base.mak" %}
 
-{% block title %}Neural Network Repository | Stockfish Testing{% endblock %}
-
 {% block body %}
+<script>
+  document.title = "Neural Network Repository | Stockfish Testing";
+</script>
+
 <h2>Neural Network Repository</h2>
 
 <p>
@@ -13,7 +15,7 @@
   The recommended net for a given Stockfish executable can be found as the default value of the EvalFile UCI option.
 </p>
 
-<form class="row mb-3" id="search_nn" action="{{ urls.nns }}" method="GET">
+<form class="row mb-3" id="search_nn">
   <div class="col-12 col-md-auto mb-3">
     <label for="network_name" class="form-label">Network</label>
     <input
@@ -22,7 +24,7 @@
       name="network_name"
       class="form-control"
       placeholder="Network name"
-      value="{{ filters.network_name }}"
+      value="{{ request.GET.get('network_name', '') }}"
     >
   </div>
 
@@ -34,7 +36,7 @@
     name="user"
     class="form-control"
     placeholder="Username"
-    value="{{ filters.user }}"
+    value="{{ request.GET.get('user', '') }}"
   >
   </div>
 
@@ -45,7 +47,7 @@
         type="checkbox"
         class="form-check-input"
         id="master_only"
-        name="master_only" {{ 'checked' if filters.master_only else '' }}
+        name="master_only" {{ 'checked' if master_only else '' }}
       >
     </div>
   </div>
@@ -73,31 +75,27 @@
     </thead>
     <tbody>
       {% for nn in nns %}
-        {% if not filters.master_only or nn.is_master %}
+        {% if not master_only or 'is_master' in nn %}
           <tr>
-            <td>{{ nn.time_label }}</td>
-            {% if nn.is_master %}
+            <td>{{ nn['time'].strftime("%y-%m-%d %H:%M:%S") }}</td>
+            {% if 'is_master' in nn %}
               <td class="default-net">
             {% else %}
               <td>
             {% endif %}
-            <a href="{{ nn.name_url }}" style="font-family:monospace">{{ nn.name }}</a></td>
-            <td>{{ nn.user }}</td>
+            <a href="api/nn/{{ nn['name'] }}" style="font-family:monospace">{{ nn['name'] }}</a></td>
+            <td>{{ nn['user'] }}</td>
             <td>
-              {% if nn.first_test_url %}
-                <a href="{{ nn.first_test_url }}">{{ nn.first_test_label }}</a>
-              {% else %}
-                {{ nn.first_test_label }}
+              {% if 'first_test' in nn %}
+                <a href="tests/view/{{ nn['first_test']['id'] }}">{{ nn['first_test']['date'] | string | split('.') | first }}</a>
               {% endif %}
             </td>
             <td>
-              {% if nn.last_test_url %}
-                <a href="{{ nn.last_test_url }}">{{ nn.last_test_label }}</a>
-              {% else %}
-                {{ nn.last_test_label }}
+              {% if 'last_test' in nn %}
+                <a href="tests/view/{{ nn['last_test']['id'] }}">{{ nn['last_test']['date'] | string | split('.') | first }}</a>
               {% endif %}
             </td>
-            <td style="text-align:right">{{ nn.downloads }}</td>
+            <td style="text-align:right">{{ nn.get('downloads', 0) }}</td>
           </tr>
         {% endif %}
       {% else %}

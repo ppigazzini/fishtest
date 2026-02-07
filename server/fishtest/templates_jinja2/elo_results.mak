@@ -1,27 +1,32 @@
-{% if elo.is_sprt and elo.live_elo_url %}
-  <a href="{{ elo.live_elo_url }}" style="color: inherit;">
+{% set results_info = format_results(run) %}
+{% set info = results_info["info"] %}
+{% set elo_ptnml_run = is_elo_pentanomial_run(run) %}
+{% set nelo_summary = nelo_pentanomial_summary(run) if elo_ptnml_run else none %}
+
+{% if "sprt" in run["args"] and "Pending" not in results_info["info"][0] %}
+  <a href="/tests/live_elo/{{ run["_id"] }}" style="color: inherit;">
 {% endif %}
-{% if elo.show_gauge %}
-  <div id="{{ elo.chart_div_id }}" style="width:90px;float:left;"></div>
-  {% if elo.is_sprt %}
+{% if show_gauge %}
+  <div id="chart_div_{{ run["_id"] }}" style="width:90px;float:left;"></div>
+  {% if "sprt" in run["args"] and "Pending" not in results_info["info"][0] %}
     <div style="margin-left:90px;padding: 30px 0;">
   {% else %}
     <div style="margin-left:90px;">
   {% endif %}
 {% endif %}
-<pre {{ elo.pre_attrs | safe }}>
-  {% for value in elo.info_lines %}
-    {{ value }}
+<pre {{ results_pre_attrs(results_info, run) | safe }}>
+  {% for value in info %}
+    {{ value.replace("ELO", "Elo") if elo_ptnml_run and loop.index0 == 0 else value }}
     {% if not loop.last %} <br> {% endif %}
   {% endfor %}
-  {% if elo.nelo_summary_html %}
+  {% if nelo_summary %}
     <br>
-    {{ elo.nelo_summary_html | safe }}
+    {{ nelo_summary | safe }}
   {% endif %}
 </pre>
-{% if elo.show_gauge %}
+{% if show_gauge %}
   </div>
 {% endif %}
-{% if elo.is_sprt and elo.live_elo_url %}
+{% if "sprt" in run["args"] and "Pending" not in results_info["info"][0] %}
   </a>
 {% endif %}

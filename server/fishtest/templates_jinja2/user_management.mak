@@ -1,9 +1,8 @@
 {% extends "base.mak" %}
 
-{% block title %}User Management | Stockfish Testing{% endblock %}
-
 {% block body %}
 <script>
+  document.title = "User Management | Stockfish Testing";
   async function handleToggleUsers() {
     await DOMContentLoaded();
     const tableHandlers =
@@ -106,10 +105,10 @@
   <tbody id="all-users" class="d-none">
       {% for user in all_users %}
         <tr>
-          <td style="width:20%"><a href="{{ user.user_url }}">{{ user.username }}</a></td>
-          <td style="width:20%">{{ user.registration_time_label }}</td>
-          <td style="width:20%">{{ user.groups_label }}</td>
-          <td style="width:40%">{{ user.email }}</td>
+          <td style="width:20%"><a href="/user/{{ user['username'] }}">{{ user['username'] }}</a></td>
+          <td style="width:20%">{{ user['registration_time'].strftime("%y-%m-%d %H:%M:%S") if 'registration_time' in user else 'Unknown' }}</td>
+          <td style="width:20%">{{ format_group(user['groups']) }}</td>
+          <td style="width:40%">{{ user['email'] }}</td>
         </tr>
       {% else %}
         <tr>
@@ -121,10 +120,10 @@
   <tbody id="pending-users">
       {% for user in pending_users %}
         <tr>
-          <td style="width:20%"><a href="{{ user.user_url }}">{{ user.username }}</a></td>
-          <td style="width:20%">{{ user.registration_time_label }}</td>
-          <td style="width:20%">{{ user.groups_label }}</td>
-          <td style="width:40%">{{ user.email }}</td>
+          <td style="width:20%"><a href="/user/{{ user['username'] }}">{{ user['username'] }}</a></td>
+          <td style="width:20%">{{ user['registration_time'].strftime("%y-%m-%d %H:%M:%S") if 'registration_time' in user else 'Unknown' }}</td>
+          <td style="width:20%">{{ format_group(user['groups']) }}</td>
+          <td style="width:40%">{{ user['email'] }}</td>
         </tr>
       {% else %}
         <tr>
@@ -136,10 +135,10 @@
   <tbody id="blocked-users" class="d-none">
     {% for user in blocked_users %}
       <tr>
-        <td style="width:20%"><a href="{{ user.user_url }}">{{ user.username }}</a></td>
-        <td style="width:20%">{{ user.registration_time_label }}</td>
-        <td style="width:20%">{{ user.groups_label }}</td>
-        <td style="width:40%">{{ user.email }}</td>
+        <td style="width:20%"><a href="/user/{{ user['username'] }}">{{ user['username'] }}</a></td>
+        <td style="width:20%">{{ user['registration_time'].strftime("%y-%m-%d %H:%M:%S") if 'registration_time' in user else 'Unknown' }}</td>
+        <td style="width:20%">{{ format_group(user['groups']) }}</td>
+        <td style="width:40%">{{ user['email'] }}</td>
       </tr>
     {% else %}
       <tr>
@@ -151,10 +150,10 @@
   <tbody id="idle-users" class="d-none">
     {% for user in idle_users %}
       <tr>
-        <td style="width:20%"><a href="{{ user.user_url }}">{{ user.username }}</a></td>
-        <td style="width:20%">{{ user.registration_time_label }}</td>
-        <td style="width:20%">{{ user.groups_label }}</td>
-        <td style="width:40%">{{ user.email }}</td>
+        <td style="width:20%"><a href="/user/{{ user['username'] }}">{{ user['username'] }}</a></td>
+        <td style="width:20%">{{ user['registration_time'].strftime("%y-%m-%d %H:%M:%S") if 'registration_time' in user else 'Unknown' }}</td>
+        <td style="width:20%">{{ format_group(user['groups']) }}</td>
+        <td style="width:40%">{{ user['email'] }}</td>
       </tr>
     {% else %}
       <tr>
@@ -167,10 +166,10 @@
   <tbody id="approvers-users" class="d-none">
     {% for user in approvers_users %}
       <tr>
-          <td style="width:20%"><a href="{{ user.user_url }}">{{ user.username }}</a></td>
-          <td style="width:20%">{{ user.registration_time_label }}</td>
-          <td style="width:20%">{{ user.groups_label }}</td>
-          <td style="width:40%">{{ user.email }}</td>
+          <td style="width:20%"><a href="/user/{{ user['username'] }}">{{ user['username'] }}</a></td>
+          <td style="width:20%">{{ user['registration_time'].strftime("%y-%m-%d %H:%M:%S") if 'registration_time' in user else 'Unknown' }}</td>
+          <td style="width:20%">{{ format_group(user['groups']) }}</td>
+          <td style="width:40%">{{ user['email'] }}</td>
       </tr>
     {% else %}
       <tr>

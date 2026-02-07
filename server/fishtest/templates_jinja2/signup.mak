@@ -4,9 +4,11 @@
   <script src='https://www.google.com/recaptcha/api.js'></script>
 {% endblock %}
 
-{% block title %}Register | Stockfish Testing{% endblock %}
-
 {% block body %}
+
+<script>
+  document.title = "Register | Stockfish Testing";
+</script>
 
 <div class="col-limited-size">
   <header class="text-md-center py-2">
@@ -20,7 +22,7 @@
     </div>
   </header>
 
-  <form method="POST" action="{{ urls.signup }}">
+  <form method="POST">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
     <div class="form-floating mb-3">
@@ -112,8 +114,7 @@
       </div>
     </div>
 
-        <div class="g-recaptcha mb-3"
-          data-sitekey="{{ recaptcha_site_key }}"></div>
+    <div class="g-recaptcha mb-3" data-sitekey="{{ recaptcha_site_key }}"></div>
 
     <button type="submit" class="btn btn-primary w-100">Register</button>
   </form>

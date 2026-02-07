@@ -1,8 +1,10 @@
 {% extends "base.mak" %}
 
-{% block title %}Login | Stockfish Testing{% endblock %}
-
 {% block body %}
+
+<script>
+  document.title = "Login | Stockfish Testing";
+</script>
 
 <div class="col-limited-size">
   <header class="text-md-center py-2">
@@ -13,7 +15,7 @@
     </div>
   </header>
 
-  <form method="POST" action="{{ urls.login }}">
+  <form method="POST">
     <div class="form-floating mb-3">
       <input
         type="text"

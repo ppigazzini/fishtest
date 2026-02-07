@@ -1,10 +1,9 @@
 {% extends "base.mak" %}
 
-{% block title %}{{ page_title }}{% endblock %}
-
 {% block body %}
 {% if profile %}
   <script>
+    document.title = "Profile | Stockfish Testing";
     async function handleGitHubToken() {
       await DOMContentLoaded();
       document.getElementById("github_token").value = localStorage.getItem("github_token") || "";
@@ -17,6 +16,10 @@
     }
     handleGitHubToken();
   </script>
+{% else %}
+  <script>
+    document.title = "User Management | Stockfish Testing";
+  </script>
 {% endif %}
 
 <div class="col-limited-size">
@@ -28,26 +31,26 @@
     {% endif %}
     <div class="alert alert-info">
       <h4 class="alert-heading">
-        <a href="{{ user.tests_user_url }}" class="alert-link col-6 text-break">{{ user.username }}</a>
+        <a href="/tests/user/{{ user['username'] }}" class="alert-link col-6 text-break">{{ user['username'] }}</a>
       </h4>
       <ul class="list-group list-group-flush">
-        <li class="list-group-item bg-transparent text-break">Registered: {{ user.registration_time_label }}</li>
+        <li class="list-group-item bg-transparent text-break">Registered: {{ format_date(user['registration_time'] if 'registration_time' in user else 'Unknown') }}</li>
         {% if not profile %}
           <li class="list-group-item bg-transparent text-break">Tests Repository:
-            {% if user.tests_repo_url %}
-              <a class="alert-link" href="{{ user.tests_repo_url }}">{{ user.tests_repo_label }}</a>
+            {% if user['tests_repo'] %}
+              <a class="alert-link" href="{{ user['tests_repo'] }}">{{ extract_repo_from_link }}</a>
             {% else %}
               <span>-</span>
             {% endif %}
           </li>
           <li class="list-group-item bg-transparent text-break">Email:
-            <a href="{{ user.email_url }}" class="alert-link">
-              {{ user.email }}
+            <a href="mailto:{{ user['email'] }}?Subject=Fishtest%20Account" class="alert-link">
+              {{ user['email'] }}
             </a>
           </li>
         {% endif %}
         <li class="list-group-item bg-transparent text-break">
-          Groups: {{ user.groups_label }}
+          Groups: {{ format_group(user['groups']) }}
         </li>
         <li class="list-group-item bg-transparent text-break">Machine Limit: {{ limit }}</li>
         <li class="list-group-item bg-transparent text-break">CPU-Hours: {{ hours }}</li>
@@ -55,11 +58,11 @@
     </div>
   </header>
 
-  <form id="profile_form" action="{{ post_url }}" method="POST">
+  <form id="profile_form" action="{{ request.url }}" method="POST">
     <input
       type="hidden"
       name="user"
-      value="{{ user.username }}"
+      value="{{ user['username'] }}"
     >
     {% if profile %}
       <div class="form-floating mb-3">
@@ -68,7 +71,7 @@
           class="form-control mb-3"
           id="email"
           name="email"
-          value="{{ user.email }}"
+          value="{{ user['email'] }}"
           placeholder="Email"
           required
         />
@@ -132,7 +135,7 @@
             class="form-control"
             id="tests_repo"
             name="tests_repo"
-            value="{{ user.tests_repo }}"
+            value="{{ user['tests_repo'] }}"
             placeholder="GitHub Stockfish fork URL"
           >
           <label for="tests_repo" class="d-flex align-items-end">Tests Repository</label>
@@ -191,7 +194,7 @@
               This reduces the potential impact if the token is accidentally exposed or misused.
               </p>
               <!-- Verification that things are working as expected -->
-              <p>After installing the token you may check <a href="{{ urls.rate_limits }}">here</a> to verify that the procedure has worked.</p>
+              <p>After installing the token you may check <a href=/rate_limits>here</a> to verify that the procedure has worked.</p>
               <!-- Instructions on how to obtain the token -->
               <h4>Instructions for generating a new token:</h4>
               <ol>
@@ -208,7 +211,7 @@
         </div>
       </div>
       <button type="submit" class="btn btn-primary w-100">Save</button>
-    {% elif user.pending %}
+    {% elif 'pending' in user and user['pending'] %}
       <div class="alert alert-dark mb-3">
         <label class="mb-2 h5">User Approval:</label>
         <div class="w-100 d-flex justify-content-between">
@@ -249,7 +252,8 @@
         </div>
       </div>
     {% else %}
-      {% if user.blocked %}
+      {% set blocked = user['blocked'] if 'blocked' in user else False %}
+      {% if blocked %}
         <button
           class="btn btn-primary w-100"
           name="blocked"
@@ -268,5 +272,5 @@
   </form>
 </div>
 
-<script src="{{ static_url('fishtest:static/js/toggle_password.js') }}"></script>
+<script src="{{ request.static_url('fishtest:static/js/toggle_password.js') }}"></script>
 {% endblock %}

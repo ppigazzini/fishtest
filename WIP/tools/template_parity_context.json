@@ -6,6 +6,29 @@
       "cookies": {},
       "authenticated_userid": ""
     },
+    "urls": {
+      "home": "/",
+      "tests": "/tests",
+      "tests_finished": "/tests/finished",
+      "tests_finished_ltc": "/tests/finished?ltc_only=1",
+      "tests_finished_success": "/tests/finished?success_only=1",
+      "tests_finished_yellow": "/tests/finished?yellow_only=1",
+      "tests_run": "/tests/run",
+      "tests_user_prefix": "/tests/user/",
+      "nn_upload": "/upload",
+      "nns": "/nns",
+      "contributors": "/contributors",
+      "contributors_monthly": "/contributors/monthly",
+      "actions": "/actions",
+      "user_management": "/user_management",
+      "workers_blocked": "/workers/show",
+      "sprt_calc": "/sprt_calc",
+      "rate_limits": "/rate_limits",
+      "login": "/login",
+      "logout": "/logout",
+      "signup": "/signup",
+      "user_profile": "/user"
+    },
     "page_idx": 0,
     "username": ""
   },
@@ -381,6 +404,9 @@
     "run": {
       "_id": "run1"
     }
+  },
+  "signup.mak": {
+    "recaptcha_site_key": "6LePs8YUAAAAABMmqHZVyVjxat95Z1c_uHrkugZM"
   },
   "user.mak": {
     "profile": true,

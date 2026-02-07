@@ -1,11 +1,9 @@
 {% extends "base.mak" %}
 
-{% block title %}Stockfish Testing Queue | Stockfish Testing{% endblock %}
-
 {% block body %}
 <link
   rel="stylesheet"
-  href="{{ static_url('fishtest:static/css/flags.css') }}"
+  href="{{ request.static_url('fishtest:static/css/flags.css') }}"
 >
 
 <h2>Stockfish Testing Queue</h2>
@@ -25,7 +23,7 @@
         <div class="card card-lg-sm text-center">
           <div class="card-header text-nowrap" title="Nodes per second">Nodes / sec</div>
           <div class="card-body">
-            <h4 class="card-title mb-0 monospace">{{ nps_m }}</h4>
+            <h4 class="card-title mb-0 monospace">{{ "{0:.0f}".format(nps / 1000000) }}M</h4>
           </div>
         </div>
       </div>
@@ -75,7 +73,7 @@
         if (document.querySelector("#machines .retry")) {
           machinesBody.replaceChildren(machinesSkeleton);
         }
-        const html = await fetchText("{{ urls.tests_machines }}");
+        const html = await fetchText("/tests/machines");
         machinesBody.replaceChildren();
         machinesBody.insertAdjacentHTML("beforeend", html);
         const machinesTbody = document.querySelector("#machines tbody");
@@ -139,15 +137,5 @@
   </div>
 {% endif %}
 
-{% with
-  runs=run_tables_ctx.runs,
-  failed_runs=run_tables_ctx.failed_runs,
-  finished_runs=run_tables_ctx.finished_runs,
-  num_finished_runs=run_tables_ctx.num_finished_runs,
-  finished_runs_pages=run_tables_ctx.finished_runs_pages,
-  page_idx=run_tables_ctx.page_idx,
-  prefix=run_tables_ctx.prefix
-%}
-  {% include "run_tables.mak" %}
-{% endwith %}
+{% include "run_tables.mak" %}
 {% endblock %}

@@ -1,6 +1,6 @@
 {% extends "base.mak" %}
 
-{% block title %}Live Elo - {{ page_title }} | Stockfish Testing{% endblock %}
+{% block title %}Stockfish Testing Framework{% endblock %}
 
 {% block body %}
 <script src="https://www.gstatic.com/charts/loader.js"></script>
@@ -8,11 +8,12 @@
 <script src="{{ static_url('fishtest:static/js/live_elo.js') }}"></script>
 
 <script>
-  const testId = "{{ run_id }}";
+  document.title = "Live Elo - {{ page_title }} | Stockfish Testing";
+  const testId = "{{ run._id }}";
   followLive(testId);
 </script>
 
-<h2>Live Elo for SPRT test <a href="{{ run_url }}">{{ run_id }}</a></h2>
+<h2>Live Elo for SPRT test <a href="/tests/view/{{ run._id }}">{{ run._id }}</a></h2>
 
 <div class="row">
   <div class="col-12 d-flex justify-content-center align-items-center flex-column flex-sm-row" >
