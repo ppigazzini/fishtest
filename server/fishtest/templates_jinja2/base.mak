@@ -3,6 +3,7 @@
 {% if static_url is not defined %}
   {% set static_url = request.static_url %}
 {% endif %}
+{% set pending_users_count = pending_users_count if pending_users_count is defined else 0 %}
 {% set home_url = urls.home %}
 {% set login_url = urls.login %}
 {% set signup_url = urls.signup %}
