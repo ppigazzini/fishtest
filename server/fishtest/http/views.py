@@ -50,6 +50,7 @@ from fishtest.schemas import (
 )
 from fishtest.schemas import tc as tc_schema
 from fishtest.util import (
+    display_residual,
     email_valid,
     format_bounds,
     format_date,
@@ -63,6 +64,7 @@ from fishtest.util import (
     supported_arches,
     supported_compilers,
     tests_repo,
+    worker_name,
 )
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -904,6 +906,73 @@ def actions(request):
         run_id=run_id,
     )
 
+    action_rows = []
+    for action in actions:
+        time_value = action.get("time")
+        if time_value is None:
+            time_label = ""
+        else:
+            time_label = datetime.utcfromtimestamp(float(time_value)).strftime(
+                "%y&#8209;%m&#8209;%d %H:%M:%S"
+            )
+
+        time_query = {
+            "max_actions": "1",
+            "action": search_action,
+            "user": username,
+            "text": text,
+            "before": time_value or "",
+            "run_id": run_id,
+        }
+        time_url = "/actions?" + urlencode(time_query)
+
+        agent_name = ""
+        agent_url = ""
+        if "worker" in action and action.get("action") != "block_worker":
+            agent_name = action.get("worker", "")
+            agent_short = "-".join(agent_name.split("-")[0:3]) if agent_name else ""
+            agent_url = f"/workers/{agent_short}" if agent_short else ""
+        else:
+            agent_name = action.get("username", "")
+            agent_url = f"/user/{agent_name}" if agent_name else ""
+
+        if action.get("action") in ("system_event", "log_message"):
+            agent_url = ""
+            if "worker" in action:
+                agent_name = action.get("worker", agent_name)
+
+        target_name = ""
+        target_url = ""
+        if "nn" in action:
+            target_name = action.get("nn", "")
+            target_url = f"/api/nn/{target_name}" if target_name else ""
+        elif "run" in action and "run_id" in action:
+            target_name = action.get("run", "")
+            task_id = action.get("task_id")
+            task_query = f"?show_task={task_id}" if task_id is not None else ""
+            target_url = f"/tests/view/{action.get('run_id')}{task_query}"
+        elif request.has_permission("approve_run") and "user" in action:
+            target_name = action.get("user", "")
+            target_url = f"/user/{target_name}" if target_name else ""
+        elif action.get("action") == "block_worker" and "worker" in action:
+            target_name = action.get("worker", "")
+            target_url = f"/workers/{target_name}" if target_name else ""
+        else:
+            target_name = action.get("user", "")
+
+        action_rows.append(
+            {
+                "time_label": time_label,
+                "time_url": time_url,
+                "event": action.get("action", ""),
+                "agent_name": agent_name,
+                "agent_url": agent_url or None,
+                "target_name": target_name,
+                "target_url": target_url or None,
+                "message": action.get("message", ""),
+            }
+        )
+
     # If the requested page is out of range, redirect to the last page.
     if num_actions > 0:
         last_page = (num_actions - 1) // page_size + 1
@@ -933,13 +1002,14 @@ def actions(request):
     pages = pagination(page_idx, num_actions, page_size, query_params)
 
     return {
-        "actions": actions,
+        "actions": action_rows,
         "approver": request.has_permission("approve_run"),
         "pages": pages,
         "action_param": search_action,
         "username_param": username,
         "text_param": text,
         "run_id_param": run_id,
+        "usernames": [user["username"] for user in request.userdb.get_users()],
     }
 
 
@@ -1957,11 +2027,106 @@ def tests_tasks(request):
     if show_task >= len(run["tasks"]) or show_task < -1:
         show_task = -1
 
+    approver = request.has_permission("approve_run")
+    show_pentanomial = "pentanomial" in run["results"]
+    show_residual = "spsa" not in run["args"]
+    tasks = []
+    all_tasks = run["tasks"] + run.get("bad_tasks", [])
+
+    for idx, task in enumerate(all_tasks):
+        if "bad" in task and idx < len(run["tasks"]):
+            continue
+        if "stats" not in task:
+            continue
+
+        task_id = task.get("task_id", idx)
+        stats = task.get("stats", {})
+        total = stats.get("wins", 0) + stats.get("losses", 0) + stats.get("draws", 0)
+
+        if task_id == show_task:
+            row_class = "highlight"
+        elif task.get("active"):
+            row_class = "info"
+        else:
+            row_class = ""
+
+        worker_info = task.get("worker_info")
+        worker_label = "-"
+        worker_url = ""
+        if worker_info:
+            worker_label = worker_name(worker_info)
+            if approver and worker_info.get("username") != "Unknown_worker":
+                worker_url = f"/workers/{worker_name(worker_info, short=True)}"
+
+        info_label = "-"
+        if worker_info:
+            gcc_version = ".".join(str(m) for m in worker_info.get("gcc_version", []))
+            compiler = worker_info.get("compiler", "g++")
+            python_version = ".".join(
+                str(m) for m in worker_info.get("python_version", [])
+            )
+            version = worker_info.get("version", "")
+            arch = worker_info.get("ARCH", "")
+            worker_arch = worker_info.get("worker_arch", "unknown")
+            uname = worker_info.get("uname", "")
+            max_memory = worker_info.get("max_memory", "")
+            info_label = (
+                f"os: {uname}; ram: {max_memory}MiB; compiler: {compiler} {gcc_version}; "
+                f"python: {python_version}; worker: {version}; arch: {worker_arch}; "
+                f"features: {arch}"
+            )
+
+        last_updated_label = str(task.get("last_updated", "-")).split(".")[0]
+        played_label = f"{total:03d} / {task.get('num_games', 0):03d}"
+
+        if show_pentanomial:
+            p = stats.get("pentanomial", [0] * 5)
+            results_cells = [f"[{p[0]}, {p[1]}, {p[2]}, {p[3]}, {p[4]}]"]
+        else:
+            results_cells = [
+                stats.get("wins", "-"),
+                stats.get("losses", "-"),
+                stats.get("draws", "-"),
+            ]
+
+        crashes = stats.get("crashes", "-")
+        time_losses = stats.get("time_losses", "-")
+        residual_label = ""
+        residual_bg = ""
+        if show_residual:
+            residual = display_residual(task, chi2)
+            if residual["residual"] != float("inf"):
+                residual_label = f"{residual['residual']:.3f}"
+                residual_bg = residual["display_color"]
+            else:
+                residual_label = "-"
+
+        tasks.append(
+            {
+                "task_id": task_id,
+                "row_class": row_class,
+                "pgn_url": f"/api/pgn/{run['_id']}-{task_id:d}.pgn",
+                "worker_label": worker_label,
+                "worker_url": worker_url,
+                "info_label": info_label,
+                "last_updated_label": last_updated_label,
+                "played_label": played_label,
+                "results_cells": results_cells,
+                "crashes": crashes,
+                "time_losses": time_losses,
+                "residual_label": residual_label,
+                "residual_bg": residual_bg,
+            }
+        )
+
     return {
         "run": run,
-        "approver": request.has_permission("approve_run"),
+        "approver": approver,
         "show_task": show_task,
         "chi2": chi2,
+        "tasks": tasks,
+        "show_pentanomial": show_pentanomial,
+        "show_residual": show_residual,
     }
 
 
