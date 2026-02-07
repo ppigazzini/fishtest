@@ -1,12 +1,12 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <title>Stockfish Testing Framework</title>
-    <meta name="csrf-token" content="{{ request.session.get_csrf_token() }}">
+    <title>{% block title %}{{ page_title or "Stockfish Testing Framework" }}{% endblock %}</title>
+    <meta name="csrf-token" content="{{ csrf_token }}">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <script>
-      const darkThemeHash = "{{ request.static_url('fishtest:static/css/theme.dark.css') }}";
+      const darkThemeHash = "{{ static_url('fishtest:static/css/theme.dark.css') }}";
     </script>
 
     <link
@@ -22,7 +22,6 @@
       href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.8/css/bootstrap.min.css"
       integrity="sha512-2bBQCjcnw658Lho4nlXJcc6WkV/UxpE/sAokbXPxQNGqmNdQrWqtw26Ns9kFF/yG792pKR1Sx8/Y1Lf1XN4GKA=="
       crossorigin="anonymous"
-      crossorigin="anonymous"
       referrerpolicy="no-referrer"
     >
 
@@ -35,13 +34,13 @@
 
     <link
       rel="stylesheet"
-      href="{{ request.static_url('fishtest:static/css/application.css') }}"
+      href="{{ static_url('fishtest:static/css/application.css') }}"
     >
 
-    {% if request.cookies.get('theme') == 'dark' %}
+    {% if theme == 'dark' %}
     <link
       rel="stylesheet"
-      href="{{ request.static_url('fishtest:static/css/theme.dark.css') }}"
+      href="{{ static_url('fishtest:static/css/theme.dark.css') }}"
     >
     {% endif %}
 
@@ -49,13 +48,12 @@
       src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.8/js/bootstrap.bundle.min.js"
       integrity="sha512-HvOjJrdwNpDbkGJIG2ZNqDlVqMo77qbs4Me4cah0HoDrfhrbA+8SBlZn1KrvAQw7cILLPFJvdwIgphzQmMm+Pw=="
       crossorigin="anonymous"
-      crossorigin="anonymous"
       referrerpolicy="no-referrer"
     ></script>
 
-    <script src="{{ request.static_url('fishtest:static/js/application.js') }}"></script>
+    <script src="{{ static_url('fishtest:static/js/application.js') }}"></script>
 
-    <script src="{{ request.static_url('fishtest:static/js/notifications.js') }}"></script>
+    <script src="{{ static_url('fishtest:static/js/notifications.js') }}"></script>
 
     {% block head %}{% endblock %}
   </head>
@@ -80,7 +78,7 @@
 
         <a
           class="navbar-brand p-0 me-0 me-lg-2 d-flex align-items-center"
-          href="/"
+          href="{{ urls.home }}"
           aria-label="Bootstrap"
         >
           <div class="brand-logo d-inline me-lg-2"></div>
@@ -122,11 +120,11 @@
             <hr class="d-lg-none">
 
             <ul class="navbar-nav flex-row flex-wrap ms-md-auto">
-              {% if request.authenticated_userid %}
+              {% if current_user %}
                 <li class="nav-item col-6 col-lg-auto order-lg-2">
                   <a
                     class="nav-link py-2 px-0 px-lg-2"
-                    href="/tests/user/{{ request.authenticated_userid }}"
+                    href="{{ urls.tests_user_prefix ~ current_user.username }}"
                     title="My Tests"
                   >
                     <i class="fa-solid fa-flask d-inline me-2 mx-lg-1"></i>
@@ -136,7 +134,7 @@
                 <li class="nav-item col-6 col-lg-auto order-lg-1">
                   <a
                     class="nav-link py-2 px-0 px-lg-2"
-                    href="/tests/run"
+                    href="{{ urls.tests_run }}"
                     title="New Test"
                   >
                     <i class="fa-solid fa-plus d-inline me-2 mx-lg-1"></i>
@@ -146,7 +144,7 @@
                 <li class="nav-item col-6 col-lg-auto order-lg-0">
                   <a
                     class="nav-link py-2 px-0 px-lg-2"
-                    href="/upload"
+                    href="{{ urls.nn_upload }}"
                     title="Upload Neural Network"
                   >
                     <i
@@ -160,13 +158,13 @@
                   <hr class="d-lg-none">
                 </li>
                 <li class="nav-item col-6 col-lg-auto order-lg-2">
-                  <a class="nav-link py-2 px-0 px-lg-2" href="/user"
+                  <a class="nav-link py-2 px-0 px-lg-2" href="{{ urls.user_profile }}"
                     ><i class="fa-solid fa-user d-inline d-lg-none me-2"></i
                     >Profile
                   </a>
                 </li>
                 <li class="nav-item col-6 col-lg-auto order-lg-2">
-                  <a class="nav-link py-2 px-0 px-lg-2" href="/logout" id="logout"
+                  <a class="nav-link py-2 px-0 px-lg-2" href="{{ urls.logout }}" id="logout"
                     ><i
                       class="fa-solid fa-arrow-right-from-bracket d-inline d-lg-none me-2"
                     ></i
@@ -175,7 +173,7 @@
                 </li>
               {% else %}
                 <li class="nav-item col-6 col-lg-auto order-lg-2">
-                  <a class="nav-link py-2 px-0 px-lg-2" href="/login"
+                  <a class="nav-link py-2 px-0 px-lg-2" href="{{ urls.login }}"
                     ><i
                       class="fa-solid fa-arrow-right-to-bracket d-inline d-lg-none me-2"
                     ></i
@@ -183,7 +181,7 @@
                   >
                 </li>
                 <li class="nav-item col-6 col-lg-auto order-lg-2">
-                  <a class="nav-link py-2 px-0 px-lg-2" href="/signup"
+                  <a class="nav-link py-2 px-0 px-lg-2" href="{{ urls.signup }}"
                     ><i class="fa-solid fa-user-plus d-inline d-lg-none me-2"></i
                     >Register</a
                   >
@@ -199,7 +197,7 @@
               >
                 <div
                   id="sun"
-                  style="display: {{ 'none;' if request.cookies.get('theme') != 'dark' else 'inline-block;' }}"
+                  style="display: {{ 'none;' if theme != 'dark' else 'inline-block;' }}"
                   class="nav-link py-2 px-0 px-lg-2"
                   title="Light Theme"
                 >
@@ -208,7 +206,7 @@
                 </div>
                 <div
                   id="moon"
-                  style="display: {{ 'none;' if request.cookies.get('theme') == 'dark' else 'inline-block;' }}"
+                  style="display: {{ 'none;' if theme == 'dark' else 'inline-block;' }}"
                   class="nav-link py-2 px-0 px-lg-2"
                   title="Dark Theme"
                 >
@@ -251,28 +249,16 @@
                   >
                   <ul class="list-unstyled fw-normal small">
                     <li>
-                      <a href="/tests" class="links-link rounded">Overview</a>
+                      <a href="{{ urls.tests }}" class="links-link rounded">Overview</a>
                     </li>
                     <li>
-                      <a
-                        href="/tests/finished?ltc_only=1"
-                        class="links-link rounded"
-                        >LTC</a
-                      >
+                      <a href="{{ urls.tests_finished_ltc }}" class="links-link rounded">LTC</a>
                     </li>
                     <li>
-                      <a
-                        href="/tests/finished?success_only=1"
-                        class="links-link rounded"
-                        >Greens</a
-                      >
+                      <a href="{{ urls.tests_finished_success }}" class="links-link rounded">Greens</a>
                     </li>
                     <li>
-                      <a
-                        href="/tests/finished?yellow_only=1"
-                        class="links-link rounded"
-                        >Yellows</a
-                      >
+                      <a href="{{ urls.tests_finished_yellow }}" class="links-link rounded">Yellows</a>
                     </li>
                   </ul>
                 </li>
@@ -286,33 +272,33 @@
                   >
                   <ul class="list-unstyled fw-normal small">
                     <li>
-                      <a href="/contributors" class="links-link rounded"
+                      <a href="{{ urls.contributors }}" class="links-link rounded"
                         >Contributors</a
                       >
                     </li>
                     <li>
-                      <a href="/contributors/monthly" class="links-link rounded"
+                      <a href="{{ urls.contributors_monthly }}" class="links-link rounded"
                         >Top Month</a
                       >
                     </li>
                     <li>
-                      <a href="/actions" class="links-link rounded">Events</a>
+                      <a href="{{ urls.actions }}" class="links-link rounded">Events</a>
                     </li>
                     <li>
-                    {% if request.userdb.get_pending()|length > 0 %}
+                    {% if pending_users_count > 0 %}
                       <a
-                        href="/user_management"
+                        href="{{ urls.user_management }}"
                         class="links-link rounded text-danger"
-                        >Users ({{ request.userdb.get_pending()|length }})</a
+                        >Users ({{ pending_users_count }})</a
                       >
                     {% else %}
-                      <a href="/user_management" class="links-link rounded"
+                      <a href="{{ urls.user_management }}" class="links-link rounded"
                         >Users</a
                       >
                     {% endif %}
                     </li>
                     <li>
-                      <a href="/workers/show" class="links-link rounded"
+                      <a href="{{ urls.workers_blocked }}" class="links-link rounded"
                         >Blocked Workers</a
                       >
                     </li>
@@ -364,7 +350,7 @@
                       >
                     </li>
                     <li>
-                      <a href="/nns" class="links-link rounded">NN Repo</a>
+                      <a href="{{ urls.nns }}" class="links-link rounded">NN Repo</a>
                     </li>
                   </ul>
                 </li>
@@ -414,10 +400,10 @@
                       >
                     </li>
                     <li>
-                      <a href="/sprt_calc" class="links-link rounded"
+                      <a href="{{ urls.sprt_calc }}" class="links-link rounded"
                         >SPRT Calc</a
                       >
-                      <a href="/rate_limits" class="links-link rounded ratelimit"
+                      <a href="{{ urls.rate_limits }}" class="links-link rounded ratelimit"
                         >GitHub Rate Limits</a
                       >
                     </li>
@@ -520,9 +506,8 @@
                   });
                 </script>
               </div>
-              {% if request.session.peek_flash('error') %}
-                {% set flash = request.session.pop_flash('error') %}
-                {% for message in flash %}
+              {% if flash.error %}
+                {% for message in flash.error %}
                 <div class="alert alert-danger alert-dismissible">
                   {{ message }}
                   <button
@@ -534,9 +519,8 @@
                 </div>
                 {% endfor %}
               {% endif %}
-              {% if request.session.peek_flash('warning') %}
-                {% set flash = request.session.pop_flash('warning') %}
-                {% for message in flash %}
+              {% if flash.warning %}
+                {% for message in flash.warning %}
                 <div class="alert alert-warning alert-dismissible">
                   {{ message }}
                   <button
@@ -548,9 +532,8 @@
                 </div>
                 {% endfor %}
               {% endif %}
-              {% if request.session.peek_flash() %}
-                {% set flash = request.session.pop_flash() %}
-                {% for message in flash %}
+              {% if flash.info %}
+                {% for message in flash.info %}
                   <div class="alert alert-success alert-dismissible">
                     {{ message }}
                     <button

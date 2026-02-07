@@ -1,20 +1,19 @@
 {% extends "base.mak" %}
 
+{% block title %}Login | Stockfish Testing{% endblock %}
+
 {% block body %}
-<script>
-  document.title = "Login | Stockfish Testing";
-</script>
 
 <div class="col-limited-size">
   <header class="text-md-center py-2">
     <h2>Login</h2>
     <div class="alert alert-info">
       Don't have an account?
-      <strong><a href="/signup" class="alert-link">Sign up</a></strong>
+      <strong><a href="{{ urls.signup }}" class="alert-link">Sign up</a></strong>
     </div>
   </header>
 
-  <form method="POST">
+  <form method="POST" action="{{ urls.login }}">
     <div class="form-floating mb-3">
       <input
         type="text"
@@ -61,5 +60,5 @@
   </form>
 </div>
 
-<script src="{{ request.static_url('fishtest:static/js/toggle_password.js') }}"></script>
+<script src="{{ static_url('fishtest:static/js/toggle_password.js') }}"></script>
 {% endblock %}

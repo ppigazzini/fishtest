@@ -1,9 +1,8 @@
 {% extends "base.mak" %}
 
+{% block title %}Page not found{% endblock %}
+
 {% block body %}
-<script>
-  document.title = "Page not found";
-</script>
 
 <style>
   .error-container {
@@ -47,7 +46,7 @@
     <h1 class="error-heading">404</h1>
     <h2 class="error-message">Oops! Page not found.</h2>
     <p class="lead">The page you are looking for might have been removed, had its name changed, or is temporarily unavailable.</p>
-    <a href="/" class="error-button">Go to Home</a>
+    <a href="{{ urls.home }}" class="error-button">Go to Home</a>
   </div>
 </div>
 {% endblock %}

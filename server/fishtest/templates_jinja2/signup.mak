@@ -4,10 +4,9 @@
   <script src='https://www.google.com/recaptcha/api.js'></script>
 {% endblock %}
 
+{% block title %}Register | Stockfish Testing{% endblock %}
+
 {% block body %}
-<script>
-  document.title = "Register | Stockfish Testing";
-</script>
 
 <div class="col-limited-size">
   <header class="text-md-center py-2">
@@ -17,12 +16,12 @@
       <p class="mb-0">To avoid spam, a person will manually approve your account.</p>
       <p class="mb-0">This is usually quick but <strong>sometimes takes a few hours</strong>.</p>
       <hr />
-      <p class="mb-0">Already have an account? <strong><a href="/login" class="alert-link">Log in</a></strong></p>
+      <p class="mb-0">Already have an account? <strong><a href="{{ urls.login }}" class="alert-link">Log in</a></strong></p>
     </div>
   </header>
 
-  <form method="POST">
-    <input type="hidden" name="csrf_token" value="{{ request.session.get_csrf_token() }}">
+  <form method="POST" action="{{ urls.signup }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
     <div class="form-floating mb-3">
       <input
@@ -113,12 +112,12 @@
       </div>
     </div>
 
-    <div class="g-recaptcha mb-3"
-         data-sitekey="6LePs8YUAAAAABMmqHZVyVjxat95Z1c_uHrkugZM"></div>
+        <div class="g-recaptcha mb-3"
+          data-sitekey="{{ recaptcha_site_key }}"></div>
 
     <button type="submit" class="btn btn-primary w-100">Register</button>
   </form>
 </div>
 
-<script src="{{ request.static_url('fishtest:static/js/toggle_password.js') }}"></script>
+<script src="{{ static_url('fishtest:static/js/toggle_password.js') }}"></script>
 {% endblock %}
