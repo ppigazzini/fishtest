@@ -4,7 +4,6 @@
 
 {% block body %}
 {% set machines_button_label = "Hide" if machines_shown else "Show" %}
-{% set machines_shown_js = "true" if machines_shown else "false" %}
 <link
   rel="stylesheet"
   href="{{ static_url('fishtest:static/css/flags.css') }}"
@@ -51,6 +50,10 @@
   </div>
 
   <script>
+    const machinesShown = {{ machines_shown | tojson }};
+    const machinesUrl = {{ urls.tests_machines | tojson }};
+    const machinesCookieName = {{ "machines_state" | tojson }};
+    const machinesCookieMaxAge = {{ (60 * 60) | tojson }};
     let fetchedMachinesBefore = false;
     let machinesSkeleton = null;
     let machinesBody = null;
@@ -64,7 +67,7 @@
         machinesButton?.addEventListener("click", async () => {
           await toggleMachines();
         })
-        if ({{ machines_shown_js }})
+        if (machinesShown)
           await renderMachines();
       }
 
@@ -77,7 +80,7 @@
         if (document.querySelector("#machines .retry")) {
           machinesBody.replaceChildren(machinesSkeleton);
         }
-        const html = await fetchText("{{ urls.tests_machines }}");
+        const html = await fetchText(machinesUrl);
         machinesBody.replaceChildren();
         machinesBody.insertAdjacentHTML("beforeend", html);
         const machinesTbody = document.querySelector("#machines tbody");
@@ -109,8 +112,7 @@
         await renderMachines();
       }
 
-      document.cookie =
-        "machines_state" + "=" + button.textContent.trim() + "; max-age={{ 60 * 60 }}; SameSite=Lax";
+      document.cookie = `${machinesCookieName}=${button.textContent.trim()}; max-age=${machinesCookieMaxAge}; SameSite=Lax`;
     }
 
     handleRenderMachines();

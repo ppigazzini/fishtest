@@ -4,6 +4,9 @@
 
 {% block body %}
 {% set run_id = run["_id"] %}
+<script>
+  const runId = {{ run_id | tojson }};
+</script>
 <script
   src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/8.0.2/diff.min.js"
   integrity="sha512-8pp155siHVmN5FYcqWNSFYn8Efr61/7mfg/F15auw8MCL3kvINbNT7gT8LldYPq3i/GkSADZd4IcUXPBoPP8gA=="
@@ -28,15 +31,15 @@
   <script>
     (async () => {
       await DOMContentLoaded();
-      await followRun("{{ run_id }}");
-      setNotificationStatus("{{ run_id }}");
+      await followRun(runId);
+      setNotificationStatus(runId);
     })();
   </script>
 {% else %}
   <script>
     (async () => {
       await DOMContentLoaded();
-      setNotificationStatus_("{{ run_id }}");
+      setNotificationStatus_(runId);
     })();
   </script>
 {% endif %}

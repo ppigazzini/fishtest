@@ -3,20 +3,22 @@
 {% endif %}
 
 {% if toggle is none %}
+  {% set title_text = ((username ~ " - ") if username else "") ~ "Finished Tests" ~ title ~ " - page " ~ (page_idx + 1) ~ " | Stockfish Testing" %}
   <script>
-    document.title =
-      '{{ (username ~ " - ") if username else "" }}Finished Tests{{ title }} - page {{ page_idx + 1 }} | Stockfish Testing';
+    document.title = {{ title_text | tojson }};
   </script>
 {% endif %}
 
 {% if toggle %}
   <script>
     function toggle{{ toggle|capitalize }}() {
-      const button = document.getElementById("{{ toggle }}-button");
+      const toggleButtonId = {{ (toggle ~ "-button") | tojson }};
+      const button = document.getElementById(toggleButtonId);
       const active = button.textContent.trim() === "Hide";
       button.textContent = active ? "Show" : "Hide";
-      document.cookie =
-        "{{ cookie_name }}" + "=" + button.textContent.trim() + "; max-age={{ 60 * 60 * 24 * 365 * 10 }}; SameSite=Lax";
+      const cookieName = {{ cookie_name | tojson }};
+      const cookieMaxAge = {{ (60 * 60 * 24 * 365 * 10) | tojson }};
+      document.cookie = `${cookieName}=${button.textContent.trim()}; max-age=${cookieMaxAge}; SameSite=Lax`;
     }
   </script>
 {% endif %}
