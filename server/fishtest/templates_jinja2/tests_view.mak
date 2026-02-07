@@ -4,8 +4,9 @@
 
 {% block body %}
 {% set run_id = run["_id"] %}
+{% set run_id_str = run_id | string %}
 <script>
-  const runId = {{ run_id | tojson }};
+  const runId = {{ run_id_str | tojson }};
 </script>
 <script
   src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/8.0.2/diff.min.js"
