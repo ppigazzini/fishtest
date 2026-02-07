@@ -3,9 +3,16 @@
 {% block title %}Neural Network Repository | Stockfish Testing{% endblock %}
 
 {% block body %}
-{% set network_name_filter = filters.network_name %}
-{% set user_filter = filters.user %}
-{% set master_only = filters.master_only %}
+{% set filter_source = filters if filters is defined else request.GET %}
+{% if filter_source is mapping %}
+  {% set network_name_filter = filter_source.get('network_name', '') %}
+  {% set user_filter = filter_source.get('user', '') %}
+  {% set master_only = filter_source.get('master_only', False) %}
+{% else %}
+  {% set network_name_filter = filter_source.network_name %}
+  {% set user_filter = filter_source.user %}
+  {% set master_only = filter_source.master_only %}
+{% endif %}
 <h2>Neural Network Repository</h2>
 
 <p>

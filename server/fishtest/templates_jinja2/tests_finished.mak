@@ -3,9 +3,15 @@
 {% block title %}Finished Tests{{ title_suffix }} | Stockfish Testing{% endblock %}
 
 {% block body %}
-{% set success_only = filters.success_only %}
-{% set yellow_only = filters.yellow_only %}
-{% set ltc_only = filters.ltc_only %}
+{% if filters is defined %}
+  {% set success_only = filters.success_only %}
+  {% set yellow_only = filters.yellow_only %}
+  {% set ltc_only = filters.ltc_only %}
+{% else %}
+  {% set success_only = 'success_only' in request.url %}
+  {% set yellow_only = 'yellow_only' in request.url %}
+  {% set ltc_only = 'ltc_only' in request.url %}
+{% endif %}
 <h2>
   Finished Tests
   {% if success_only %}
