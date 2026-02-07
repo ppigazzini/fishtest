@@ -26,7 +26,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <script>
-      const darkThemeHash = "{{ static_url('fishtest:static/css/theme.dark.css') }}";
+      const darkThemeHash = {{ static_url('fishtest:static/css/theme.dark.css') | tojson }};
     </script>
 
     <link

@@ -218,7 +218,7 @@
               <form
                 action="/tests/stop"
                 method="POST"
-                onsubmit="handleStopDeleteButton('{{ run_id }}'); return true;"
+                onsubmit="handleStopDeleteButton({{ run_id_str | tojson }}); return true;"
               >
                 <input type="hidden" name="run-id" value="{{ run_id }}">
                 <button type="submit" class="btn btn-danger w-100">
@@ -535,6 +535,11 @@
     .getElementById("moon")
     .addEventListener("click", () => setHighlightTheme("dark"));
 
+  const tasksShown = {{ tasks_shown | tojson }};
+  const showTask = {{ show_task | tojson }};
+  const tasksCookieName = {{ "tasks_state" | tojson }};
+  const tasksCookieMaxAge = {{ (60 * 60) | tojson }};
+
   let downloading = false;
   async function downloadPGNs(e) {
     if (downloading) {
@@ -544,7 +549,7 @@
     const button = e.currentTarget;
     button.textContent = "Downloading...";
     try {
-      const response = await fetch(`/api/run_pgns/{{ run_id }}.pgn.gz`);
+      const response = await fetch(`/api/run_pgns/${runId}.pgn.gz`);
       if (!response.ok) {
         if (response.status === 404) {
           alertError("No games found for this run");
@@ -585,7 +590,7 @@
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `{{ run_id }}.pgn.gz`;
+      a.download = `${runId}.pgn.gz`;
       document.body.append(a);
       a.click();
       document.body.removeChild(a);
@@ -607,17 +612,17 @@
     tasksButton?.addEventListener("click", async () => {
       await toggleTasks();
     })
-     if ({{ "true" if tasks_shown else "false" }})
-       await renderTasks();
+     if (tasksShown)
+       await renderTasks(showTask);
   }
 
-  async function renderTasks() {
+  async function renderTasks(showTask) {
     await DOMContentLoaded();
     if (fetchedTasksBefore)
       return Promise.resolve();
     const tasksBody = document.getElementById("tasks-body");
     try {
-      const html = await fetchText(`/tests/tasks/{{ run_id }}?show_task={{ show_task }}`);
+      const html = await fetchText(`/tests/tasks/${runId}?show_task=${showTask}`);
       tasksBody.innerHTML = html;
       fetchedTasksBefore = true;
     } catch (error) {
@@ -632,12 +637,12 @@
       button.textContent = "Show";
     }
     else {
-      await renderTasks();
+      await renderTasks(showTask);
       button.textContent = "Hide";
     }
 
     document.cookie =
-      "tasks_state" + "=" + button.textContent.trim() + "; max-age={{ 60 * 60 }}; SameSite=Lax";
+      `${tasksCookieName}=${button.textContent.trim()}; max-age=${tasksCookieMaxAge}; SameSite=Lax`;
   }
 
   function addDiff (diffText, text) {
@@ -791,6 +796,7 @@
 
   async function handleDiff() {
     await DOMContentLoaded();
+    const diffUrl = {{ diff_url(run, master_check=allow_github_api_calls) | tojson }};
     let copyDiffBtn = document.getElementById("copy-diff");
     if (
       document.queryCommandSupported &&
@@ -799,7 +805,7 @@
       copyDiffBtn.addEventListener("click", () => {
         const textarea = document.createElement("textarea");
         textarea.style.position = "fixed";
-        textarea.textContent = "curl -s {{ diff_url(run, master_check=allow_github_api_calls) }}.diff | git apply";
+        textarea.textContent = `curl -s ${diffUrl}.diff | git apply`;
         document.body.append(textarea);
         textarea.select();
         try {
@@ -815,7 +821,7 @@
       copyDiffBtn = null;
     }
 
-    const diffApiUrl = "{{ diff_url(run, master_check=allow_github_api_calls) }}".replace(
+    const diffApiUrl = diffUrl.replace(
       "//github.com/",
       "//api.github.com/repos/"
     );
@@ -829,13 +835,13 @@
       }
     } : {};
 
-    const testRepo = "{{ tests_repo(run) }}";
+    const testRepo = {{ tests_repo(run) | tojson }};
     const apiUrlNew = testRepo.replace(
       "//github.com/",
       "//api.github.com/repos/"
     );
 
-    const diffNew  = "{{ run["args"]["resolved_new"][:10] }}";
+    const diffNew = {{ run["args"]["resolved_new"][:10] | tojson }};
     const apiOfficialMaster = "https://api.github.com/repos/official-stockfish/Stockfish";
     const baseOfficialMaster = {{ gh.official_master_sha | tojson }};
 
@@ -845,16 +851,16 @@
       dots = 3;
     {% else %}
       const apiUrlBase = apiUrlNew;
-      const diffBase = "{{ run["args"]["resolved_base"][:10] }}";
+      const diffBase = {{ run["args"]["resolved_base"][:10] | tojson }};
     {% endif %}
 
     // Check if the diff is already in localStorage and use it if it is
     let localStorageDiffs = JSON.parse(localStorage.getItem("localStorageDiffs")) || [];
     localStorageDiffs = localStorageDiffs.filter(diff => diff?.timeStamp >= oneDayAgo);
 
-    let run = localStorageDiffs.find(diff => diff["id"] === "{{ run_id }}" && !diff["masterVsBase"]);
-    let text = run?.text;
-    let count = run?.lines || 0;
+    let cached = localStorageDiffs.find(diff => diff["id"] === runId && !diff["masterVsBase"]);
+    let text = cached?.text;
+    let count = cached?.lines || 0;
 
     try {
       loadingButton();
@@ -870,7 +876,7 @@
         // Try to save the diff in localStorage
         // It can throw an exception if there is not enough space
         try {
-          localStorageDiffs.push({id:"{{ run_id }}", text: text, lines: count, masterVsBase: false, timeStamp: currentTime});
+          localStorageDiffs.push({id: runId, text: text, lines: count, masterVsBase: false, timeStamp: currentTime});
           localStorage.setItem("localStorageDiffs", JSON.stringify(localStorageDiffs));
         } catch (e) {
           console.warn("Could not save diff in localStorage");
@@ -928,8 +934,8 @@
     {% if False and run["args"]["base_tag"] == "master" %}
       if (baseOfficialMaster) {
         // Check if the diff is already in localStorage and use it if it is
-        let run = localStorageDiffs.find(diff => diff["id"] === "{{ run_id }}" && diff["masterVsBase"] === true);
-        let text = run?.text;
+        let cached = localStorageDiffs.find(diff => diff["id"] === runId && diff["masterVsBase"] === true);
+        let text = cached?.text;
 
         if (!text) {
           const masterVsOfficialMaster =
@@ -938,7 +944,7 @@
           // Try to save the diff in localStorage
           // It can throw an exception if there is not enough space
           try {
-            localStorageDiffs.push({id:"{{ run_id }}", text: text, lines: count, masterVsBase: true, timeStamp: currentTime});
+            localStorageDiffs.push({id: runId, text: text, lines: count, masterVsBase: true, timeStamp: currentTime});
             localStorage.setItem("localStorageDiffs", JSON.stringify(localStorageDiffs));
           } catch (e) {
             console.warn("Could not save diff in localStorage");
@@ -965,9 +971,9 @@
             e.currentTarget.querySelector("span").textContent = "master vs official";
             e.currentTarget.title = "Compares master to official-master at the time of submission";
             // Check if the diff is already in localStorage and use it if it is
-            let run = localStorageDiffs.find(diff => diff["id"] === "{{ run_id }}" && diff["masterVsBase"] === false);
-            const originalDiffText = run.text;
-            const originalDiffCount = run.lines || 0;
+            let cached = localStorageDiffs.find(diff => diff["id"] === runId && diff["masterVsBase"] === false);
+            const originalDiffText = cached.text;
+            const originalDiffCount = cached.lines || 0;
             addDiff(diffText, originalDiffText);
             showDiff(diffContents, diffText, originalDiffCount, copyDiffBtn, toggleBtn);
             hljs.highlightElement(diffText);
@@ -983,7 +989,7 @@
   Promise.all([spsaPromise, diffPromise, tasksPromise])
     .then(() => {
     {% if show_task >= 0 %}
-      scroll_to({{ show_task }});
+      scroll_to({{ show_task | tojson }});
       document.getElementById("enclosure").style="visibility:visible;";
       document.documentElement.style="overflow:scroll;";
     {% endif %}

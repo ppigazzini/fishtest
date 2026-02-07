@@ -11,12 +11,12 @@
 
 {% if toggle %}
   <script>
-    function toggle{{ toggle|capitalize }}() {
-      const toggleButtonId = {{ (toggle ~ "-button") | tojson }};
+    function toggleSection(toggleName) {
+      const toggleButtonId = `${toggleName}-button`;
       const button = document.getElementById(toggleButtonId);
       const active = button.textContent.trim() === "Hide";
       button.textContent = active ? "Show" : "Hide";
-      const cookieName = {{ cookie_name | tojson }};
+      const cookieName = `${toggleName}_state`;
       const cookieMaxAge = {{ (60 * 60 * 24 * 365 * 10) | tojson }};
       document.cookie = `${cookieName}=${button.textContent.trim()}; max-age=${cookieMaxAge}; SameSite=Lax`;
     }
@@ -27,7 +27,7 @@
 {% if toggle %}
   <a id="{{ toggle }}-button" class="btn btn-sm btn-light border"
      data-bs-toggle="collapse" href="#{{ toggle }}" role="button" aria-expanded="false"
-     aria-controls="{{ toggle }}" onclick="toggle{{ toggle|capitalize }}()">
+      aria-controls="{{ toggle }}" onclick="toggleSection({{ toggle | tojson }})">
   {{ 'Hide' if get_cookie(request, cookie_name) == 'Hide' else 'Show' }}
   </a>
 {% endif %}
@@ -68,7 +68,7 @@
                       action="/tests/delete"
                       method="POST"
                       style="display: inline;"
-                      onsubmit="handleStopDeleteButton('{{ run['_id'] }}'); return true;"
+                      onsubmit="handleStopDeleteButton({{ run['_id'] | string | tojson }}); return true;"
                     >
                       <input type="hidden" name="csrf_token" value="{{ request.session.get_csrf_token() }}">
                       <input type="hidden" name="run-id" value="{{ run['_id'] }}">
@@ -94,7 +94,7 @@
                 <div id=notification_{{ run['_id'] }} class='notifications' onclick='handleNotification(this)' style='display:inline-block;cursor:pointer;'>
                 </div>
                 <script>
-                  setNotificationStatus_("{{ run['_id'] }}");   // no broadcast since this is at initialization
+                  setNotificationStatus_({{ run['_id'] | string | tojson }});   // no broadcast since this is at initialization
                 </script>
               </td>
             {% endif %}
