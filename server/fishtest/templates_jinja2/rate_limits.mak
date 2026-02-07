@@ -1,10 +1,10 @@
 {% extends "base.mak" %}
 
-{% block body %}
-<script>
-  document.title = "GitHub Rate Limits | Stockfish Testing";
-</script>
+{% block title %}GitHub Rate Limits | Stockfish Testing{% endblock %}
 
+{% block body %}
+{% set profile_url = urls.user_profile %}
+{% set api_rate_limit_url = urls.api_rate_limit %}
 
 <div id="rate_limits_div" hidden>
   <h2>GitHub Rate Limits</h2>
@@ -33,7 +33,7 @@
     GitHub personal access token
     </a>
     in your
-    <a href="/user">profile</a>.
+    <a href="{{ profile_url }}">profile</a>.
   </p>
 </div>
 <script>
@@ -54,7 +54,7 @@
       let now = Date.now();
       try {
         if (now - lastServerRefreshTime > refreshTime) {
-          serverRateLimit = await fetchJson("/api/rate_limit", {signal: abortTimeout(3000)});
+          serverRateLimit = await fetchJson("{{ api_rate_limit_url }}", {signal: abortTimeout(3000)});
           serverRateLimitDom.innerHTML = serverRateLimit.remaining;
           serverResetDom.innerHTML = (new Date(1000 * serverRateLimit.reset)).toLocaleTimeString();
           serverRateLimitDom.style.cssText = "";

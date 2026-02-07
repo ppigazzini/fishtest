@@ -3,6 +3,7 @@
 {% block title %}Stockfish Testing Framework{% endblock %}
 
 {% block body %}
+{% set run_id = run["_id"] %}
 {% set z975 = fishtest.stats.stat_util.Phi_inv(0.975) %}
 {% set nelo_divided_by_nt = fishtest.stats.LLRcalc.nelo_divided_by_nt %}
 
@@ -218,9 +219,9 @@
 
 <div>
   {% if has_spsa %}
-    <h2>SPSA tests do no have raw statistics: <a href="/tests/view/{{ run["_id"] }}">{{ run["_id"] }}</a></h2>
+    <h2>SPSA tests do no have raw statistics: <a href="/tests/view/{{ run_id }}">{{ run_id }}</a></h2>
   {% else %}
-    <h2>Raw Statistics for test <a href="/tests/view/{{ run["_id"] }}">{{ run["_id"] }}</a></h2>
+    <h2>Raw Statistics for test <a href="/tests/view/{{ run_id }}">{{ run_id }}</a></h2>
     <em>Unless otherwise specified, all Elo quantities below are logistic.</em>
     <div class="row">
       <div class="col-12">

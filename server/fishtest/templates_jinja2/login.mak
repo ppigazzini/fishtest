@@ -1,6 +1,7 @@
 {% extends "base.mak" %}
 
 {% block body %}
+{% set signup_url = urls.signup %}
 
 <script>
   document.title = "Login | Stockfish Testing";
@@ -11,7 +12,7 @@
     <h2>Login</h2>
     <div class="alert alert-info">
       Don't have an account?
-      <strong><a href="{{ urls.signup }}" class="alert-link">Sign up</a></strong>
+      <strong><a href="{{ signup_url }}" class="alert-link">Sign up</a></strong>
     </div>
   </header>
 

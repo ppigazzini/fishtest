@@ -17,6 +17,12 @@
 {% set is_odds = setup["is_odds"] %}
 {% set arch_filter = setup["arch_filter"] %}
 {% set compiler = setup["compiler"] %}
+{% set tests_repo_value = args.get("tests_repo", tests_repo) %}
+{% set new_tag_value = args.get("new_tag", "") %}
+{% set new_signature_value = args.get("new_signature", "") %}
+{% set new_options_value = args.get("new_options", "Hash=16") %}
+{% set base_options_value = args.get("base_options", "Hash=16") %}
+{% set info_value = args.get("info", "") %}
 
 <script>
   document.title = "Create New Test | Stockfish Testing";
@@ -211,7 +217,7 @@
                   name="tests-repo"
                   id="tests-repo"
                   class="form-control"
-                  value="{{ args.get("tests_repo", tests_repo) }}" {{ "readonly" if is_rerun else "" }}
+                  value="{{ tests_repo_value }}" {{ "readonly" if is_rerun else "" }}
                   placeholder="https://github.com/username/Stockfish"
                 >
               </div>
@@ -223,7 +229,7 @@
                   name="test-branch"
                   id="test-branch"
                   class="form-control"
-                  value="{{ args.get("new_tag", "") }}" {{ "readonly" if is_rerun else "" }}
+                  value="{{ new_tag_value }}" {{ "readonly" if is_rerun else "" }}
                   placeholder="Your test branch name"
                 >
               </div>
@@ -249,7 +255,7 @@
                   class="form-control no-arrows"
                   onwheel="this.blur()"
                   placeholder="Defaults to last commit message"
-                  value="{{ args.get("new_signature", "") }}" {{ "readonly" if is_rerun else "" }}
+                  value="{{ new_signature_value }}" {{ "readonly" if is_rerun else "" }}
                 >
               </div>
 
@@ -273,7 +279,7 @@
                   name="new-options"
                   id="new-options"
                   class="form-control"
-                  value="{{ args.get("new_options", "Hash=16") }}"
+                  value="{{ new_options_value }}"
                 >
               </div>
 
@@ -284,7 +290,7 @@
                   name="base-options"
                   id="base-options"
                   class="form-control"
-                  value="{{ args.get("base_options", "Hash=16") }}"
+                  value="{{ base_options_value }}"
                 >
               </div>
 
@@ -296,7 +302,7 @@
                   id="run-info"
                   class="form-control"
                   rows="4"
-                >{{ args.get("info", "") }}</textarea>
+                >{{ info_value }}</textarea>
               </div>
             </div>
           </div>

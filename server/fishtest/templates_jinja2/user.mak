@@ -1,6 +1,11 @@
 {% extends "base.mak" %}
 
 {% block body %}
+{% set username = user["username"] %}
+{% set tests_repo = user["tests_repo"] %}
+{% set email = user["email"] %}
+{% set registration_time = user["registration_time"] if "registration_time" in user else "Unknown" %}
+{% set user_groups = user["groups"] %}
 {% if profile %}
   <script>
     document.title = "Profile | Stockfish Testing";
@@ -31,26 +36,26 @@
     {% endif %}
     <div class="alert alert-info">
       <h4 class="alert-heading">
-        <a href="/tests/user/{{ user['username'] }}" class="alert-link col-6 text-break">{{ user['username'] }}</a>
+        <a href="/tests/user/{{ username }}" class="alert-link col-6 text-break">{{ username }}</a>
       </h4>
       <ul class="list-group list-group-flush">
-        <li class="list-group-item bg-transparent text-break">Registered: {{ format_date(user['registration_time'] if 'registration_time' in user else 'Unknown') }}</li>
+        <li class="list-group-item bg-transparent text-break">Registered: {{ format_date(registration_time) }}</li>
         {% if not profile %}
           <li class="list-group-item bg-transparent text-break">Tests Repository:
-            {% if user['tests_repo'] %}
-              <a class="alert-link" href="{{ user['tests_repo'] }}">{{ extract_repo_from_link }}</a>
+            {% if tests_repo %}
+              <a class="alert-link" href="{{ tests_repo }}">{{ extract_repo_from_link }}</a>
             {% else %}
               <span>-</span>
             {% endif %}
           </li>
           <li class="list-group-item bg-transparent text-break">Email:
-            <a href="mailto:{{ user['email'] }}?Subject=Fishtest%20Account" class="alert-link">
-              {{ user['email'] }}
+            <a href="mailto:{{ email }}?Subject=Fishtest%20Account" class="alert-link">
+              {{ email }}
             </a>
           </li>
         {% endif %}
         <li class="list-group-item bg-transparent text-break">
-          Groups: {{ format_group(user['groups']) }}
+          Groups: {{ format_group(user_groups) }}
         </li>
         <li class="list-group-item bg-transparent text-break">Machine Limit: {{ limit }}</li>
         <li class="list-group-item bg-transparent text-break">CPU-Hours: {{ hours }}</li>
@@ -62,7 +67,7 @@
     <input
       type="hidden"
       name="user"
-      value="{{ user['username'] }}"
+      value="{{ username }}"
     >
     {% if profile %}
       <div class="form-floating mb-3">
@@ -71,7 +76,7 @@
           class="form-control mb-3"
           id="email"
           name="email"
-          value="{{ user['email'] }}"
+          value="{{ email }}"
           placeholder="Email"
           required
         />
@@ -135,7 +140,7 @@
             class="form-control"
             id="tests_repo"
             name="tests_repo"
-            value="{{ user['tests_repo'] }}"
+            value="{{ tests_repo }}"
             placeholder="GitHub Stockfish fork URL"
           >
           <label for="tests_repo" class="d-flex align-items-end">Tests Repository</label>

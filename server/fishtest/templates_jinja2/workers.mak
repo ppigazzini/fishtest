@@ -124,18 +124,23 @@
       </tr>
     {% else %}
       {% for w in blocked_workers %}
+        {% set worker_name = w["worker_name"] %}
+        {% set last_updated = w["last_updated"] %}
+        {% set owner_email = w["owner_email"] %}
+        {% set subject = w["subject"] %}
+        {% set body = w["body"] %}
         <tr>
-          <td><a href="/workers/{{ w['worker_name'] }}">{{ w["worker_name"] }}</a></td>
-          <td>{{ format_time_ago(w["last_updated"]) if w["last_updated"] is not none else "Never" }}</td>
+          <td><a href="/workers/{{ worker_name }}">{{ worker_name }}</a></td>
+          <td>{{ format_time_ago(last_updated) if last_updated is not none else "Never" }}</td>
           <td>
             <a
-              href="/actions?text=%22{{ w['worker_name'] }}%22">/actions?text="{{ w['worker_name'] }}"</a
+              href="/actions?text=%22{{ worker_name }}%22">/actions?text="{{ worker_name }}"</a
             >
           </td>
           {% if show_email %}
             <td>
               <a
-                href="mailto:{{ w['owner_email'] }}?subject={{ urllib.quote(w['subject']) }}&body={{ urllib.quote(w['body'].replace('\n','\r\n')) }}" target="_blank" rel="noopener noreferrer">{{ w['owner_email'] }}
+                href="mailto:{{ owner_email }}?subject={{ urllib.quote(subject) }}&body={{ urllib.quote(body.replace('\n','\r\n')) }}" target="_blank" rel="noopener noreferrer">{{ owner_email }}
               </a>
           {% endif %}
         </tr>

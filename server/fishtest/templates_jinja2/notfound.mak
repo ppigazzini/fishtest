@@ -1,6 +1,7 @@
 {% extends "base.mak" %}
 
 {% block body %}
+{% set home_url = urls.home %}
 
 <script>
   document.title = "Page not found";
@@ -48,7 +49,7 @@
     <h1 class="error-heading">404</h1>
     <h2 class="error-message">Oops! Page not found.</h2>
     <p class="lead">The page you are looking for might have been removed, had its name changed, or is temporarily unavailable.</p>
-    <a href="{{ urls.home }}" class="error-button">Go to Home</a>
+    <a href="{{ home_url }}" class="error-button">Go to Home</a>
   </div>
 </div>
 {% endblock %}

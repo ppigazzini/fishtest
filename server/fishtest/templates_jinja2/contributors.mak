@@ -1,12 +1,11 @@
 {% extends "base.mak" %}
 
+{% set is_monthly = "monthly" in request.url %}
+{% set monthly_suffix = " - Top Month" if is_monthly else "" %}
+
+{% block title %}Contributors{{ monthly_suffix }} | Stockfish Testing{% endblock %}
+
 {% block body %}
-<script>
-  document.title =
-    'Contributors{{ " - Top Month" if "monthly" in request.url else "" }} | Stockfish Testing';
-</script>
-
-
 <script>
   (async () => {
     await DOMContentLoaded();
@@ -31,27 +30,22 @@
   })();
 </script>
 
-<h2>
-  Contributors
-  {% if 'monthly' in request.url %}
-    - Top Month
-  {% endif %}
-</h2>
+<h2>Contributors{{ monthly_suffix }}</h2>
 
 {% set counts = namespace(testers=0, developers=0, active_testers=0, cpu_hours=0, games=0, tests=0) %}
-{% for u in users %}
-  {% if u['last_updated'] != datetime.datetime.min.replace(tzinfo=datetime.UTC) %}
+{% for user in users %}
+  {% if user['last_updated'] != datetime.datetime.min.replace(tzinfo=datetime.UTC) %}
     {% set counts.testers = counts.testers + 1 %}
   {% endif %}
-  {% if u['tests'] > 0 %}
+  {% if user['tests'] > 0 %}
     {% set counts.developers = counts.developers + 1 %}
   {% endif %}
-  {% if u['games_per_hour'] > 0 %}
+  {% if user['games_per_hour'] > 0 %}
     {% set counts.active_testers = counts.active_testers + 1 %}
   {% endif %}
-  {% set counts.cpu_hours = counts.cpu_hours + u['cpu_hours'] %}
-  {% set counts.games = counts.games + u['games'] %}
-  {% set counts.tests = counts.tests + u['tests'] %}
+  {% set counts.cpu_hours = counts.cpu_hours + user['cpu_hours'] %}
+  {% set counts.games = counts.games + user['games'] %}
+  {% set counts.tests = counts.tests + user['tests'] %}
 {% endfor %}
 
 <div class="row g-3 mb-3">
@@ -150,23 +144,23 @@
     </thead>
     <tbody>
       {% for user in users %}
+        {% set username = user['username'] %}
+        {% set last_updated = user['last_updated'] %}
         <tr>
           <td class="rank">{{ loop.index }}</td>
           <td>
           {% if approver %}
-            <a href="/user/{{ user['username'] }}">
-              {{ user['username'] }}
-            </a>
+            <a href="/user/{{ username }}">{{ username }}</a>
           {% else %}
-            {{ user['username'] }}
+            {{ username }}
           {% endif %}
           </td>
-          <td data-sort-value="{{ -user['last_updated'].timestamp() }}" class="text-end">{{ format_time_ago(user['last_updated']) }}</td>
+          <td data-sort-value="{{ -last_updated.timestamp() }}" class="text-end">{{ format_time_ago(last_updated) }}</td>
           <td class="text-end">{{ user['games_per_hour'] | int }}</td>
           <td class="text-end">{{ user['cpu_hours'] | int }}</td>
           <td class="text-end">{{ user['games'] | int }}</td>
           <td class="text-end">
-            <a href="/tests/user/{{ urllib.quote(user['username']) }}">{{ user['tests'] }} </a>
+            <a href="/tests/user/{{ urllib.quote(username) }}">{{ user['tests'] }}</a>
           </td>
           <td class="user-repo">
             <a href="{{ user['tests_repo'] }}" target="_blank" rel="noopener">{{ user['tests_repo'] }}</a>

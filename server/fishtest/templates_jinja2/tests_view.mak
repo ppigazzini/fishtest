@@ -3,6 +3,7 @@
 {% block title %}Stockfish Testing Framework{% endblock %}
 
 {% block body %}
+{% set run_id = run["_id"] %}
 <script
   src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/8.0.2/diff.min.js"
   integrity="sha512-8pp155siHVmN5FYcqWNSFYn8Efr61/7mfg/F15auw8MCL3kvINbNT7gT8LldYPq3i/GkSADZd4IcUXPBoPP8gA=="
@@ -27,15 +28,15 @@
   <script>
     (async () => {
       await DOMContentLoaded();
-      await followRun("{{ run["_id"] }}");
-      setNotificationStatus("{{ run["_id"] }}");
+      await followRun("{{ run_id }}");
+      setNotificationStatus("{{ run_id }}");
     })();
   </script>
 {% else %}
   <script>
     (async () => {
       await DOMContentLoaded();
-      setNotificationStatus_("{{ run["_id"] }}");
+      setNotificationStatus_("{{ run_id }}");
     })();
   </script>
 {% endif %}
@@ -179,12 +180,12 @@
               </tr>
               <tr>
                 <td>events</td>
-                <td><a href="/actions?run_id={{ run["_id"] }}">/actions?run_id={{ run["_id"] }}</a></td>
+                <td><a href="/actions?run_id={{ run_id }}">/actions?run_id={{ run_id }}</a></td>
               </tr>
               {% if "spsa" not in run["args"] %}
                 <tr>
                   <td>raw statistics</td>
-                  <td><a href="/tests/stats/{{ run["_id"] }}">/tests/stats/{{ run["_id"] }}</a></td>
+                  <td><a href="/tests/stats/{{ run_id }}">/tests/stats/{{ run_id }}</a></td>
                 </tr>
               {% endif %}
               {% if run["approver"] != "" %}
@@ -213,9 +214,9 @@
               <form
                 action="/tests/stop"
                 method="POST"
-                onsubmit="handleStopDeleteButton('{{ run["_id"] }}'); return true;"
+                onsubmit="handleStopDeleteButton('{{ run_id }}'); return true;"
               >
-                <input type="hidden" name="run-id" value="{{ run["_id"] }}">
+                <input type="hidden" name="run-id" value="{{ run_id }}">
                 <button type="submit" class="btn btn-danger w-100">
                   Stop
                 </button>
@@ -225,7 +226,7 @@
             {% if not run.get("approved", False) and not same_user %}
               <div class="col-12 col-sm">
                 <form action="/tests/approve" method="POST">
-                  <input type="hidden" name="run-id" value="{{ run["_id"] }}">
+                  <input type="hidden" name="run-id" value="{{ run_id }}">
                   <button type="submit" id="approve-btn"
                           class="btn {{ "btn-success" if warnings == [] else "btn-warning" }} w-100">
                     Approve
@@ -236,7 +237,7 @@
           {% else %}
             <div class="col-12 col-sm">
               <form action="/tests/purge" method="POST">
-                <input type="hidden" name="run-id" value="{{ run["_id"] }}">
+                <input type="hidden" name="run-id" value="{{ run_id }}">
                 <button type="submit" class="btn btn-danger w-100">Purge</button>
               </form>
             </div>
@@ -249,7 +250,7 @@
           </button>
         </div>
         <div class="col-12 col-sm">
-          <a class="btn btn-light border w-100" href="/tests/run?id={{ run["_id"] }}">Reschedule</a>
+          <a class="btn btn-light border w-100" href="/tests/run?id={{ run_id }}">Reschedule</a>
         </div>
       </div>
       <hr>
@@ -342,7 +343,7 @@
             <label class="form-check-label" for="auto-purge">Auto-purge</label>
           </div>
 
-          <input type="hidden" name="run" value="{{ run["_id"] }}">
+          <input type="hidden" name="run" value="{{ run_id }}">
           <button type="submit" class="btn btn-primary col-12 col-md-auto">Modify</button>
         </form>
       {% endif %}
@@ -376,7 +377,7 @@
       {% if not run["finished"] %}
         <h4>Notifications</h4>
         <button
-          id="follow_button_{{ run["_id"] }}"
+          id="follow_button_{{ run_id }}"
           class="btn btn-primary col-12 col-md-auto"
           onclick="handleFollowButton(this)"
           style="display:none; margin-top:0.2em;"></button>
@@ -539,7 +540,7 @@
     const button = e.currentTarget;
     button.textContent = "Downloading...";
     try {
-      const response = await fetch(`/api/run_pgns/{{ run["_id"] }}.pgn.gz`);
+      const response = await fetch(`/api/run_pgns/{{ run_id }}.pgn.gz`);
       if (!response.ok) {
         if (response.status === 404) {
           alertError("No games found for this run");
@@ -580,7 +581,7 @@
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `{{ run["_id"] }}.pgn.gz`;
+      a.download = `{{ run_id }}.pgn.gz`;
       document.body.append(a);
       a.click();
       document.body.removeChild(a);
@@ -612,7 +613,7 @@
       return Promise.resolve();
     const tasksBody = document.getElementById("tasks-body");
     try {
-      const html = await fetchText(`/tests/tasks/{{ run["_id"] }}?show_task={{ show_task }}`);
+      const html = await fetchText(`/tests/tasks/{{ run_id }}?show_task={{ show_task }}`);
       tasksBody.innerHTML = html;
       fetchedTasksBefore = true;
     } catch (error) {
@@ -847,7 +848,7 @@
     let localStorageDiffs = JSON.parse(localStorage.getItem("localStorageDiffs")) || [];
     localStorageDiffs = localStorageDiffs.filter(diff => diff?.timeStamp >= oneDayAgo);
 
-    let run = localStorageDiffs.find(diff => diff["id"] === "{{ run["_id"] }}" && !diff["masterVsBase"]);
+    let run = localStorageDiffs.find(diff => diff["id"] === "{{ run_id }}" && !diff["masterVsBase"]);
     let text = run?.text;
     let count = run?.lines || 0;
 
@@ -865,7 +866,7 @@
         // Try to save the diff in localStorage
         // It can throw an exception if there is not enough space
         try {
-          localStorageDiffs.push({id:"{{ run["_id"] }}", text: text, lines: count, masterVsBase: false, timeStamp: currentTime});
+          localStorageDiffs.push({id:"{{ run_id }}", text: text, lines: count, masterVsBase: false, timeStamp: currentTime});
           localStorage.setItem("localStorageDiffs", JSON.stringify(localStorageDiffs));
         } catch (e) {
           console.warn("Could not save diff in localStorage");
@@ -923,7 +924,7 @@
     {% if False and run["args"]["base_tag"] == "master" %}
       if (baseOfficialMaster) {
         // Check if the diff is already in localStorage and use it if it is
-        let run = localStorageDiffs.find(diff => diff["id"] === "{{ run["_id"] }}" && diff["masterVsBase"] === true);
+        let run = localStorageDiffs.find(diff => diff["id"] === "{{ run_id }}" && diff["masterVsBase"] === true);
         let text = run?.text;
 
         if (!text) {
@@ -933,7 +934,7 @@
           // Try to save the diff in localStorage
           // It can throw an exception if there is not enough space
           try {
-            localStorageDiffs.push({id:"{{ run["_id"] }}", text: text, lines: count, masterVsBase: true, timeStamp: currentTime});
+            localStorageDiffs.push({id:"{{ run_id }}", text: text, lines: count, masterVsBase: true, timeStamp: currentTime});
             localStorage.setItem("localStorageDiffs", JSON.stringify(localStorageDiffs));
           } catch (e) {
             console.warn("Could not save diff in localStorage");
@@ -960,7 +961,7 @@
             e.currentTarget.querySelector("span").textContent = "master vs official";
             e.currentTarget.title = "Compares master to official-master at the time of submission";
             // Check if the diff is already in localStorage and use it if it is
-            let run = localStorageDiffs.find(diff => diff["id"] === "{{ run["_id"] }}" && diff["masterVsBase"] === false);
+            let run = localStorageDiffs.find(diff => diff["id"] === "{{ run_id }}" && diff["masterVsBase"] === false);
             const originalDiffText = run.text;
             const originalDiffCount = run.lines || 0;
             addDiff(diffText, originalDiffText);

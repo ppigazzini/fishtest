@@ -1,4 +1,12 @@
 <!doctype html>
+{% set home_url = urls.home %}
+{% set login_url = urls.login %}
+{% set signup_url = urls.signup %}
+{% set user_profile_url = urls.user_profile %}
+{% set logout_url = urls.logout %}
+{% set tests_run_url = urls.tests_run %}
+{% set tests_user_prefix = urls.tests_user_prefix %}
+{% set nn_upload_url = urls.nn_upload %}
 <html lang="en">
   <head>
     <title>{% block title %}{{ page_title or "Stockfish Testing Framework" }}{% endblock %}</title>
@@ -80,7 +88,7 @@
 
         <a
           class="navbar-brand p-0 me-0 me-lg-2 d-flex align-items-center"
-          href="{{ urls.home }}"
+          href="{{ home_url }}"
           aria-label="Bootstrap"
         >
           <div class="brand-logo d-inline me-lg-2"></div>
@@ -126,7 +134,7 @@
                 <li class="nav-item col-6 col-lg-auto order-lg-2">
                   <a
                     class="nav-link py-2 px-0 px-lg-2"
-                    href="{{ urls.tests_user_prefix ~ current_user.username }}"
+                    href="{{ tests_user_prefix ~ current_user.username }}"
                     title="My Tests"
                   >
                     <i class="fa-solid fa-flask d-inline me-2 mx-lg-1"></i>
@@ -136,7 +144,7 @@
                 <li class="nav-item col-6 col-lg-auto order-lg-1">
                   <a
                     class="nav-link py-2 px-0 px-lg-2"
-                    href="{{ urls.tests_run }}"
+                    href="{{ tests_run_url }}"
                     title="New Test"
                   >
                     <i class="fa-solid fa-plus d-inline me-2 mx-lg-1"></i>
@@ -146,7 +154,7 @@
                 <li class="nav-item col-6 col-lg-auto order-lg-0">
                   <a
                     class="nav-link py-2 px-0 px-lg-2"
-                    href="{{ urls.nn_upload }}"
+                    href="{{ nn_upload_url }}"
                     title="Upload Neural Network"
                   >
                     <i
@@ -160,13 +168,13 @@
                   <hr class="d-lg-none">
                 </li>
                 <li class="nav-item col-6 col-lg-auto order-lg-2">
-                  <a class="nav-link py-2 px-0 px-lg-2" href="{{ urls.user_profile }}"
+                  <a class="nav-link py-2 px-0 px-lg-2" href="{{ user_profile_url }}"
                     ><i class="fa-solid fa-user d-inline d-lg-none me-2"></i
                     >Profile
                   </a>
                 </li>
                 <li class="nav-item col-6 col-lg-auto order-lg-2">
-                  <a class="nav-link py-2 px-0 px-lg-2" href="{{ urls.logout }}" id="logout"
+                  <a class="nav-link py-2 px-0 px-lg-2" href="{{ logout_url }}" id="logout"
                     ><i
                       class="fa-solid fa-arrow-right-from-bracket d-inline d-lg-none me-2"
                     ></i
@@ -175,7 +183,7 @@
                 </li>
               {% else %}
                 <li class="nav-item col-6 col-lg-auto order-lg-2">
-                  <a class="nav-link py-2 px-0 px-lg-2" href="{{ urls.login }}"
+                  <a class="nav-link py-2 px-0 px-lg-2" href="{{ login_url }}"
                     ><i
                       class="fa-solid fa-arrow-right-to-bracket d-inline d-lg-none me-2"
                     ></i
@@ -183,7 +191,7 @@
                   >
                 </li>
                 <li class="nav-item col-6 col-lg-auto order-lg-2">
-                  <a class="nav-link py-2 px-0 px-lg-2" href="{{ urls.signup }}"
+                  <a class="nav-link py-2 px-0 px-lg-2" href="{{ signup_url }}"
                     ><i class="fa-solid fa-user-plus d-inline d-lg-none me-2"></i
                     >Register</a
                   >

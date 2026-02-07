@@ -5,6 +5,7 @@
 {% endblock %}
 
 {% block body %}
+{% set login_url = urls.login %}
 
 <script>
   document.title = "Register | Stockfish Testing";
@@ -18,7 +19,7 @@
       <p class="mb-0">To avoid spam, a person will manually approve your account.</p>
       <p class="mb-0">This is usually quick but <strong>sometimes takes a few hours</strong>.</p>
       <hr />
-      <p class="mb-0">Already have an account? <strong><a href="{{ urls.login }}" class="alert-link">Log in</a></strong></p>
+      <p class="mb-0">Already have an account? <strong><a href="{{ login_url }}" class="alert-link">Log in</a></strong></p>
     </div>
   </header>
 

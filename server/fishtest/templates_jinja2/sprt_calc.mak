@@ -1,10 +1,10 @@
 {% extends "base.mak" %}
 
-{% block body %}
-<script>
-  document.title = "Chess SPRT Calculator | Stockfish Testing";
-</script>
+{% block title %}Chess SPRT Calculator | Stockfish Testing{% endblock %}
 
+{% block body %}
+{% set sprt_js_url = static_url('fishtest:static/js/sprt.js') %}
+{% set calc_js_url = static_url('fishtest:static/js/calc.js') %}
 <h2>Chess SPRT Calculator</h2>
 
 <form id="parameters" class="row">
@@ -138,7 +138,7 @@
 
 <script src="https://www.gstatic.com/charts/loader.js"></script>
 
-<script src="{{ request.static_url('fishtest:static/js/sprt.js') }}"></script>
+<script src="{{ sprt_js_url }}"></script>
 
-<script src="{{ request.static_url('fishtest:static/js/calc.js') }}"></script>
+<script src="{{ calc_js_url }}"></script>
 {% endblock %}

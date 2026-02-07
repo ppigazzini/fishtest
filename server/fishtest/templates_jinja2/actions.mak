@@ -1,13 +1,14 @@
 {% extends "base.mak" %}
 
+{% block title %}Events Log | Stockfish Testing{% endblock %}
+
 {% block body %}
+{% set action_filter = action_param if action_param is defined else (filters.action if filters is defined and filters.action is defined else "") %}
+{% set username_filter = username_param if username_param is defined else (filters.username if filters is defined and filters.username is defined else "") %}
+{% set text_filter = text_param if text_param is defined else (filters.text if filters is defined and filters.text is defined else "") %}
 <h2>Events Log</h2>
 
-<script>
-  document.title = "Events Log | Stockfish Testing";
-</script>
-
-<form class="row mb-3">
+<form class="row mb-3" action="{{ urls.actions }}" method="GET">
   <div class="col-12 col-md-auto mb-3">
     <label for="restrict" class="form-label">Show only</label>
     <select id="restrict" class="form-select" name="action">
@@ -41,11 +42,11 @@
       type="text"
       name="user"
       list="users-list"
-      value="{{ username_param }}"
+      value="{{ username_filter }}"
     >
     <datalist id="users-list">
-      {% for user in request.userdb.get_users() %}
-        <option value="{{ user["username"] }}">{{ user["username"] }}</option>
+      {% for username in usernames %}
+        <option value="{{ username }}">{{ username }}</option>
       {% endfor %}
     </datalist>
   </div>
@@ -101,7 +102,7 @@
       placeholder="Enter some text"
       type="text"
       name="text"
-      value="{{ text_param }}"
+      value="{{ text_filter }}"
     >
   </div>
 
@@ -129,46 +130,28 @@
       {% for action in actions %}
         <tr>
           <td>
-            <a
-              href="/actions?max_actions=1&amp;action={{ action_param }}&amp;user={{ username_param | urlencode }}&amp;text={{ text_param | urlencode }}&amp;before={{ action['time'] }}&amp;run_id={{ run_id_param }}"
-            >
-              {{ datetime.datetime.utcfromtimestamp(action['time']).strftime("%y&#8209;%m&#8209;%d %H:%M:%S") | safe }}
-            </a>
+            {% if action.time_url %}
+              <a href="{{ action.time_url }}">{{ action.time_label }}</a>
+            {% else %}
+              {{ action.time_label }}
+            {% endif %}
           </td>
-          <td>{{ action['action'] }}</td>
-          {% if 'worker' in action and action['action'] != 'block_worker' %}
-            {% set agent = action['worker'] %}
-            {% set short_agent = agent.split('-')[0:3] | join('-') %}
-            {% set agent_link = "/workers/" ~ short_agent %}
-          {% else %}
-            {% set agent = action['username'] %}
-            {% set agent_link = "/user/" ~ agent %}
-          {% endif %}
-          {% if action['action'] in ('system_event', 'log_message') %}
-            <td>
-              {% if 'worker' in action %}
-                {{ action['worker'] }}
-              {% else %}
-                {{ action['username'] }}
-              {% endif %}
-            </td>
-          {% else %}
-            <td><a href="{{ agent_link }}">{{ agent }}</a></td>
-          {% endif %}
-          {% if 'nn' in action %}
-            <td><a href=/api/nn/{{ action['nn'] }}>{{ action['nn'].replace('-', '&#8209;') | safe }}</a></td>
-          {% elif 'run' in action and 'run_id' in action %}
-            {% set task_suffix = ("/" ~ action["task_id"]) if "task_id" in action else "" %}
-            {% set task_query = ("?show_task=" ~ action["task_id"]) if "task_id" in action else "" %}
-            <td><a href="/tests/view/{{ action['run_id'] }}{{ task_query }}">{{ action['run'] }}{{ task_suffix }}</a></td>
-          {% elif approver and 'user' in action %}
-            <td><a href="/user/{{ action['user'] }}">{{ action['user'] }}</a></td>
-          {% elif action['action'] == 'block_worker' %}
-            <td><a href="/workers/{{ action['worker'] }}">{{ action['worker'] }}</a></td>
-          {% else %}
-            <td>{{ action.get('user','') }}</td>
-          {% endif %}
-          <td class="text-break">{{ action.get('message','') }}</td>
+          <td>{{ action.event }}</td>
+          <td>
+            {% if action.agent_url %}
+              <a href="{{ action.agent_url }}">{{ action.agent_name }}</a>
+            {% else %}
+              {{ action.agent_name }}
+            {% endif %}
+          </td>
+          <td>
+            {% if action.target_url %}
+              <a href="{{ action.target_url }}">{{ action.target_name }}</a>
+            {% else %}
+              {{ action.target_name }}
+            {% endif %}
+          </td>
+          <td class="text-break">{{ action.message }}</td>
         </tr>
       {% else %}
         <tr>
@@ -184,7 +167,6 @@
 {% endwith %}
 
 <script>
-  document.getElementById('restrict').value =
-    ('{{ request.GET.get("action") if request.GET.get("action") is not none else "" }}');
+  document.getElementById("restrict").value = "{{ action_filter }}";
 </script>
 {% endblock %}
