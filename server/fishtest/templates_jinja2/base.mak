@@ -1,4 +1,5 @@
 <!doctype html>
+{% set urls = urls if urls is defined else {} %}
 {% set home_url = urls.home %}
 {% set login_url = urls.login %}
 {% set signup_url = urls.signup %}
