@@ -12,8 +12,7 @@ This directory contains *work-in-progress* docs for the Pyramid → FastAPI migr
 2. **Current repo snapshot (what exists today):**
    - [2-ARCHITECTURE.md](2-ARCHITECTURE.md)
    - Template catalog: [2.2-MAKO.md](2.2-MAKO.md)
-   - New Mako plan: [2.4-MAKO-NEW.md](2.4-MAKO-NEW.md)
-   - Jinja2 plan: [2.3-JINJA2.md](2.3-JINJA2.md)
+   - Jinja2 runtime: [2.3-JINJA2.md](2.3-JINJA2.md)
 
 3. **Async/blocking boundaries (runtime invariants):**
    - [2.1-ASYNC-INVENTORY.md](2.1-ASYNC-INVENTORY.md)
@@ -38,7 +37,7 @@ This directory contains *work-in-progress* docs for the Pyramid → FastAPI migr
    - [9-JINJA2-REFERENCES.md](9-JINJA2-REFERENCES.md)
 
 9. **Template metrics:**
-   - [8-TEMPLATE-METRICS.md](8-TEMPLATE-METRICS.md)
+   - [11.3-TEMPLATES-METRICS.md](11.3-TEMPLATES-METRICS.md)
 
 10. **Reports:**
    - [90-CLAUDE-REPORT.md](90-CLAUDE-REPORT.md)
@@ -61,7 +60,7 @@ This directory contains *work-in-progress* docs for the Pyramid → FastAPI migr
 
 ### UI contract (browser-visible behavior)
 
-- UI routes render HTML (Mako) and must **not** start returning JSON errors for browser pages.
+- UI routes render HTML (Jinja2) and must **not** start returning JSON errors for browser pages.
 - 403/404 behavior is template-rendered HTML (and cookie session semantics are preserved).
 - Login/logout, CSRF enforcement, flashes, and redirects must remain compatible.
 

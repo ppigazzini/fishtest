@@ -60,7 +60,7 @@ def default_environment() -> Environment:
     """Return a Jinja2 environment bound to the Jinja2 templates directory."""
     env = Environment(
         loader=FileSystemLoader(str(templates_dir())),
-        autoescape=select_autoescape(["html", "xml", "mak"]),
+        autoescape=select_autoescape(["html", "xml", "j2"]),
         undefined=MakoUndefined,
         extensions=["jinja2.ext.do"],
     )

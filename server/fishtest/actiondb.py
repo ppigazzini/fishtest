@@ -283,9 +283,7 @@ class ActionDb:
         try:
             validate(action_schema, action, "action")
         except ValidationError as e:
-            message = (
-                f"Internal Error. Request {str(action)} does not validate: {str(e)}"
-            )
+            message = f"Internal Error. Request {action!s} does not validate: {e!s}"
             print(message, flush=True)
             self.log_message(
                 username="fishtest.system",

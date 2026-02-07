@@ -1,4 +1,4 @@
-# ruff: noqa: ANN201, ANN206, B904, D100, D101, D102, E501, EM101, EM102, INP001, PLC0415, PT009, S105, S106, TRY003
+# ruff: noqa: ANN201, ANN206, D100, D101, D102, E501, INP001, PLC0415, PT009
 
 import tempfile
 import unittest
@@ -138,11 +138,12 @@ class TestHttpBoundary(unittest.TestCase):
             session = CookieSession(data={"user": "TestUser"})
             session.flash("hello")
             context = build_template_context(request, session)
-            template_req = context["request"]
+            template_req = context["template_request"]
+            self.assertTrue(hasattr(context["request"], "scope"))
             return {
                 "csrf": template_req.session.get_csrf_token(),
                 "user": template_req.authenticated_userid,
-                "flash": template_req.session.peek_flash(),
+                "flash": context["flash"],
                 "static_url": template_req.static_url("fishtest:static/css/site.css"),
             }
 
@@ -153,22 +154,20 @@ class TestHttpBoundary(unittest.TestCase):
             target.write_text("body{}", encoding="utf-8")
 
             original_dir = template_request._STATIC_DIR
-            original_cache = dict(template_request._STATIC_TOKEN_CACHE)
             template_request._STATIC_DIR = static_dir
-            template_request._STATIC_TOKEN_CACHE.clear()
+            template_request._static_file_token.cache_clear()
             try:
                 client = self.TestClient(app)
                 response = client.get("/context")
             finally:
                 template_request._STATIC_DIR = original_dir
-                template_request._STATIC_TOKEN_CACHE.clear()
-                template_request._STATIC_TOKEN_CACHE.update(original_cache)
+                template_request._static_file_token.cache_clear()
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertTrue(data["csrf"])
         self.assertEqual(data["user"], "TestUser")
-        self.assertTrue(data["flash"])
+        self.assertEqual(data["flash"]["info"], ["hello"])
         self.assertTrue(data["static_url"].startswith("/static/css/site.css"))
         self.assertIn("?x=", data["static_url"])
 

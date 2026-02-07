@@ -23,14 +23,20 @@ class ActionsViewMaxActionsTest(unittest.TestCase):
         testing.tearDown()
 
     def _make_request(
-        self, params=None, authenticated_userid=None, return_count=0, path="/actions"
+        self,
+        params=None,
+        authenticated_userid=None,
+        return_count=0,
+        path="/actions",
     ):
         self.config.set_security_policy(
-            testing.DummySecurityPolicy(userid=authenticated_userid)
+            testing.DummySecurityPolicy(userid=authenticated_userid),
         )
         actiondb = _ActionDbStub(return_count=return_count)
         request = testing.DummyRequest(
-            params=params or {}, actiondb=actiondb, path=path
+            params=params or {},
+            actiondb=actiondb,
+            path=path,
         )
         return request, actiondb
 
@@ -106,21 +112,24 @@ class ActionsViewMaxActionsTest(unittest.TestCase):
 
     def test_authenticated_default_soft_cap_unfiltered(self):
         request, actiondb = self._make_request(
-            params={}, authenticated_userid="JoeUser"
+            params={},
+            authenticated_userid="JoeUser",
         )
         actions_view(request)
         self.assertEqual(actiondb.last_kwargs["max_actions"], 50000)
 
     def test_authenticated_allows_override_upward(self):
         request, actiondb = self._make_request(
-            params={"max_actions": "200000"}, authenticated_userid="JoeUser"
+            params={"max_actions": "200000"},
+            authenticated_userid="JoeUser",
         )
         actions_view(request)
         self.assertEqual(actiondb.last_kwargs["max_actions"], 200000)
 
     def test_authenticated_filtered_no_default_cap(self):
         request, actiondb = self._make_request(
-            params={"user": "someone"}, authenticated_userid="JoeUser"
+            params={"user": "someone"},
+            authenticated_userid="JoeUser",
         )
         actions_view(request)
         self.assertIsNone(actiondb.last_kwargs["max_actions"])

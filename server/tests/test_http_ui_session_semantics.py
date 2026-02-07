@@ -1,4 +1,4 @@
-# ruff: noqa: ANN201, ANN206, B904, D100, D101, D102, E501, EM101, EM102, INP001, PLC0415, PT009, S105, S106, TRY003
+# ruff: noqa: ANN201, ANN206, D100, D101, D102, E501, INP001, PLC0415, PT009
 
 import unittest
 
@@ -40,7 +40,7 @@ class TestHttpUiSessionSemantics(unittest.TestCase):
         response = client.get("/this-ui-route-does-not-exist")
         self.assertEqual(response.status_code, 404)
 
-        # base.mak calls request.session.get_csrf_token(), so the session becomes dirty
+        # base.html.j2 calls request.session.get_csrf_token(), so the session becomes dirty
         # and must be committed even on UI error pages.
         set_cookie = response.headers.get("set-cookie", "")
         self.assertIn(f"{SESSION_COOKIE_NAME}=", set_cookie)

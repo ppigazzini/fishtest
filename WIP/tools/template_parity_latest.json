@@ -1,0 +1,235 @@
+{
+  "mismatches": [
+    "notfound.mak",
+    "tests_finished.mak",
+    "tests_run.mak",
+    "user.mak"
+  ],
+  "results": [
+    {
+      "left_len": 21172,
+      "minified_equal": false,
+      "minified_score": 0.9960281340504757,
+      "normalized_equal": true,
+      "raw_equal": false,
+      "right_len": 21029,
+      "template": "actions.mak"
+    },
+    {
+      "left_len": 20624,
+      "minified_equal": false,
+      "minified_score": 0.9963254144590669,
+      "normalized_equal": true,
+      "raw_equal": false,
+      "right_len": 20401,
+      "template": "contributors.mak"
+    },
+    {
+      "left_len": 146,
+      "minified_equal": true,
+      "minified_score": 1.0,
+      "normalized_equal": true,
+      "raw_equal": false,
+      "right_len": 159,
+      "template": "elo_results.mak"
+    },
+    {
+      "left_len": 18183,
+      "minified_equal": false,
+      "minified_score": 0.9963662057131322,
+      "normalized_equal": true,
+      "raw_equal": false,
+      "right_len": 17960,
+      "template": "login.mak"
+    },
+    {
+      "left_len": 891,
+      "minified_equal": true,
+      "minified_score": 1.0,
+      "normalized_equal": true,
+      "raw_equal": false,
+      "right_len": 901,
+      "template": "machines.mak"
+    },
+    {
+      "left_len": 18674,
+      "minified_equal": false,
+      "minified_score": 0.9951042788602761,
+      "normalized_equal": true,
+      "raw_equal": false,
+      "right_len": 18452,
+      "template": "nn_upload.mak"
+    },
+    {
+      "left_len": 19145,
+      "minified_equal": false,
+      "minified_score": 0.9949348091173436,
+      "normalized_equal": true,
+      "raw_equal": false,
+      "right_len": 19092,
+      "template": "nns.mak"
+    },
+    {
+      "left_len": 17628,
+      "minified_equal": false,
+      "minified_score": 0.9963849740661183,
+      "normalized_equal": false,
+      "raw_equal": false,
+      "right_len": 17424,
+      "template": "notfound.mak"
+    },
+    {
+      "left_len": 428,
+      "minified_equal": true,
+      "minified_score": 1.0,
+      "normalized_equal": true,
+      "raw_equal": false,
+      "right_len": 558,
+      "template": "pagination.mak"
+    },
+    {
+      "left_len": 19342,
+      "minified_equal": false,
+      "minified_score": 0.9956501619620546,
+      "normalized_equal": true,
+      "raw_equal": false,
+      "right_len": 19117,
+      "template": "rate_limits.mak"
+    },
+    {
+      "left_len": 1516,
+      "minified_equal": false,
+      "minified_score": 0.96,
+      "normalized_equal": true,
+      "raw_equal": false,
+      "right_len": 1572,
+      "template": "run_table.mak"
+    },
+    {
+      "left_len": 5158,
+      "minified_equal": true,
+      "minified_score": 1.0,
+      "normalized_equal": true,
+      "raw_equal": false,
+      "right_len": 5392,
+      "template": "run_tables.mak"
+    },
+    {
+      "left_len": 20459,
+      "minified_equal": false,
+      "minified_score": 0.996643717728055,
+      "normalized_equal": true,
+      "raw_equal": false,
+      "right_len": 20221,
+      "template": "signup.mak"
+    },
+    {
+      "left_len": 21311,
+      "minified_equal": false,
+      "minified_score": 0.9948215875070798,
+      "normalized_equal": true,
+      "raw_equal": false,
+      "right_len": 21088,
+      "template": "sprt_calc.mak"
+    },
+    {
+      "left_len": 489,
+      "minified_equal": false,
+      "minified_score": 0.9934426229508196,
+      "normalized_equal": true,
+      "raw_equal": false,
+      "right_len": 515,
+      "template": "tasks.mak"
+    },
+    {
+      "left_len": 25485,
+      "minified_equal": true,
+      "minified_score": 1.0,
+      "normalized_equal": true,
+      "raw_equal": false,
+      "right_len": 25584,
+      "template": "tests.mak"
+    },
+    {
+      "left_len": 16983,
+      "minified_equal": false,
+      "minified_score": 0.9889693593314763,
+      "normalized_equal": false,
+      "raw_equal": false,
+      "right_len": 16695,
+      "template": "tests_finished.mak"
+    },
+    {
+      "left_len": 18356,
+      "minified_equal": false,
+      "minified_score": 0.9965160313052259,
+      "normalized_equal": true,
+      "raw_equal": false,
+      "right_len": 18152,
+      "template": "tests_live_elo.mak"
+    },
+    {
+      "left_len": 60985,
+      "minified_equal": false,
+      "minified_score": 0.9349443403504905,
+      "normalized_equal": false,
+      "raw_equal": false,
+      "right_len": 58941,
+      "template": "tests_run.mak"
+    },
+    {
+      "left_len": 18902,
+      "minified_equal": false,
+      "minified_score": 0.995581171950048,
+      "normalized_equal": true,
+      "raw_equal": false,
+      "right_len": 18685,
+      "template": "tests_stats.mak"
+    },
+    {
+      "left_len": 21776,
+      "minified_equal": false,
+      "minified_score": 0.9971830985915493,
+      "normalized_equal": true,
+      "raw_equal": false,
+      "right_len": 21800,
+      "template": "tests_user.mak"
+    },
+    {
+      "left_len": 36910,
+      "minified_equal": false,
+      "minified_score": 0.9988710192778784,
+      "normalized_equal": true,
+      "raw_equal": false,
+      "right_len": 37209,
+      "template": "tests_view.mak"
+    },
+    {
+      "left_len": 24532,
+      "minified_equal": false,
+      "minified_score": 0.9979533076629549,
+      "normalized_equal": false,
+      "raw_equal": false,
+      "right_len": 24363,
+      "template": "user.mak"
+    },
+    {
+      "left_len": 20542,
+      "minified_equal": false,
+      "minified_score": 0.9969129276440987,
+      "normalized_equal": true,
+      "raw_equal": false,
+      "right_len": 20393,
+      "template": "user_management.mak"
+    },
+    {
+      "left_len": 19482,
+      "minified_equal": false,
+      "minified_score": 0.9964125153262795,
+      "normalized_equal": true,
+      "raw_equal": false,
+      "right_len": 19299,
+      "template": "workers.mak"
+    }
+  ]
+}

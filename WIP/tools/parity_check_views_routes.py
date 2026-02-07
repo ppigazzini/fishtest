@@ -2,19 +2,25 @@
 # ruff: noqa: T201
 """Parity check: Pyramid UI views vs FastAPI HTTP UI views.
 
-This script captures the ad-hoc checks used during the mechanical port.
+This script captures the ad-hoc checks used during the mechanical port and
+reports routing coverage parity between Pyramid and FastAPI.
 
 It compares:
 - route_name coverage and request_method coverage via @view_config
 - notfound_view_config and forbidden_view_config presence
 - _ROUTE_PATHS coverage in http/views.py
 
+Metrics reported:
+- route_name counts on both sides
+- missing and extra route_name entries
+- method/renderer mismatches per route_name
+
 Usage:
-  python WIP/parity_check_views_routes.py
+    python WIP/parity_check_views_routes.py
 
 Exit status:
-  0 if parity looks good
-  1 if mismatches are found
+    0 if parity looks good
+    1 if mismatches are found
 """
 
 from __future__ import annotations

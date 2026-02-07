@@ -5,6 +5,10 @@
 Goal:
     Find UI routes that return redirects/Response objects rather than templates.
 
+Metrics reported:
+    - count of routes without a renderer
+    - route_name, function name, and request_method for each entry
+
 Usage:
     python WIP/parity_check_views_no_renderer.py
 

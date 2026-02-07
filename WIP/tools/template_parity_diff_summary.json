@@ -1,0 +1,28 @@
+[
+  {
+    "diff_snippets": [
+      {
+        "left": "rageDiffs.filter(diff => diff?.timeStamp >= oneDayAgo); let run = localStorageDiffs.find(diff => diff[\"id\"] === \"run1\" && !",
+        "right": "rageDiffs.filter(diff => diff?.timeStamp >= oneDayAgo); let cached = localStorageDiffs.find(diff => diff[\"id\"] === \"run1\" && !",
+        "tag": "replace"
+      },
+      {
+        "left": "diff[\"id\"] === \"run1\" && !diff[\"masterVsBase\"]); let text = run?.text; let count = run?.lines || 0; try { loadingButton(); ",
+        "right": "diff[\"id\"] === \"run1\" && !diff[\"masterVsBase\"]); let text = cached?.text; let count = cached?.lines || 0; try { loadingButton(",
+        "tag": "replace"
+      },
+      {
+        "left": "& !diff[\"masterVsBase\"]); let text = run?.text; let count = run?.lines || 0; try { loadingButton(); if (!text) { if (dots =",
+        "right": "diff[\"masterVsBase\"]); let text = cached?.text; let count = cached?.lines || 0; try { loadingButton(); if (!text) { if (dots =",
+        "tag": "replace"
+      }
+    ],
+    "left_len": 36910,
+    "minified_equal": false,
+    "minified_score": 0.9994254952443773,
+    "normalized_equal": false,
+    "raw_equal": false,
+    "right_len": 37268,
+    "template": "tests_view.mak"
+  }
+]

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Annotated, Protocol
 from fastapi import Depends, Request
 from fishtest.http.cookie_session import (
     CookieSession,
+    authenticated_user,
     clear_session_cookie,
     commit_session,
     is_https,
@@ -223,8 +224,60 @@ def build_template_context(
     extra: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Build the shared template context (includes `request`)."""
+
+    def _pop_flash_list(queue: str | None = None) -> list[str]:
+        return session.pop_flash(queue)
+
     template_request = build_ui_context(request, session).template_request
-    context: dict[str, object] = {"request": template_request}
+    user = authenticated_user(session)
+    pending_users_count = 0
+    try:
+        pending_users_count = len(get_userdb(request).get_pending())
+    except DependencyNotInitializedError:
+        pending_users_count = 0
+
+    base_context: dict[str, object] = {
+        "csrf_token": session.get_csrf_token(),
+        "current_user": {"username": user} if user else None,
+        "flash": {
+            "error": _pop_flash_list("error"),
+            "warning": _pop_flash_list("warning"),
+            "info": _pop_flash_list(),
+        },
+        "pending_users_count": pending_users_count,
+        "static_url": template_request.static_url,
+        "theme": request.cookies.get("theme", ""),
+        "urls": {
+            "home": "/",
+            "login": "/login",
+            "logout": "/logout",
+            "signup": "/signup",
+            "user_profile": "/user",
+            "tests": "/tests",
+            "tests_finished_ltc": "/tests/finished?ltc_only=1",
+            "tests_finished_success": "/tests/finished?success_only=1",
+            "tests_finished_yellow": "/tests/finished?yellow_only=1",
+            "tests_run": "/tests/run",
+            "tests_user_prefix": "/tests/user/",
+            "tests_machines": "/tests/machines",
+            "nn_upload": "/upload",
+            "nns": "/nns",
+            "contributors": "/contributors",
+            "contributors_monthly": "/contributors/monthly",
+            "actions": "/actions",
+            "user_management": "/user_management",
+            "workers_blocked": "/workers/show",
+            "sprt_calc": "/sprt_calc",
+            "rate_limits": "/rate_limits",
+            "api_rate_limit": "/api/rate_limit",
+        },
+    }
+
+    context: dict[str, object] = {
+        "request": request,
+        "template_request": template_request,
+        **base_context,
+    }
     if extra:
         context.update(extra)
     return context

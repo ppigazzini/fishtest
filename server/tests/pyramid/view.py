@@ -12,7 +12,7 @@ def view_config(**kw):
         configs = getattr(fn, "__view_configs__", None)
         if configs is None:
             configs = []
-            setattr(fn, "__view_configs__", configs)
+            fn.__view_configs__ = configs
         configs.append(dict(kw))
         return fn
 
@@ -21,7 +21,7 @@ def view_config(**kw):
 
 def view_defaults(**kw):
     def deco(obj):
-        setattr(obj, "__view_defaults__", dict(kw))
+        obj.__view_defaults__ = dict(kw)
         return obj
 
     return deco
@@ -29,7 +29,7 @@ def view_defaults(**kw):
 
 def exception_view_config(*args, **kw):
     def deco(fn):
-        setattr(fn, "__exception_view_config__", {"args": args, **kw})
+        fn.__exception_view_config__ = {"args": args, **kw}
         return fn
 
     return deco
@@ -37,7 +37,7 @@ def exception_view_config(*args, **kw):
 
 def forbidden_view_config(**kw):
     def deco(fn):
-        setattr(fn, "__forbidden_view_config__", dict(kw))
+        fn.__forbidden_view_config__ = dict(kw)
         return fn
 
     return deco
@@ -45,7 +45,7 @@ def forbidden_view_config(**kw):
 
 def notfound_view_config(**kw):
     def deco(fn):
-        setattr(fn, "__notfound_view_config__", dict(kw))
+        fn.__notfound_view_config__ = dict(kw)
         return fn
 
     return deco

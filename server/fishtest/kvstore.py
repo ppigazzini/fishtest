@@ -36,8 +36,7 @@ class KeyValueStore(MutableMapping):
         document = self.__kvstore.find_one({"_id": key})
         if document is None:
             raise KeyError(key)
-        else:
-            return document["value"]
+        return document["value"]
 
     def __delitem__(self, key):
         if not isinstance(key, str):
@@ -69,7 +68,8 @@ class KeyValueStore(MutableMapping):
 
     def close(self):
         """Close the db connection if we own it
-        but keep the underlying collection"""
+        but keep the underlying collection
+        """
         if self.conn is not None:
             self.conn.close()
             self.conn = None

@@ -1,9 +1,9 @@
 """Signed cookie session helpers (UI auth support).
 
 This intentionally does not depend on Pyramid. It provides the minimal surface
-needed by existing Mako templates:
+needed by existing UI templates:
 
-- `get_csrf_token()` for the meta tag in `base.mak`
+- `get_csrf_token()` for the meta tag in `base.html.j2`
 - flash queues via `flash()`, `peek_flash()`, `pop_flash()`
 - `invalidate()`
 

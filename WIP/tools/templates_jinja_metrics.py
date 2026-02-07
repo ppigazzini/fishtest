@@ -21,7 +21,7 @@ import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_TEMPLATES_DIR = REPO_ROOT / "server" / "fishtest" / "templates_jinja2"
 
 STATEMENT_RE = re.compile(r"\{%")
@@ -42,6 +42,8 @@ FEATURE_PATTERNS: dict[str, re.Pattern[str]] = {
 
 @dataclass(frozen=True)
 class TemplateStats:
+    """Per-template metrics snapshot."""
+
     name: str
     path: str
     statements: int
@@ -54,6 +56,8 @@ class TemplateStats:
 
 @dataclass(frozen=True)
 class Summary:
+    """Summary totals for all templates."""
+
     templates: list[TemplateStats]
     totals: dict[str, int]
 
@@ -68,6 +72,7 @@ def _extract_features(text: str) -> list[str]:
 
 
 def analyze_template(path: Path) -> TemplateStats:
+    """Parse a Jinja2 template and compute metrics."""
     text = path.read_text(encoding="utf-8")
     lines = text.splitlines()
     statements = sum(1 for line in lines if STATEMENT_RE.search(line))
@@ -86,6 +91,7 @@ def analyze_template(path: Path) -> TemplateStats:
 
 
 def summarize(stats: list[TemplateStats]) -> Summary:
+    """Summarize metrics across templates."""
     totals = {
         "templates": len(stats),
         "statements": sum(item.statements for item in stats),
@@ -102,7 +108,7 @@ def _print_text(summary: Summary) -> None:
     for item in summary.templates:
         print(
             f"- {item.name}: statements={item.statements}, code_tags={item.code_tags}, "
-            f"expressions={item.expressions}, lines={item.lines}, score={item.score}"
+            f"expressions={item.expressions}, lines={item.lines}, score={item.score}",
         )
     print("Totals:")
     for key, value in summary.totals.items():
@@ -110,18 +116,18 @@ def _print_text(summary: Summary) -> None:
 
 
 def _threshold_failed(item: TemplateStats, args: argparse.Namespace) -> bool:
-    if args.max_score is not None and item.score > args.max_score:
-        return True
-    if args.max_statements is not None and item.statements > args.max_statements:
-        return True
-    if args.max_expressions is not None and item.expressions > args.max_expressions:
-        return True
-    if args.max_code_tags is not None and item.code_tags > args.max_code_tags:
-        return True
-    return False
+    return (
+        (args.max_score is not None and item.score > args.max_score)
+        or (args.max_statements is not None and item.statements > args.max_statements)
+        or (
+            args.max_expressions is not None and item.expressions > args.max_expressions
+        )
+        or (args.max_code_tags is not None and item.code_tags > args.max_code_tags)
+    )
 
 
 def main() -> int:
+    """Run Jinja2 template metrics analysis."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--templates-dir",
@@ -136,7 +142,7 @@ def main() -> int:
     parser.add_argument("--max-code-tags", type=int, default=None)
     args = parser.parse_args()
 
-    templates = sorted(args.templates_dir.glob("*.mak"))
+    templates = sorted(args.templates_dir.glob("*.html.j2"))
     stats = [analyze_template(path) for path in templates]
     summary = summarize(stats)
 

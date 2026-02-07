@@ -49,7 +49,7 @@ def init(kvstore, actiondb):
         for k, v in github_api_cache["lru_cache"]:
             _lru_cache[tuple(k)] = v
     except Exception as e:
-        print(f"Unable to restore github_api_cache from kvstore: {str(e)}", flush=True)
+        print(f"Unable to restore github_api_cache from kvstore: {e!s}", flush=True)
 
     _api_initialized = True
     update_official_master_sha()
@@ -84,23 +84,26 @@ def call(url, *args, _method="GET", _ignore_rate_limit=False, **kwargs):
     resource = r.headers.get("X-RateLimit-Resource", "")
     if resource == "core":
         _github_rate_limit["remaining"] = int(
-            r.headers.get("X-RateLimit-Remaining", _github_rate_limit["remaining"])
+            r.headers.get("X-RateLimit-Remaining", _github_rate_limit["remaining"]),
         )
         _github_rate_limit["used"] = int(
-            r.headers.get("X-RateLimit-Used", _github_rate_limit["used"])
+            r.headers.get("X-RateLimit-Used", _github_rate_limit["used"]),
         )
         _github_rate_limit["reset"] = int(
-            r.headers.get("X-RateLimit-Reset", _github_rate_limit["reset"])
+            r.headers.get("X-RateLimit-Reset", _github_rate_limit["reset"]),
         )
         _github_rate_limit["limit"] = int(
-            r.headers.get("X-RateLimit-Limit", _github_rate_limit["limit"])
+            r.headers.get("X-RateLimit-Limit", _github_rate_limit["limit"]),
         )
         _github_rate_limit.pop("_uninitialized", None)
     return r
 
 
 def _download_from_github_raw(
-    item, user="official-stockfish", repo="Stockfish", branch="master"
+    item,
+    user="official-stockfish",
+    repo="Stockfish",
+    branch="master",
 ):
     item_url = f"https://raw.githubusercontent.com/{user}/{repo}/{branch}/{item}"
     r = call(item_url, timeout=TIMEOUT, _ignore_rate_limit=True)
@@ -144,10 +147,9 @@ def download_from_github(
             branch=branch,
             ignore_rate_limit=ignore_rate_limit,
         )
-    elif method == "raw":
+    if method == "raw":
         return _download_from_github_raw(item, user=user, repo=repo, branch=branch)
-    else:
-        raise ValueError(f"Unknown method {method}")
+    raise ValueError(f"Unknown method {method}")
 
 
 def get_commit(
@@ -186,7 +188,7 @@ def _update_rate_limit():
             # sets _github_rate_limit
             call(url, timeout=TIMEOUT, _ignore_rate_limit=True)
         except Exception as e:
-            print(f"Unable to get rate limit: {str(e)}", flush=True)
+            print(f"Unable to get rate limit: {e!s}", flush=True)
 
 
 def rate_limit():
@@ -197,7 +199,8 @@ def rate_limit():
 # it's not necessary to include user1, user2 in the key as shas
 # are globally unique
 @lru_cache(
-    cache=_lru_cache, key=lambda f, args, kw: (f.__name__, kw["sha1"], kw["sha2"])
+    cache=_lru_cache,
+    key=lambda f, args, kw: (f.__name__, kw["sha1"], kw["sha2"]),
 )
 def compare_sha(
     user1="official-stockfish",
@@ -284,7 +287,9 @@ def is_ancestor(
 def _is_master(sha, ignore_rate_limit=False):
     try:
         merge_base_commit = get_merge_base_commit(
-            sha1=sha, sha2=official_master_sha, ignore_rate_limit=ignore_rate_limit
+            sha1=sha,
+            sha2=official_master_sha,
+            ignore_rate_limit=ignore_rate_limit,
         )
     except requests.HTTPError as e:
         if e.response.status_code == 404:
@@ -313,7 +318,9 @@ def is_master(sha, ignore_rate_limit=False):
 
 
 def get_master_repo(
-    user="official-stockfish", repo="Stockfish", ignore_rate_limit=False
+    user="official-stockfish",
+    repo="Stockfish",
+    ignore_rate_limit=False,
 ):
     api_url = f"https://api.github.com/repos/{user}/{repo}"
     r = call(api_url, timeout=TIMEOUT, _ignore_rate_limit=ignore_rate_limit)
@@ -322,8 +329,7 @@ def get_master_repo(
     while True:
         if not r["fork"]:
             return r["html_url"]
-        else:
-            r = r["parent"]
+        r = r["parent"]
 
 
 @lru_cache(maxsize=128, expiration=600, refresh=False)
@@ -340,7 +346,10 @@ def normalize_repo(repo):
 
 
 def compare_branches_url(
-    user1="stockfish-chess", branch1="master", user2=None, branch2=None
+    user1="stockfish-chess",
+    branch1="master",
+    user2=None,
+    branch2=None,
 ):
     if user2 is None:
         user2 = user1
@@ -361,7 +370,7 @@ def update_official_master_sha():
         official_master_sha = response["sha"]
     except Exception as e:
         print(
-            f"Unable to obtain the official stockfish master sha: {str(e)}",
+            f"Unable to obtain the official stockfish master sha: {e!s}",
             flush=True,
         )
     if official_master_sha != _dummy_sha:

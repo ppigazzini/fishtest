@@ -212,54 +212,43 @@ Metrics:
 - Hop count ≤ 1 per endpoint; helper calls ≤ 2 per endpoint in `http/api.py` and `http/views.py`.
 - No new route‑split folder tree; HTTP entrypoints remain the primary narrative.
 
-## Milestone 8 — Templates: parallel new Mako + Jinja2 (with shared helpers)
+## Milestone 8 — Templates: legacy Mako + Jinja2 parity (new Mako retired)
 
-Goal: modernize template rendering while preserving UI behavior by running two parallel tracks:
-- a cleaned-up Mako template set in `server/fishtest/templates_mako/`
-- a Jinja2 template set in `server/fishtest/templates_jinja2/`
+Goal: preserve UI behavior while aligning Jinja2 output with legacy Mako via parity tooling.
 
 This milestone focuses on parity, comparability, and a common helper base. It does not require an immediate full cutover to Jinja2.
 
 Core objectives:
-- Clean up Mako templates (reduce embedded Python, clearer structure).
-- Build and use a shared helper base for both renderers.
-- Compare outputs between legacy Mako, new Mako, and Jinja2.
-- Adopt 2026 best practices for Mako and Jinja2 template structure.
+- Keep legacy Mako templates read-only as the parity anchor.
+- Use a shared helper base for Jinja2 rendering.
+- Compare outputs between legacy Mako and Jinja2.
 
 Hard constraint (non-negotiable):
 - MUST keep legacy Mako templates in [server/fishtest/templates](server/fishtest/templates) for upstream rebase safety. Do not delete, rename, or “clean up” legacy templates.
 
-Suggested approach (incremental, parallel):
+Suggested approach:
 
 1. Add shared helper base
-  - Create a single helper module for filters/globals used by both renderers.
-  - Keep URL generation and cache-busting semantics compatible.
-2. Introduce the new Mako renderer
-  - Add `server/fishtest/templates_mako/` and a new Mako renderer.
-  - Keep legacy Mako templates intact for parity and rebase safety.
-3. Introduce Jinja2 alongside Mako
-  - Add Jinja2 environment for `server/fishtest/templates_jinja2/`.
-  - Keep dual-renderer support and per-template selection.
-4. Port templates page-by-page (two tracks)
-  - Convert to new Mako and Jinja2 in lockstep, starting with safer pages.
-  - Keep diffs minimal and reversible.
-5. Compare and measure
-  - Add parity tools to compare rendered HTML.
-  - Measure performance and complexity across implementations.
+  - Create a single helper module for filters/globals used by the runtime.
+  - Keep URL generation and cache-busting semantics compatible with legacy Mako.
+2. Introduce Jinja2
+  - Use a Jinja2 environment for `server/fishtest/templates_jinja2/`.
+  - Compare output against legacy Mako with parity scripts.
+3. Compare and measure
+  - Use parity tools to compare rendered HTML.
+  - Measure complexity via template metrics.
 
 Status:
 
 - Complete (2026-02-05); see [3.8-ITERATION.md](3.8-ITERATION.md).
-- Parity OK for legacy vs new Mako and legacy vs Jinja2; shared helper base in place.
-- Renderer selection is driven by a Python variable in the renderer module (not environment variables).
-- Metrics snapshot and scripts are tracked in [8-TEMPLATE-METRICS.md](8-TEMPLATE-METRICS.md).
+- The new Mako track was retired in Milestone 10; legacy Mako remains as the parity anchor.
+- Metrics snapshot and scripts are tracked in [11.3-TEMPLATES-METRICS.md](11.3-TEMPLATES-METRICS.md).
 
 Definition of done:
 
-- New Mako templates render with parity to legacy Mako.
-- Jinja2 templates render with parity to legacy Mako.
-- A shared helper base is used by both renderers.
-- Parity comparison scripts exist for both tracks.
+- Jinja2 templates render with parity to legacy Mako where required.
+- A shared helper base is used by the runtime.
+- Parity comparison scripts exist for legacy Mako vs Jinja2.
 
 ## Milestone 9 — Template rendering alignment (Starlette Jinja2 + Mako)
 
@@ -272,7 +261,30 @@ Definition of done:
 - Jinja2 rendering uses Starlette `Jinja2Templates` directly or a compatible wrapper with `TemplateResponse`, `url_for`, and optional `context_processors`.
 - Mako rendering provides a TemplateResponse-equivalent path with request context and debug info.
 - ASGI risks/choices for Jinja2 and Mako are documented in architecture and reference docs.
-- Parity remains green for legacy/new Mako and Jinja2.
+- Parity remains green for legacy Mako and Jinja2.
+
+## Milestone 10 — Jinja2-only runtime (legacy Mako kept for parity scripts)
+
+Goal: rewrite the Jinja2 template set in an idiomatic, modern style and run **only Jinja2** at runtime, while keeping legacy Mako templates for parity tooling.
+
+Status:
+
+- Complete (2026-02-09); Jinja2-only runtime is live, templates use .html.j2, parity tooling is centralized in WIP/tools, and context coverage is clean.
+
+Scope and intent:
+- Legacy Mako templates in [server/fishtest/templates](server/fishtest/templates) remain untouched and used only by parity scripts.
+- Runtime rendering uses only Jinja2 templates in [server/fishtest/templates_jinja2](server/fishtest/templates_jinja2).
+- Retire any dual-renderer runtime wiring and temporary parity-template paths.
+- The Jinja2 set is idiomatic and **not** required to be line-for-line comparable with Mako.
+- Keep `http/api.py` and `http/views.py` changes minimal to preserve parity metrics against legacy twins.
+- Centralize parity helper scripts in WIP/tools so the runtime HTTP layer only exposes Jinja2 helpers.
+- Templates in `server/fishtest/templates_jinja2` use `.html.j2`, and parity tooling maps legacy `.mak` names to those Jinja2 files.
+
+Definition of done:
+- Jinja2 templates in [server/fishtest/templates_jinja2](server/fishtest/templates_jinja2) are idiomatic (macros, explicit context, minimal request coupling).
+- Runtime uses Starlette Jinja2 best practices (`Jinja2Templates` + `TemplateResponse`) and stays off the event loop.
+- Legacy Mako templates remain available for parity scripts, but are not wired into runtime rendering.
+- Parity helper scripts run from WIP/tools and keep the legacy templates read-only while capturing parity diffs.
 
 ## Milestone N-1 — Optional: Pydantic (only when it buys real safety)
 

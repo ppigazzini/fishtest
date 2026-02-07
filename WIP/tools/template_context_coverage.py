@@ -9,7 +9,7 @@ Goal:
 Usage:
     python WIP/tools/template_context_coverage.py
     python WIP/tools/template_context_coverage.py --engine jinja
-    python WIP/tools/template_context_coverage.py --templates tests_view.mak
+    python WIP/tools/template_context_coverage.py --templates tests_view.html.j2
     python WIP/tools/template_context_coverage.py --json
 
 Exit status:
@@ -40,9 +40,11 @@ from fishtest.http import jinja as jinja_renderer  # noqa: E402
 from fishtest.http import template_helpers as helpers  # noqa: E402
 
 DEFAULT_CONTEXT = REPO_ROOT / "WIP" / "tools" / "template_parity_context.json"
-DEFAULT_MAKO_DIR = REPO_ROOT / "server" / "fishtest" / "templates_mako"
+DEFAULT_OUTPUT = REPO_ROOT / "WIP" / "tools" / "template_context_coverage.json"
+DEFAULT_MAKO_DIR = REPO_ROOT / "server" / "fishtest" / "templates"
 DEFAULT_JINJA_DIR = REPO_ROOT / "server" / "fishtest" / "templates_jinja2"
 SKIP_TEMPLATES = {"base.mak"}
+BASE_CONTEXT_KEYS = {"static_url"}
 
 MAKO_EXPR_RE = re.compile(r"\$\{(.*?)\}", re.DOTALL)
 MAKO_BLOCK_RE = re.compile(r"<%([!]?)\s*(.*?)\s*%>", re.DOTALL)
@@ -52,6 +54,8 @@ MAKO_TEXT_RE = re.compile(r"<%text>.*?</%text>", re.DOTALL)
 
 @dataclass(frozen=True)
 class CoverageResult:
+    """Coverage result for a single template and engine."""
+
     template: str
     engine: str
     missing: list[str]
@@ -62,7 +66,7 @@ class _NameCollector(ast.NodeVisitor):
     def __init__(self) -> None:
         self.names: set[str] = set()
 
-    def visit_Name(self, node: ast.Name) -> None:  # noqa: N802
+    def visit_Name(self, node: ast.Name) -> None:
         if isinstance(node.ctx, ast.Load):
             self.names.add(node.id)
         self.generic_visit(node)
@@ -91,9 +95,7 @@ def _names_from_code(code: str) -> set[str]:
 
 
 def _strip_mako_blocks(source: str) -> str:
-    source = MAKO_DOC_RE.sub("", source)
-    source = MAKO_TEXT_RE.sub("", source)
-    return source
+    return MAKO_TEXT_RE.sub("", MAKO_DOC_RE.sub("", source))
 
 
 def _mako_names(source: str) -> set[str]:
@@ -138,16 +140,39 @@ def _jinja_names(env: Environment, source: str) -> set[str]:
 def _load_context(path: Path) -> dict[str, dict[str, Any]]:
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
-        raise ValueError("Context file must contain a JSON object.")
+        message = "Context file must contain a JSON object."
+        raise TypeError(message)
     return {str(k): v for k, v in data.items() if isinstance(v, dict)}
 
 
-def _template_names(path: Path) -> set[str]:
+def _logical_name(name: str) -> str:
+    if name.endswith(".html.j2"):
+        return name[: -len(".html.j2")] + ".mak"
+    return name
+
+
+def _template_names_mako(path: Path) -> set[str]:
     return {
         item.name
         for item in path.glob("*.mak")
         if item.is_file() and item.name not in SKIP_TEMPLATES
     }
+
+
+def _template_names_jinja(path: Path) -> set[str]:
+    return {
+        _logical_name(item.name)
+        for item in path.glob("*.html.j2")
+        if item.is_file() and _logical_name(item.name) not in SKIP_TEMPLATES
+    }
+
+
+def _jinja_path(template_dir: Path, template: str) -> Path:
+    if template.endswith(".mak"):
+        name = template[: -len(".mak")] + ".html.j2"
+    else:
+        name = template
+    return template_dir / name
 
 
 def _allowed_names(env: Environment) -> set[str]:
@@ -184,16 +209,22 @@ def _allowed_names(env: Environment) -> set[str]:
 def _context_keys(context_map: dict[str, dict[str, Any]], template: str) -> set[str]:
     defaults = context_map.get("_defaults", {})
     template_context = context_map.get(template, {})
-    return set(defaults) | set(template_context)
+    return set(defaults) | set(template_context) | BASE_CONTEXT_KEYS
 
 
-def main() -> int:
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--context",
         type=Path,
         default=DEFAULT_CONTEXT,
         help="Path to template context JSON.",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_OUTPUT,
+        help="Path to JSON output file (use - for stdout only).",
     )
     parser.add_argument(
         "--engine",
@@ -206,7 +237,7 @@ def main() -> int:
         "--mako-dir",
         type=Path,
         default=DEFAULT_MAKO_DIR,
-        help="Path to new Mako templates.",
+        help="Path to legacy Mako templates.",
     )
     parser.add_argument(
         "--jinja-dir",
@@ -221,26 +252,26 @@ def main() -> int:
         help="Comma-separated list of template names.",
     )
     parser.add_argument("--json", action="store_true", help="Emit JSON to stdout.")
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    if not args.context.exists():
-        print(f"Context file not found: {args.context}")
-        return 2
 
-    context_map = _load_context(args.context)
-    env = jinja_renderer.default_environment()
-    allowed = _allowed_names(env)
-
+def _resolve_templates(args: argparse.Namespace) -> list[str]:
     templates = [item.strip() for item in args.templates.split(",") if item.strip()]
-    if not templates:
-        mako_templates = _template_names(args.mako_dir)
-        jinja_templates = _template_names(args.jinja_dir)
-        templates = sorted(mako_templates | jinja_templates)
+    if templates:
+        return templates
+    mako_templates = _template_names_mako(args.mako_dir)
+    jinja_templates = _template_names_jinja(args.jinja_dir)
+    return sorted(mako_templates | jinja_templates)
 
-    if not templates:
-        print("No templates to analyze.")
-        return 0
 
+def _analyze_templates(
+    templates: list[str],
+    *,
+    args: argparse.Namespace,
+    context_map: dict[str, dict[str, Any]],
+    env: Environment,
+    allowed: set[str],
+) -> tuple[list[CoverageResult], bool]:
     results: list[CoverageResult] = []
     has_missing = False
 
@@ -260,11 +291,11 @@ def main() -> int:
                         engine="mako",
                         missing=missing,
                         referenced=sorted(referenced),
-                    )
+                    ),
                 )
 
         if args.engine in {"jinja", "both"}:
-            jinja_path = args.jinja_dir / template
+            jinja_path = _jinja_path(args.jinja_dir, template)
             if jinja_path.exists():
                 source = jinja_path.read_text(encoding="utf-8")
                 referenced = _jinja_names(env, source) - allowed
@@ -276,23 +307,65 @@ def main() -> int:
                         engine="jinja",
                         missing=missing,
                         referenced=sorted(referenced),
-                    )
+                    ),
                 )
 
-    if args.json:
+    return results, has_missing
+
+
+def _emit_results(
+    results: list[CoverageResult],
+    *,
+    json_output: bool,
+    output_path: Path | None,
+) -> None:
+    if json_output:
         payload = {
             "results": [asdict(item) for item in results],
             "missing": [item.template for item in results if item.missing],
         }
-        print(json.dumps(payload, indent=2, sort_keys=True))
-    else:
-        for item in results:
-            if item.missing:
-                missing_list = ", ".join(item.missing)
-                print(f"MISSING: {item.template} ({item.engine}) -> {missing_list}")
-            else:
-                print(f"OK: {item.template} ({item.engine})")
+        if output_path is not None and str(output_path) != "-":
+            output_path.write_text(
+                json.dumps(payload, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+        else:
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        return
 
+    for item in results:
+        if item.missing:
+            missing_list = ", ".join(item.missing)
+            print(f"MISSING: {item.template} ({item.engine}) -> {missing_list}")
+        else:
+            print(f"OK: {item.template} ({item.engine})")
+
+
+def main() -> int:
+    """Run template context coverage checks."""
+    args = _parse_args()
+
+    if not args.context.exists():
+        print(f"Context file not found: {args.context}")
+        return 2
+
+    context_map = _load_context(args.context)
+    env = jinja_renderer.default_environment()
+    allowed = _allowed_names(env)
+    templates = _resolve_templates(args)
+
+    if not templates:
+        print("No templates to analyze.")
+        return 0
+
+    results, has_missing = _analyze_templates(
+        templates,
+        args=args,
+        context_map=context_map,
+        env=env,
+        allowed=allowed,
+    )
+    _emit_results(results, json_output=args.json, output_path=args.output)
     return 1 if has_missing else 0
 
 

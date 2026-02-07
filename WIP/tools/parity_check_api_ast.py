@@ -18,13 +18,18 @@ Normalization choices (intentional):
 - ignores decorators, annotations, and type comments
 - ignores a leading docstring statement
 
+Metrics reported:
+- endpoint counts for spec/http
+- missing/extra endpoints
+- changed body counts plus expected drift list
+
 Usage:
-  python WIP/parity_check_api_ast.py
+    python WIP/parity_check_api_ast.py
     python WIP/parity_check_api_ast.py --strict
 
 Exit status:
-  0 if no method-body drift is detected
-  1 if any drift or missing methods are detected
+    0 if no method-body drift is detected
+    1 if any drift or missing methods are detected
 """
 
 from __future__ import annotations
@@ -235,8 +240,21 @@ def _index_class_methods(tree: ast.Module) -> dict[tuple[str, str], ast.AST]:
     return out
 
 
-def main() -> int:  # noqa: C901, PLR0912
-    """Run the API AST parity check and return process exit code."""
+def _class_method_names(tree: ast.Module) -> dict[str, set[str]]:
+    """Return a lookup for class_name -> set of method names."""
+    out: dict[str, set[str]] = {"WorkerApi": set(), "UserApi": set()}
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        if node.name not in out:
+            continue
+        for item in node.body:
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                out[node.name].add(item.name)
+    return out
+
+
+def _parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--strict",
@@ -246,7 +264,48 @@ def main() -> int:  # noqa: C901, PLR0912
             "expected to differ due to framework response primitives."
         ),
     )
-    args = ap.parse_args()
+    return ap.parse_args()
+
+
+def _report_main_counts(
+    *,
+    endpoints: list[ApiEndpoint],
+    missing: list[ApiEndpoint],
+    changed: list[ApiEndpoint],
+    allowed_changed: list[ApiEndpoint],
+    extra_methods: list[tuple[str, str]],
+) -> None:
+    coverage = (len(endpoints) - len(missing)) / len(endpoints) if endpoints else 1.0
+    for label, value in (
+        ("spec api endpoints", len(endpoints)),
+        ("endpoint coverage ratio", f"{coverage:.3f}"),
+        ("missing http methods", len(missing)),
+        ("changed method bodies", len(changed)),
+        ("expected drift bodies", len(allowed_changed)),
+        ("extra http methods", len(extra_methods)),
+    ):
+        print(label, value)
+
+
+def _print_endpoints(title: str, items: list[ApiEndpoint]) -> None:
+    if not items:
+        return
+    print(f"\n{title}")
+    for ep in items[:200]:
+        print(" ", ep.route_name, f"{ep.class_name}.{ep.method_name}")
+
+
+def _print_extra_methods(extra_methods: list[tuple[str, str]]) -> None:
+    if not extra_methods:
+        return
+    print("\nExtra http methods (informational):")
+    for class_name, name in extra_methods[:200]:
+        print(" ", f"{class_name}.{name}")
+
+
+def main() -> int:
+    """Run the API AST parity check and return process exit code."""
+    args = _parse_args()
 
     if not SPEC_API.exists():
         print(f"Missing spec file: {SPEC_API}")
@@ -261,10 +320,13 @@ def main() -> int:  # noqa: C901, PLR0912
     endpoints = _extract_spec_endpoints(spec_tree)
     spec_methods = _index_class_methods(spec_tree)
     glue_methods = _index_class_methods(glue_tree)
+    spec_names = _class_method_names(spec_tree)
+    glue_names = _class_method_names(glue_tree)
 
     missing: list[ApiEndpoint] = []
     changed: list[ApiEndpoint] = []
     allowed_changed: list[ApiEndpoint] = []
+    extra_methods: list[tuple[str, str]] = []
 
     for ep in endpoints:
         key = (ep.class_name, ep.method_name)
@@ -280,27 +342,25 @@ def main() -> int:  # noqa: C901, PLR0912
             else:
                 changed.append(ep)
 
-    print("spec api endpoints", len(endpoints))
-    print("missing http methods", len(missing))
-    print("changed method bodies", len(changed))
-    print("expected drift bodies", len(allowed_changed))
+    for class_name in ("WorkerApi", "UserApi"):
+        spec_set = spec_names.get(class_name, set())
+        glue_set = glue_names.get(class_name, set())
+        extra_methods.extend((class_name, name) for name in sorted(glue_set - spec_set))
 
-    if missing:
-        print("\nMissing in http:")
-        for ep in missing[:200]:
-            print(" ", ep.route_name, f"{ep.class_name}.{ep.method_name}")
+    _report_main_counts(
+        endpoints=endpoints,
+        missing=missing,
+        changed=changed,
+        allowed_changed=allowed_changed,
+        extra_methods=extra_methods,
+    )
 
-    if changed:
-        print("\nBody drift:")
-        for ep in changed[:200]:
-            print(" ", ep.route_name, f"{ep.class_name}.{ep.method_name}")
+    _print_endpoints("Missing in http:", missing)
+    _print_endpoints("Body drift:", changed)
+    _print_endpoints("Expected drift (informational):", allowed_changed)
+    _print_extra_methods(extra_methods)
 
-    if allowed_changed:
-        print("\nExpected drift (informational):")
-        for ep in allowed_changed[:200]:
-            print(" ", ep.route_name, f"{ep.class_name}.{ep.method_name}")
-
-    if missing or changed:
+    if missing or changed or (args.strict and (extra_methods or allowed_changed)):
         return 1
 
     print("OK: no API endpoint method-body drift detected.")

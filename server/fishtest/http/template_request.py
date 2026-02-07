@@ -1,4 +1,4 @@
-"""Template request shim for Mako templates.
+"""Template request shim for UI templates.
 
 The legacy Pyramid UI templates expect a request object with a small subset of
 Pyramid's request API (notably: `session`, `authenticated_userid`, and
@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import base64
 import hashlib
-from collections import OrderedDict
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
@@ -27,34 +27,15 @@ if TYPE_CHECKING:
 
 _STATIC_DIR: Final[Path] = Path(__file__).resolve().parents[1] / "static"
 _STATIC_URL_PARAM: Final[str] = "x"
-_STATIC_TOKEN_CACHE_MAX: Final[int] = 1024
-_STATIC_TOKEN_CACHE: OrderedDict[str, str] = OrderedDict()
+_STATIC_TOKEN_CACHE_MAX: int = 1024
 _MISSING_RAW_REQUEST_ERROR: Final[str] = (
     "TemplateRequest.url_for requires a FastAPI request"
 )
 
 
-def _cache_get(rel_path: str) -> str | None:
-    token = _STATIC_TOKEN_CACHE.get(rel_path)
-    if token is None:
-        return None
-    _STATIC_TOKEN_CACHE.move_to_end(rel_path)
-    return token
-
-
-def _cache_set(rel_path: str, token: str) -> None:
-    _STATIC_TOKEN_CACHE[rel_path] = token
-    _STATIC_TOKEN_CACHE.move_to_end(rel_path)
-    while len(_STATIC_TOKEN_CACHE) > _STATIC_TOKEN_CACHE_MAX:
-        _STATIC_TOKEN_CACHE.popitem(last=False)
-
-
+@lru_cache(maxsize=_STATIC_TOKEN_CACHE_MAX)
 def _static_file_token(rel_path: str) -> str | None:
     """Return a Pyramid-compatible cache-buster token for a static file."""
-    cached = _cache_get(rel_path)
-    if cached is not None:
-        return cached
-
     rel_path = rel_path.replace("\\", "/")
     rel_obj = Path(rel_path)
     if rel_obj.is_absolute() or ".." in rel_obj.parts:
@@ -70,13 +51,11 @@ def _static_file_token(rel_path: str) -> str | None:
     except OSError:
         return None
 
-    token = (
+    return (
         base64.urlsafe_b64encode(hashlib.sha384(content).digest())
         .decode("utf-8")
         .rstrip("=")
     )
-    _cache_set(rel_path, token)
-    return token
 
 
 @dataclass

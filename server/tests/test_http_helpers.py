@@ -26,9 +26,8 @@ class TemplateRequestStaticUrlTests(unittest.TestCase):
             outside.write_text("nope", encoding="utf-8")
 
             original_dir = template_request._STATIC_DIR
-            original_cache = dict(template_request._STATIC_TOKEN_CACHE)
             template_request._STATIC_DIR = static_dir
-            template_request._STATIC_TOKEN_CACHE.clear()
+            template_request._static_file_token.cache_clear()
             try:
                 req = TemplateRequest(
                     headers={},
@@ -44,8 +43,7 @@ class TemplateRequestStaticUrlTests(unittest.TestCase):
                 self.assertNotIn("?x=", url)
             finally:
                 template_request._STATIC_DIR = original_dir
-                template_request._STATIC_TOKEN_CACHE.clear()
-                template_request._STATIC_TOKEN_CACHE.update(original_cache)
+                template_request._static_file_token.cache_clear()
 
     def test_static_url_token_is_urlsafe(self):
         from fishtest.http import template_request
@@ -58,9 +56,8 @@ class TemplateRequestStaticUrlTests(unittest.TestCase):
             target.write_text("body{}", encoding="utf-8")
 
             original_dir = template_request._STATIC_DIR
-            original_cache = dict(template_request._STATIC_TOKEN_CACHE)
             template_request._STATIC_DIR = static_dir
-            template_request._STATIC_TOKEN_CACHE.clear()
+            template_request._static_file_token.cache_clear()
             try:
                 req = TemplateRequest(
                     headers={},
@@ -78,8 +75,7 @@ class TemplateRequestStaticUrlTests(unittest.TestCase):
                 self.assertNotIn("=", token)
             finally:
                 template_request._STATIC_DIR = original_dir
-                template_request._STATIC_TOKEN_CACHE.clear()
-                template_request._STATIC_TOKEN_CACHE.update(original_cache)
+                template_request._static_file_token.cache_clear()
 
     def test_static_token_cache_eviction(self):
         from fishtest.http import template_request
@@ -91,23 +87,19 @@ class TemplateRequestStaticUrlTests(unittest.TestCase):
             (static_dir / "b.txt").write_text("b", encoding="utf-8")
 
             original_dir = template_request._STATIC_DIR
-            original_cache = dict(template_request._STATIC_TOKEN_CACHE)
-            original_max = template_request._STATIC_TOKEN_CACHE_MAX
             template_request._STATIC_DIR = static_dir
-            template_request._STATIC_TOKEN_CACHE.clear()
-            template_request._STATIC_TOKEN_CACHE_MAX = 1
+            template_request._static_file_token.cache_clear()
             try:
                 template_request._static_file_token("a.txt")
                 template_request._static_file_token("b.txt")
+                cache_info = template_request._static_file_token.cache_info()
                 self.assertLessEqual(
-                    len(template_request._STATIC_TOKEN_CACHE),
-                    template_request._STATIC_TOKEN_CACHE_MAX,
+                    cache_info.currsize,
+                    cache_info.maxsize,
                 )
             finally:
                 template_request._STATIC_DIR = original_dir
-                template_request._STATIC_TOKEN_CACHE.clear()
-                template_request._STATIC_TOKEN_CACHE.update(original_cache)
-                template_request._STATIC_TOKEN_CACHE_MAX = original_max
+                template_request._static_file_token.cache_clear()
 
 
 class CookieSessionTests(unittest.TestCase):

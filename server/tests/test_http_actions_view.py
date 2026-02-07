@@ -28,6 +28,7 @@ class _GlueRequestStub:
         return_count=0,
         host_url="http://localhost",
         path="/actions",
+        users=None,
     ):
         self.params = params or {}
         self._request = _FakeStarletteRequest(query_params=dict(self.params))
@@ -35,6 +36,7 @@ class _GlueRequestStub:
         self._authenticated_userid = authenticated_userid
         self.host_url = host_url
         self.path = path
+        self.userdb = _FakeUserDb(users or [{"username": "anonymous"}])
 
     @property
     def authenticated_userid(self):
@@ -48,6 +50,14 @@ class _GlueRequestStub:
         if permission != "approve_run":
             return False
         return self._authenticated_userid is not None
+
+
+class _FakeUserDb:
+    def __init__(self, users):
+        self._users = users
+
+    def get_users(self):
+        return list(self._users)
 
 
 class ActionsViewMaxActionsHttpTest(unittest.TestCase):

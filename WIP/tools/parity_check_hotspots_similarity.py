@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 # ruff: noqa: T201
-"""Parity check helper: crude similarity metrics for mechanical-port hotspots.
+"""Parity helper: crude similarity metrics for mechanical-port hotspots.
 
 Goal: keep diffs small and localized. This script is intentionally simple: it
-prints basic line counts and a difflib similarity ratio for key spec↔http files.
+prints normalized line counts and a difflib similarity ratio for key spec↔http
+files. It is not a correctness checker; it flags accidental large-churn edits.
 
-It is NOT a correctness checker; it helps catch accidental large-churn edits.
+Metrics reported:
+- non-empty line counts for spec vs http files
+- similarity ratio from difflib.SequenceMatcher
 
 Usage:
-  python WIP/parity_check_hotspots_similarity.py
-  python WIP/parity_check_hotspots_similarity.py --show
+    python WIP/parity_check_hotspots_similarity.py
+    python WIP/parity_check_hotspots_similarity.py --show
 
 Exit status:
-  0 always (informational)
+    0 always (informational)
 """
 
 from __future__ import annotations

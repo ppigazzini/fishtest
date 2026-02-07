@@ -2,19 +2,23 @@
 # ruff: noqa: T201
 """Parity check: Pyramid API routes vs FastAPI HTTP API routes.
 
-This script is a captured version of the ad-hoc checks used during the
-mechanical port work.
+This script captures the ad-hoc checks used during the mechanical port and
+reports route coverage parity.
 
 It compares:
 - Pyramid spec: server/fishtest/api.py (route_name="api_...")
 - FastAPI HTTP: server/fishtest/http/api.py (@router.<method>("/api/..."))
 
+Metrics reported:
+- route_name counts on both sides
+- missing and extra API endpoints (method + route_name)
+
 Usage:
-  python WIP/parity_check_api_routes.py
+    python WIP/parity_check_api_routes.py
 
 Exit status:
-  0 if parity looks good (all expected endpoints present)
-  1 if mismatches are found
+    0 if parity looks good (all expected endpoints present)
+    1 if mismatches are found
 """
 
 from __future__ import annotations

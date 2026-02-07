@@ -5,17 +5,14 @@ import numpy as np
 
 
 def _pack_flips(flips):
-    """
-    This transforms a list of +-1 into a sequence of bytes
+    """This transforms a list of +-1 into a sequence of bytes
     with the meaning of the individual bits being 1:1, 0:-1.
     """
     return np.packbits(np.array(flips, dtype=np.int8) == 1).tobytes() if flips else b""
 
 
 def _unpack_flips(packed_flips, length=None):
-    """
-    The inverse function.
-    """
+    """The inverse function."""
     if not packed_flips:
         return []
     bits = np.unpackbits(np.frombuffer(packed_flips, dtype=np.uint8))
@@ -45,14 +42,14 @@ def _generate_data(spsa, iter=None):
                 "R": param["a"] / (spsa["A"] + iter_local) ** spsa["alpha"] / c**2,
                 "c": c,
                 "flip": flip,
-            }
+            },
         )
         # These are only used by the worker
         result["b_params"].append(
             {
                 "name": param["name"],
                 "value": _param_clip(param, -c * flip),
-            }
+            },
         )
 
     return result
@@ -95,7 +92,7 @@ class SPSAHandler:
 
         # Check if the worker is still working on this task.
         if not task["active"]:
-            info = "request_spsa_data: task {}/{} is not active".format(run_id, task_id)
+            info = f"request_spsa_data: task {run_id}/{task_id} is not active"
             print(info, flush=True)
             return {"task_alive": False, "info": info}
 

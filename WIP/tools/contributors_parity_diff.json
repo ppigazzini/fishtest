@@ -1,0 +1,18 @@
+[
+  {
+    "diff_snippets": [
+      {
+        "left": "d><td class=\"text-end\">200</td><td class=\"text-end\"><a href=\"/tests/user/alice\">3 </a></td><td class=\"user-repo\"><a href=\"https://github.com/official-stockfish/",
+        "right": "d><td class=\"text-end\">200</td><td class=\"text-end\"><a href=\"/tests/user/alice\"> 3 </a></td><td class=\"user-repo\"><a href=\"https://github.com/official-stockfish/",
+        "tag": "insert"
+      }
+    ],
+    "left_len": 20624,
+    "minified_equal": true,
+    "minified_score": 1.0,
+    "normalized_equal": false,
+    "raw_equal": false,
+    "right_len": 20476,
+    "template": "contributors.mak"
+  }
+]

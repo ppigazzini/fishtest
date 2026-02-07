@@ -12,7 +12,7 @@ def validate_user(user):
     try:
         validate(user_schema, user, "user")
     except ValidationError as e:
-        message = f"The user object does not validate: {str(e)}"
+        message = f"The user object does not validate: {e!s}"
         print(message, flush=True)
         raise ValidationError(message) from None
 
@@ -30,7 +30,9 @@ class UserDb:
         self.find_by_username.cache_clear()
 
     @lru_cache(
-        expiration=120, refresh=False, filter=lambda f, args, kw, val: val is not None
+        expiration=120,
+        refresh=False,
+        filter=lambda f, args, kw, val: val is not None,
     )
     def find_by_username(self, name):
         return self.users.find_one({"username": name})
@@ -43,10 +45,10 @@ class UserDb:
         if not user or user["password"] != password:
             print(f"Invalid login: '{username}' '{password}'", flush=True)
             return {"error": f"Invalid password for user: {username}"}
-        if "blocked" in user and user["blocked"]:
+        if user.get("blocked"):
             print(f"Blocked account: '{username}' '{password}'", flush=True)
             return {"error": f"Account blocked for user: {username}"}
-        if "pending" in user and user["pending"]:
+        if user.get("pending"):
             print(f"Pending account: '{username}' '{password}'", flush=True)
             return {"error": f"Account pending for user: {username}"}
 
@@ -119,9 +121,8 @@ class UserDb:
                 flush=True,
             )
             return True
-        else:
-            # User not found
-            return False
+        # User not found
+        return False
 
     def get_machine_limit(self, username):
         user = self.get_user(username)

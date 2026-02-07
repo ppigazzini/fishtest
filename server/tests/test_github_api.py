@@ -37,9 +37,9 @@ class CreateGitHubApiTest(unittest.TestCase):
                     get_master_info(
                         user="official-stockfish",
                         repo="Stockfish",
-                    )["bench"]
+                    )["bench"],
                 ),
-            )
+            ),
         )
 
     def test_rate_limit(self):
@@ -50,7 +50,8 @@ class CreateGitHubApiTest(unittest.TestCase):
 
     def test_kvstore(self):
         self.assertEqual(
-            gh.official_master_sha, self.rundb.kvstore["official_master_sha"]
+            gh.official_master_sha,
+            self.rundb.kvstore["official_master_sha"],
         )
         self.rundb.update_books()
         self.assertEqual(self.rundb.books, self.rundb.kvstore["books"])
@@ -62,7 +63,7 @@ class CreateGitHubApiTest(unittest.TestCase):
                 "books.json",
                 repo="books",
                 method="api",
-            ).decode()
+            ).decode(),
         )
         # test passes if no exception is raised
         validate(
@@ -75,7 +76,7 @@ class CreateGitHubApiTest(unittest.TestCase):
                 "books.json",
                 repo="books",
                 method="raw",
-            ).decode()
+            ).decode(),
         )
         self.assertEqual(books, books1)
 

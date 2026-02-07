@@ -4,7 +4,7 @@ Ownership: API/UI error shaping; UI HTML rendering delegated to ui_errors.
 
 These handlers preserve legacy fishtest behavior:
 - JSON 404s for `/api/...`
-- HTML 404 page for UI routes rendered via Mako
+- HTML 404 page for UI routes rendered via Jinja2
 - Cookie-session commit for UI 404 rendering
 """
 
