@@ -224,6 +224,17 @@ def build_template_context(
     extra: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Build the shared template context (includes `request`)."""
+
+    def _peek_flash_list(queue: str | None = None) -> list[str]:
+        key = queue or ""
+        flashes = session.data.get("flashes")
+        if not isinstance(flashes, dict):
+            return []
+        bucket = flashes.get(key, [])
+        if not isinstance(bucket, list):
+            return []
+        return [str(item) for item in bucket]
+
     template_request = build_ui_context(request, session).template_request
     user = authenticated_user(session)
     pending_users_count = 0
@@ -236,9 +247,9 @@ def build_template_context(
         "csrf_token": session.get_csrf_token(),
         "current_user": {"username": user} if user else None,
         "flash": {
-            "error": session.peek_flash("error"),
-            "warning": session.peek_flash("warning"),
-            "info": session.peek_flash(),
+            "error": _peek_flash_list("error"),
+            "warning": _peek_flash_list("warning"),
+            "info": _peek_flash_list(),
         },
         "pending_users_count": pending_users_count,
         "static_url": template_request.static_url,
