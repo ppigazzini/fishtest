@@ -1,4 +1,4 @@
-{% extends "base.mak" %}
+{% extends "base.html.j2" %}
 
 {% block title %}Events Log | Stockfish Testing{% endblock %}
 
@@ -112,7 +112,7 @@
 </form>
 
 {% with pages=pages %}
-  {% include "pagination.mak" %}
+  {% include "pagination.html.j2" %}
 {% endwith %}
 
 <div class="table-responsive-lg">
@@ -163,7 +163,7 @@
 </div>
 
 {% with pages=pages %}
-  {% include "pagination.mak" %}
+  {% include "pagination.html.j2" %}
 {% endwith %}
 
 <script>

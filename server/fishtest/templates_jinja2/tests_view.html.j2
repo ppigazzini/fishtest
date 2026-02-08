@@ -1,4 +1,4 @@
-{% extends "base.mak" %}
+{% extends "base.html.j2" %}
 
 {% block title %}Stockfish Testing Framework{% endblock %}
 
@@ -69,7 +69,7 @@
   </h2>
 
   <div class="elo-results-top">
-    {% include "elo_results.mak" %}
+    {% include "elo_results.html.j2" %}
   </div>
 
   <div class="row">

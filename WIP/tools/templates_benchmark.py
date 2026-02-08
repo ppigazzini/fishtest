@@ -8,7 +8,7 @@ Goal:
 Usage:
     python WIP/tools/templates_benchmark.py
     python WIP/tools/templates_benchmark.py --iterations 100
-    python WIP/tools/templates_benchmark.py --templates tests_view.mak,tests.mak
+    python WIP/tools/templates_benchmark.py --templates tests_view.html.j2,tests.html.j2
     python WIP/tools/templates_benchmark.py --engine mako
 
 Exit status:
@@ -135,9 +135,24 @@ def _decode_special(value: Any) -> Any:
     return value
 
 
+def _logical_name(name: str) -> str:
+    if name.endswith(".html.j2"):
+        return name[: -len(".html.j2")] + ".mak"
+    return name
+
+
+def _resolve_name(name: str, engine: str) -> str:
+    if engine == "jinja" and name.endswith(".mak"):
+        return name[: -len(".mak")] + ".html.j2"
+    return name
+
+
 def _template_names() -> list[str]:
     mako_names = {item.name for item in LEGACY_MAKO_DIR.glob("*.mak")}
-    jinja_names = {item.name for item in jinja_renderer.templates_dir().glob("*.mak")}
+    jinja_names = {
+        _logical_name(item.name)
+        for item in jinja_renderer.templates_dir().glob("*.html.j2")
+    }
     return sorted(
         name for name in (mako_names | jinja_names) if name not in SKIP_TEMPLATES
     )
@@ -167,7 +182,8 @@ def _render_mako(
 
 
 def _render_jinja(env, template: str, context: dict[str, Any]) -> None:
-    template_obj = env.get_template(template)
+    resolved = _resolve_name(template, "jinja")
+    template_obj = env.get_template(resolved)
     template_obj.render(**context)
 
 
@@ -240,7 +256,11 @@ def main() -> int:
     context_map = _load_context(args.context)
     defaults = _decode_special(context_map.get("_defaults", {}))
 
-    templates = [item.strip() for item in args.templates.split(",") if item.strip()]
+    templates = [
+        _logical_name(item.strip())
+        for item in args.templates.split(",")
+        if item.strip()
+    ]
     if not templates:
         templates = _template_names()
 

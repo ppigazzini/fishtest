@@ -9,7 +9,7 @@ Goal:
 Usage:
     python WIP/tools/template_context_coverage.py
     python WIP/tools/template_context_coverage.py --engine jinja
-    python WIP/tools/template_context_coverage.py --templates tests_view.mak
+    python WIP/tools/template_context_coverage.py --templates tests_view.html.j2
     python WIP/tools/template_context_coverage.py --json
 
 Exit status:
@@ -142,12 +142,34 @@ def _load_context(path: Path) -> dict[str, dict[str, Any]]:
     return {str(k): v for k, v in data.items() if isinstance(v, dict)}
 
 
-def _template_names(path: Path) -> set[str]:
+def _logical_name(name: str) -> str:
+    if name.endswith(".html.j2"):
+        return name[: -len(".html.j2")] + ".mak"
+    return name
+
+
+def _template_names_mako(path: Path) -> set[str]:
     return {
         item.name
         for item in path.glob("*.mak")
         if item.is_file() and item.name not in SKIP_TEMPLATES
     }
+
+
+def _template_names_jinja(path: Path) -> set[str]:
+    return {
+        _logical_name(item.name)
+        for item in path.glob("*.html.j2")
+        if item.is_file() and _logical_name(item.name) not in SKIP_TEMPLATES
+    }
+
+
+def _jinja_path(template_dir: Path, template: str) -> Path:
+    if template.endswith(".mak"):
+        name = template[: -len(".mak")] + ".html.j2"
+    else:
+        name = template
+    return template_dir / name
 
 
 def _allowed_names(env: Environment) -> set[str]:
@@ -233,8 +255,8 @@ def main() -> int:
 
     templates = [item.strip() for item in args.templates.split(",") if item.strip()]
     if not templates:
-        mako_templates = _template_names(args.mako_dir)
-        jinja_templates = _template_names(args.jinja_dir)
+        mako_templates = _template_names_mako(args.mako_dir)
+        jinja_templates = _template_names_jinja(args.jinja_dir)
         templates = sorted(mako_templates | jinja_templates)
 
     if not templates:
@@ -264,7 +286,7 @@ def main() -> int:
                 )
 
         if args.engine in {"jinja", "both"}:
-            jinja_path = args.jinja_dir / template
+            jinja_path = _jinja_path(args.jinja_dir, template)
             if jinja_path.exists():
                 source = jinja_path.read_text(encoding="utf-8")
                 referenced = _jinja_names(env, source) - allowed

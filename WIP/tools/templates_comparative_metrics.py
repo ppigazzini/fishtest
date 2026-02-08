@@ -65,8 +65,9 @@ class Summary:
     totals: Totals
 
 
-def iter_templates(path: Path) -> Iterable[Path]:
-    return sorted(p for p in path.glob("*.mak") if p.is_file())
+def iter_templates(path: Path, *, engine: str) -> Iterable[Path]:
+    pattern = "*.mak" if engine.startswith("mako") else "*.html.j2"
+    return sorted(p for p in path.glob(pattern) if p.is_file())
 
 
 def score(statements: int, code_tags: int, expressions: int) -> int:
@@ -120,7 +121,7 @@ def collect(engine: str, path: Path) -> Summary:
         open_re = JINJA_OPEN_RE
         close_re = JINJA_CLOSE_RE
 
-    templates = list(iter_templates(path))
+    templates = list(iter_templates(path, engine=engine))
     totals = {
         "templates": len(templates),
         "statements": 0,

@@ -321,7 +321,7 @@ async def _dispatch_view(fn, cfg, request, path_params):
         return apply_response_headers(shim, response)
 
     renderer = cfg.get("renderer")
-    if isinstance(renderer, str) and renderer.endswith(".mak"):
+    if isinstance(renderer, str):
         context = result if isinstance(result, dict) else {}
         status_code = getattr(shim.response, "status", 200) or 200
         response = await run_in_threadpool(
@@ -429,7 +429,7 @@ def should_include_unfinished_runs(page_param: str) -> bool:
 
 
 # === Error handling views ===
-@notfound_view_config(renderer="notfound.mak")
+@notfound_view_config(renderer="notfound.html.j2")
 def notfound_view(request):
     request.response.status = 404
     if request.exception:
@@ -464,11 +464,11 @@ def ensure_logged_in(request):
 
 @view_config(
     route_name="login",
-    renderer="login.mak",
+    renderer="login.html.j2",
     require_csrf=True,
     request_method=("GET", "POST"),
 )
-@forbidden_view_config(renderer="login.mak")
+@forbidden_view_config(renderer="login.html.j2")
 def login(request):
     userid = request.authenticated_userid
     if userid:
@@ -563,7 +563,7 @@ def _blocked_worker_rows(blocked_workers, *, show_email):
     return rows
 
 
-@view_config(route_name="workers", renderer="workers.mak", require_csrf=True)
+@view_config(route_name="workers", renderer="workers.html.j2", require_csrf=True)
 def workers(request):
     is_approver = request.has_permission("approve_run")
 
@@ -668,7 +668,7 @@ def workers(request):
 # === Neural network uploads + tools ===
 @view_config(
     route_name="nn_upload",
-    renderer="nn_upload.mak",
+    renderer="nn_upload.html.j2",
     require_csrf=True,
 )
 def upload(request):
@@ -755,7 +755,7 @@ def logout(request):
 
 @view_config(
     route_name="signup",
-    renderer="signup.mak",
+    renderer="signup.html.j2",
     require_csrf=True,
     request_method=("GET", "POST"),
 )
@@ -839,7 +839,7 @@ def signup(request):
     return {}
 
 
-@view_config(route_name="nns", renderer="nns.mak")
+@view_config(route_name="nns", renderer="nns.html.j2")
 def nns(request):
     user = request.params.get("user", "")
     network_name = request.params.get("network_name", "")
@@ -874,12 +874,12 @@ def nns(request):
     }
 
 
-@view_config(route_name="sprt_calc", renderer="sprt_calc.mak")
+@view_config(route_name="sprt_calc", renderer="sprt_calc.html.j2")
 def sprt_calc(request):
     return {}
 
 
-@view_config(route_name="rate_limits", renderer="rate_limits.mak")
+@view_config(route_name="rate_limits", renderer="rate_limits.html.j2")
 def rate_limits(request):
     return {}
 
@@ -913,7 +913,7 @@ def sanitize_quotation_marks(text):
 
 
 # === Actions log ===
-@view_config(route_name="actions", renderer="actions.mak")
+@view_config(route_name="actions", renderer="actions.html.j2")
 def actions(request):
     DEFAULT_MAX_ACTIONS_AUTH = 50000
     HARD_MAX_ACTIONS_ANON = 5000
@@ -1105,7 +1105,7 @@ def _user_management_rows(users):
     return rows
 
 
-@view_config(route_name="user_management", renderer="user_management.mak")
+@view_config(route_name="user_management", renderer="user_management.html.j2")
 def user_management(request):
     if not request.has_permission("approve_run"):
         request.session.flash("You cannot view user management", "error")
@@ -1129,8 +1129,8 @@ def user_management(request):
     }
 
 
-@view_config(route_name="user", renderer="user.mak")
-@view_config(route_name="profile", renderer="user.mak")
+@view_config(route_name="user", renderer="user.html.j2")
+@view_config(route_name="profile", renderer="user.html.j2")
 def user(request):
     userid = ensure_logged_in(request)
 
@@ -1252,7 +1252,7 @@ def user(request):
 
 
 # === Contributors views ===
-@view_config(route_name="contributors", renderer="contributors.mak")
+@view_config(route_name="contributors", renderer="contributors.html.j2")
 def contributors(request):
     users_list = list(request.userdb.user_cache.find())
     users_list.sort(key=lambda k: k["cpu_hours"], reverse=True)
@@ -1266,7 +1266,7 @@ def contributors(request):
     }
 
 
-@view_config(route_name="contributors_monthly", renderer="contributors.mak")
+@view_config(route_name="contributors_monthly", renderer="contributors.html.j2")
 def contributors_monthly(request):
     users_list = list(request.userdb.top_month.find())
     users_list.sort(key=lambda k: k["cpu_hours"], reverse=True)
@@ -1798,7 +1798,7 @@ def new_run_message(request, run):
 # === Run creation ===
 @view_config(
     route_name="tests_run",
-    renderer="tests_run.mak",
+    renderer="tests_run.html.j2",
     require_csrf=True,
     require_primary=True,
 )
@@ -2118,7 +2118,7 @@ def get_page_title(run):
     return page_title
 
 
-@view_config(route_name="tests_live_elo", renderer="tests_live_elo.mak")
+@view_config(route_name="tests_live_elo", renderer="tests_live_elo.html.j2")
 def tests_live_elo(request):
     run = request.rundb.get_run(request.matchdict["id"])
     if run is None or "sprt" not in run["args"]:
@@ -2126,7 +2126,7 @@ def tests_live_elo(request):
     return {"run": run, "page_title": get_page_title(run)}
 
 
-@view_config(route_name="tests_stats", renderer="tests_stats.mak")
+@view_config(route_name="tests_stats", renderer="tests_stats.html.j2")
 def tests_stats(request):
     run = request.rundb.get_run(request.matchdict["id"])
     if run is None:
@@ -2138,7 +2138,7 @@ def tests_stats(request):
     }
 
 
-@view_config(route_name="tests_tasks", renderer="tasks.mak")
+@view_config(route_name="tests_tasks", renderer="tasks.html.j2")
 def tests_tasks(request):
     run = request.rundb.get_run(request.matchdict["id"])
     if run is None:
@@ -2171,7 +2171,7 @@ def tests_tasks(request):
     }
 
 
-@view_config(route_name="tests_machines", http_cache=10, renderer="machines.mak")
+@view_config(route_name="tests_machines", http_cache=10, renderer="machines.html.j2")
 def tests_machines(request):
     def _clip_long(text: str, max_length: int = 20) -> str:
         if len(text) > max_length:
@@ -2217,7 +2217,7 @@ def tests_machines(request):
     return {"machines_list": machines_list, "machines": machines}
 
 
-@view_config(route_name="tests_view", renderer="tests_view.mak")
+@view_config(route_name="tests_view", renderer="tests_view.html.j2")
 def tests_view(request):
     run = request.rundb.get_run(request.matchdict["id"])
     if run is None:
@@ -2633,7 +2633,7 @@ def _build_run_tables_context(
 
 
 # === Run lists + homepage ===
-@view_config(route_name="tests_finished", renderer="tests_finished.mak")
+@view_config(route_name="tests_finished", renderer="tests_finished.html.j2")
 def tests_finished(request):
     context = get_paginated_finished_runs(request)
     page_idx = context.get("page_idx", 0)
@@ -2656,7 +2656,7 @@ def tests_finished(request):
     }
 
 
-@view_config(route_name="tests_user", renderer="tests_user.mak")
+@view_config(route_name="tests_user", renderer="tests_user.html.j2")
 def tests_user(request):
     request.response.headerlist.extend(
         (
@@ -2737,7 +2737,7 @@ def homepage_results(request):
     }
 
 
-@view_config(route_name="tests", renderer="tests.mak")
+@view_config(route_name="tests", renderer="tests.html.j2")
 def tests(request):
     request.response.headerlist.extend(
         (

@@ -136,7 +136,7 @@ def main() -> int:
     parser.add_argument("--max-code-tags", type=int, default=None)
     args = parser.parse_args()
 
-    templates = sorted(args.templates_dir.glob("*.mak"))
+    templates = sorted(args.templates_dir.glob("*.html.j2"))
     stats = [analyze_template(path) for path in templates]
     summary = summarize(stats)
 

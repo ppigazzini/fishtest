@@ -9,7 +9,7 @@ Goal:
 Usage:
     python WIP/tools/compare_template_response_parity.py
     python WIP/tools/compare_template_response_parity.py --left-engine mako --right-engine jinja
-    python WIP/tools/compare_template_response_parity.py --templates tests_view.mak
+    python WIP/tools/compare_template_response_parity.py --templates tests_view.html.j2
 
 Exit status:
     0 if parity looks good
@@ -84,10 +84,22 @@ def _templates_dir(engine: str, *, jinja_dir: Path, mako_dir: Path) -> Path:
     return mako_dir
 
 
+def _logical_name(name: str) -> str:
+    if name.endswith(".html.j2"):
+        return name[: -len(".html.j2")] + ".mak"
+    return name
+
+
+def _resolve_name(name: str, engine: str) -> str:
+    if engine == "jinja" and name.endswith(".mak"):
+        return name[: -len(".mak")] + ".html.j2"
+    return name
+
+
 def _template_names(path: Path, engine: str) -> set[str]:
     if engine == "mako":
         return {item.name for item in path.glob("*.mak")}
-    return {item.name for item in path.glob("*") if item.is_file()}
+    return {_logical_name(item.name) for item in path.glob("*.html.j2")}
 
 
 def _build_jinja_env(template_dir: Path) -> Environment:
@@ -207,10 +219,11 @@ def _render_response(
     mako_lookup: TemplateLookup,
 ):
     context_copy = copy.deepcopy(context)
+    resolved = _resolve_name(name, engine)
     if engine == "jinja":
-        html = jinja_env.get_template(name).render(**context_copy)
+        html = jinja_env.get_template(resolved).render(**context_copy)
     else:
-        html = mako_lookup.get_template(name).render(**context_copy)
+        html = mako_lookup.get_template(resolved).render(**context_copy)
     response = HTMLResponse(html, status_code=200)
     response.template = name
     response.context = context_copy
@@ -270,7 +283,11 @@ def main() -> int:
         mako_dir=DEFAULT_MAKO_DIR,
     )
 
-    names = [item.strip() for item in args.templates.split(",") if item.strip()]
+    names = [
+        _logical_name(item.strip())
+        for item in args.templates.split(",")
+        if item.strip()
+    ]
     if names:
         templates = names
     else:

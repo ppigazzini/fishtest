@@ -26,7 +26,7 @@ async def render_notfound_response(request: Request) -> Response:
     # Template rendering is sync and can be CPU heavy; keep it off the event loop.
     response = await run_in_threadpool(
         render_template_to_response,
-        template_name="notfound.mak",
+        template_name="notfound.html.j2",
         context=context,
         status_code=404,
     )
@@ -49,7 +49,7 @@ async def render_forbidden_response(request: Request) -> Response:
 
     response = await run_in_threadpool(
         render_template_to_response,
-        template_name="login.mak",
+        template_name="login.html.j2",
         context=context,
         status_code=403,
     )

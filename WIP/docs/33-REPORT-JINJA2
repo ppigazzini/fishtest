@@ -58,7 +58,7 @@ Jinja2 templating (docs/templates.rst, switching.rst, tricks.rst):
 
 Runtime templating and environment
 - server/fishtest/http/jinja.py defines a custom Jinja2 Environment with:
-  - autoescape for html/xml/mak
+  - autoescape for html/xml/j2
   - MakoUndefined to mimic legacy UNDEFINED behavior
   - helpers registered as filters and globals (fishtest, gh, urllib, math, helpers)
 - Jinja2Templates is created from the custom Environment (env=...)
@@ -90,7 +90,7 @@ Summary status vs Milestone 10 target
 - Legacy Mako templates remain for parity tooling.
 - Base context is explicit and shared.
 - TemplateResponse is not used in the UI path (HTMLResponse is used instead).
-- Templates still use .mak suffix in templates_jinja2.
+- Templates have been renamed to .html.j2 in templates_jinja2 (done).
 - Parity tooling is operational, but diffs remain for many templates.
 
 ## All ways to move from legacy Mako to idiomatic Starlette Jinja2
@@ -130,7 +130,7 @@ E) Jinja2 idioms for maintainability
 - Use required blocks to enforce layout overrides.
 
 F) Naming and file conventions
-- Rename templates from .mak to .html or .jinja2 once parity coverage no longer depends on .mak naming.
+- Rename templates from .mak to .html.j2. (done)
 - Align autoescape configuration with new extensions.
 
 G) Reduce legacy Mako coupling
@@ -149,9 +149,9 @@ H) Parity-friendly migration tactics
 - Ensure TemplateResponse(request=..., name=..., context=...) is used consistently with keyword args.
 
 2) Template file naming and autoescape
-- Rename templates in server/fishtest/templates_jinja2 to .html or .jinja2.
-- Update autoescape configuration to cover the new extensions.
-- Update template name references in views and parity tooling (mapping file or rewrite layer as needed).
+- Rename templates in server/fishtest/templates_jinja2 to .html.j2. (done)
+- Update autoescape configuration to cover the new extensions. (done)
+- Update template name references in views and parity tooling (mapping layer in tools). (done)
 
 3) Explicit context contract enforcement
 - For every template, align view contexts to 10.0-JINJA2-CONTEXT-CONTRACTS.md.
@@ -204,6 +204,6 @@ H) Parity-friendly migration tactics
 1) Decide whether to switch UI rendering to TemplateResponse now or after template renames.
 2) Fix remaining missing context keys reported by template_context_coverage tooling.
 3) Convert high-logic templates to helper-driven contexts (actions, tasks, machines, tests_*), preserving existing IDs and form fields.
-4) Plan the .mak -> .html renames with a mapping layer so parity scripts still target legacy Mako templates.
+4) Verify parity scripts with the .html.j2 mapping layer after the rename.
 
 End of report.

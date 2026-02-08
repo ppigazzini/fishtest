@@ -1,4 +1,4 @@
-{% extends "base.mak" %}
+{% extends "base.html.j2" %}
 
 {% block title %}Stockfish Testing Queue | Stockfish Testing{% endblock %}
 
@@ -158,9 +158,9 @@
     finished_title_text=run_tables_ctx.finished_title_text,
     show_gauge=run_tables_ctx.show_gauge
   %}
-    {% include "run_tables.mak" %}
+    {% include "run_tables.html.j2" %}
   {% endwith %}
 {% else %}
-  {% include "run_tables.mak" %}
+  {% include "run_tables.html.j2" %}
 {% endif %}
 {% endblock %}

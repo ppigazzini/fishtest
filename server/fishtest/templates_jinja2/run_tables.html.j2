@@ -18,7 +18,7 @@
     alt='No tests pending approval',
     show_gauge=show_gauge
   %}
-    {% include "run_table.mak" %}
+    {% include "run_table.html.j2" %}
   {% endwith %}
 
   {% with
@@ -32,7 +32,7 @@
     alt='No paused tests',
     show_gauge=show_gauge
   %}
-    {% include "run_table.mak" %}
+    {% include "run_table.html.j2" %}
   {% endwith %}
 
   {% with
@@ -46,7 +46,7 @@
     alt='No failed tests on this page',
     show_gauge=show_gauge
   %}
-    {% include "run_table.mak" %}
+    {% include "run_table.html.j2" %}
   {% endwith %}
 
   {% with
@@ -59,7 +59,7 @@
     alt='No active tests',
     show_gauge=show_gauge
   %}
-    {% include "run_table.mak" %}
+    {% include "run_table.html.j2" %}
   {% endwith %}
 {% endif %}
 
@@ -74,5 +74,5 @@
   title_text=finished_title_text,
   show_gauge=show_gauge
 %}
-  {% include "run_table.mak" %}
+  {% include "run_table.html.j2" %}
 {% endwith %}

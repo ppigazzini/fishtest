@@ -9,7 +9,7 @@ Goal:
 Usage:
     python WIP/tools/compare_template_parity.py --left-engine mako --right-engine jinja
     python WIP/tools/compare_template_parity.py --right-dir server/fishtest/templates_jinja2
-    python WIP/tools/compare_template_parity.py --templates tests_view.mak,tests.mak
+    python WIP/tools/compare_template_parity.py --templates tests_view.html.j2,tests.html.j2
     python WIP/tools/compare_template_parity.py --json --show-diff
 
 Exit status:
@@ -212,14 +212,22 @@ def _with_helpers(context: dict[str, Any]) -> dict[str, Any]:
     return context
 
 
+def _logical_name(name: str) -> str:
+    if name.endswith(".html.j2"):
+        return name[: -len(".html.j2")] + ".mak"
+    return name
+
+
+def _resolve_name(name: str, engine: str) -> str:
+    if engine == "jinja" and name.endswith(".mak"):
+        return name[: -len(".mak")] + ".html.j2"
+    return name
+
+
 def _template_names(path: Path, engine: str) -> set[str]:
     if engine == "mako":
         return {item.name for item in path.glob("*.mak")}
-    return {
-        item.name
-        for item in path.glob("*")
-        if item.is_file() and not item.name.startswith(".")
-    }
+    return {_logical_name(item.name) for item in path.glob("*.html.j2")}
 
 
 def _collect_templates(
@@ -320,7 +328,11 @@ def main() -> int:
             )
         )
 
-    names = [item.strip() for item in args.templates.split(",") if item.strip()]
+    names = [
+        _logical_name(item.strip())
+        for item in args.templates.split(",")
+        if item.strip()
+    ]
     templates = _collect_templates(
         left_dir=left_dir,
         right_dir=right_dir,
@@ -377,7 +389,11 @@ def main() -> int:
             if args.left_engine == "mako":
                 left_html = _render_mako(mako_lookup_left, name, context)
             else:
-                left_html = _render_jinja(jinja_env_left, name, context)
+                left_html = _render_jinja(
+                    jinja_env_left,
+                    _resolve_name(name, "jinja"),
+                    context,
+                )
         except TemplateNotFound:
             print(f"FAILED: {args.left_engine} template not found: {name}")
             return 2
@@ -389,7 +405,11 @@ def main() -> int:
             if args.right_engine == "mako":
                 right_html = _render_mako(mako_lookup_right, name, context)
             else:
-                right_html = _render_jinja(jinja_env_right, name, context)
+                right_html = _render_jinja(
+                    jinja_env_right,
+                    _resolve_name(name, "jinja"),
+                    context,
+                )
         except TemplateNotFound:
             print(f"FAILED: {args.right_engine} template not found: {name}")
             return 2

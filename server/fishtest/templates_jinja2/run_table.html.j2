@@ -45,7 +45,7 @@
 >
 
   {% with pages=pages %}
-    {% include "pagination.mak" %}
+    {% include "pagination.html.j2" %}
   {% endwith %}
 
   <div class="table-responsive-lg">
@@ -105,7 +105,7 @@
 
             <td style="width: 1%;" class="run-elo">
               {% with run=row.run, show_gauge=show_gauge %}
-                {% include "elo_results.mak" %}
+                {% include "elo_results.html.j2" %}
               {% endwith %}
             </td>
 
@@ -139,6 +139,6 @@
     </table>
   </div>
   {% with pages=pages %}
-    {% include "pagination.mak" %}
+    {% include "pagination.html.j2" %}
   {% endwith %}
 </section>

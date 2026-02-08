@@ -8,7 +8,7 @@ Goal:
 Usage:
     python WIP/tools/compare_jinja_mako_new_parity.py
     python WIP/tools/compare_jinja_mako_new_parity.py --jinja-dir server/fishtest/templates_jinja2
-    python WIP/tools/compare_jinja_mako_new_parity.py --templates tests_view.mak
+    python WIP/tools/compare_jinja_mako_new_parity.py --templates tests_view.html.j2
 
 Exit status:
     0 if all templates match (normalized)
