@@ -1057,7 +1057,7 @@ def actions(request):
     pages = pagination(page_idx, num_actions, page_size, query_params)
 
     return {
-        "actions": action_rows,
+        "actions": actions,
         "pages": pages,
         "filters": {
             "action": search_action,
