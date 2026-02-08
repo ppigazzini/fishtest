@@ -20,7 +20,6 @@ class _ConnStub:
 class _ActionDbStub:
     def system_event(self, message: str):
         _ = message
-        return None
 
 
 class _RunDbStub:
@@ -64,7 +63,9 @@ class TestHttpApp(unittest.TestCase):
             mock.patch.object(app_module, "RunDb", _RunDbStub),
             mock.patch.object(app_module, "run_in_threadpool", _fake_run_in_threadpool),
             mock.patch.object(
-                app_module.AppSettings, "from_env", return_value=settings
+                app_module.AppSettings,
+                "from_env",
+                return_value=settings,
             ),
         ):
             app = app_module.create_app()

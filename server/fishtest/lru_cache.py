@@ -7,12 +7,12 @@ from collections.abc import MutableMapping
 
 class LRUCache(MutableMapping):
     __slots__ = (
-        "__size",
-        "__expiration",
-        "__refresh",
         "__data",
+        "__expiration",
         "__lock",
         "__lock_depth",
+        "__refresh",
+        "__size",
     )
 
     def __init__(self, maxsize=None, expiration=None, refresh=True):
@@ -225,7 +225,7 @@ class lru_cache:
         filter=lambda f, args, kw, val: True,
     ):
         if cache is not None:
-            if any((x is not None for x in (maxsize, expiration, refresh))):
+            if any(x is not None for x in (maxsize, expiration, refresh)):
                 raise ValueError(
                     "You cannot specify maxsize, expiration or "
                     "refresh for a pre-constructed LRUCache object",
@@ -235,7 +235,9 @@ class lru_cache:
             if refresh is None:
                 refresh = True
             self.__cache = LRUCache(
-                maxsize=maxsize, expiration=expiration, refresh=refresh
+                maxsize=maxsize,
+                expiration=expiration,
+                refresh=refresh,
             )
         self.__key = key
         self.__filter = filter

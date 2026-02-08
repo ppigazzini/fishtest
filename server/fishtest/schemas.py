@@ -54,14 +54,16 @@ action_message = intersect(str, size(0, ACTION_MESSAGE_SIZE))
 worker_message = intersect(str, size(0, 500))
 short_worker_name = regex(r".*-[\d]+cores-[a-zA-Z0-9]{2,8}", name="short_worker_name")
 long_worker_name = regex(
-    r".*-[\d]+cores-[a-zA-Z0-9]{2,8}-[a-f0-9]{4}\*?", name="long_worker_name"
+    r".*-[\d]+cores-[a-zA-Z0-9]{2,8}-[a-f0-9]{4}\*?",
+    name="long_worker_name",
 )
 worker_arch = set_name(union(*supported_arches), "valid_worker_arch")
 compiler = union(*supported_compilers)
 valid_username = regex(VALID_USERNAME_PATTERN, name="valid_username")
 legacy_usernames = set()  # will be updated when the application starts up
 legacy_username = intersect(
-    str, set_name(lambda x: x in legacy_usernames, "legacy_username")
+    str,
+    set_name(lambda x: x in legacy_usernames, "legacy_username"),
 )
 username = union(valid_username, legacy_username)
 action_username = union(username, "fishtest.system")
@@ -80,12 +82,15 @@ datetime_utc = intersect(datetime, fields({"tzinfo": UTC}))
 gzip_data = magic("application/gzip", name="gzip_data")
 residual_color = set_name(union("green", "yellow", "red"), "residual_color")
 github_repo = regex(
-    r"https:\/\/(www\.)?github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?", "github_repo"
+    r"https:\/\/(www\.)?github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?",
+    "github_repo",
 )
 ascii = set_name(lambda x: x.isascii(), name="ascii")
 set_option = r"[^\s=]+=[^\s=]+"
 option_list = intersect(
-    str, ascii, regex(rf"(|({set_option} )*{set_option})", name="option_list")
+    str,
+    ascii,
+    regex(rf"(|({set_option} )*{set_option})", name="option_list"),
 )
 
 uint = intersect(int, ge(0))
@@ -144,10 +149,9 @@ def first_test_before_last(net_doc):
     last = net_doc["last_test"]["date"]
     if first <= last:
         return True
-    else:
-        raise Exception(
-            f"The first test at {str(first)} is later than the last test at {str(last)}"
-        )
+    raise Exception(
+        f"The first test at {first!s} is later than the last test at {last!s}",
+    )
 
 
 nn_schema = intersect(
@@ -216,7 +220,7 @@ action_schema = intersect(
     lax(
         {
             "action": action_name,
-        }
+        },
     ),
     # For every action name introduce a specific schema.
     cond(
@@ -440,7 +444,7 @@ worker_info_schema_api = {
 
 worker_info_schema_runs = copy.deepcopy(worker_info_schema_api)
 worker_info_schema_runs.update(
-    {"remote_addr": ip_address, "country_code": union(country_code, "?")}
+    {"remote_addr": ip_address, "country_code": union(country_code, "?")},
 )
 
 
@@ -578,18 +582,17 @@ def compute_flags(run):
 
     if state == "accepted":
         return green_flag
-    elif state == "rejected" and WLD[0] > WLD[1]:
+    if state == "rejected" and WLD[0] > WLD[1]:
         return yellow_flag
-    else:
-        # Stopped SPRT test
-        return no_flags
+    # Stopped SPRT test
+    return no_flags
 
 
 def final_results_must_match(run):
     results = compute_results(run)
     if results != run["results"]:
         raise Exception(
-            f"The final results {run['results']} do not match the computed results {results}"
+            f"The final results {run['results']} do not match the computed results {results}",
         )
 
     return True
@@ -608,7 +611,7 @@ def workers_must_match(run):
     if workers != run["workers"]:
         raise Exception(
             f"Workers mismatch. Workers from tasks: {workers}. Workers from "
-            f"run: {run['workers']}"
+            f"run: {run['workers']}",
         )
 
     return True
@@ -619,7 +622,7 @@ def committed_games_must_match(run):
     if committed_games != run["committed_games"]:
         raise Exception(
             f"Committed games mismatch. Committed games from tasks: {committed_games}. Committed games from "
-            f"run: {run['committed_games']}"
+            f"run: {run['committed_games']}",
         )
 
     return True
@@ -630,7 +633,7 @@ def total_games_must_match(run):
     if total_games != run["total_games"]:
         raise Exception(
             f"Total games mismatch. Total games from tasks: {total_games}. Total games from "
-            f"run: {run['total_games']}"
+            f"run: {run['total_games']}",
         )
 
     return True
@@ -641,7 +644,7 @@ def flags_must_match(run):
     run_flags = {"is_green": run["is_green"], "is_yellow": run["is_yellow"]}
     if flags != run_flags:
         raise Exception(
-            f"Flags mismatch. Computed flags: {flags}. Flags from run: {run_flags}"
+            f"Flags mismatch. Computed flags: {flags}. Flags from run: {run_flags}",
         )
     return True
 
@@ -812,7 +815,8 @@ runs_schema = intersect(
                     "worker_info": worker_info_schema_runs,
                 },
                 ifthen(
-                    keys("bad"), lax({"active": False, "stats": quote(zero_results)})
+                    keys("bad"),
+                    lax({"active": False, "stats": quote(zero_results)}),
                 ),
                 ifthen(keys("spsa_params"), lax({"active": True})),
             ),
@@ -857,7 +861,7 @@ runs_schema = intersect(
                 },
                 is_undecided,
             ),
-        )
+        ),
     ),
     valid_aggregated_data,
 )
@@ -890,7 +894,7 @@ worker_runs_schema = {
     short_worker_name: {
         run_id: True,
         "last_run": run_id,
-    }
+    },
 }
 
 

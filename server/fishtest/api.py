@@ -65,7 +65,8 @@ class GenericApi:
     def handle_error(self, error, exception=HTTPBadRequest):
         if error != "":
             full_url = self.request.route_url(
-                self.request.matched_route.name, **self.request.matchdict
+                self.request.matched_route.name,
+                **self.request.matchdict,
             )
             api = urlparse(full_url).path
             error = f"{api}: {error}"
@@ -104,8 +105,7 @@ class WorkerApi(GenericApi):
             )
 
     def validate_request(self):
-        """
-        This function will load the run from the cache or the db,
+        """This function will load the run from the cache or the db,
         depending on the type of instance it runs on (primary or
         secondary). If the request refers to a particular
         task then one needs to make sure that it has been saved
@@ -128,7 +128,7 @@ class WorkerApi(GenericApi):
             run_id = self.request_body["run_id"]
             run = self.request.rundb.get_run(run_id)
             if run is None:
-                self.handle_error("Invalid run_id: {}".format(run_id))
+                self.handle_error(f"Invalid run_id: {run_id}")
             self.__run = run
 
         # if a task_id is present then the unique_key and username
@@ -139,7 +139,7 @@ class WorkerApi(GenericApi):
 
             if task_id < 0 or task_id >= len(run["tasks"]):
                 self.handle_error(
-                    "Invalid task_id {} for run_id {}".format(task_id, run_id)
+                    f"Invalid task_id {task_id} for run_id {run_id}",
                 )
 
             task = run["tasks"][task_id]
@@ -150,7 +150,7 @@ class WorkerApi(GenericApi):
                 if value_request != value_task:
                     self.handle_error(
                         f"Invalid {key} for task {run_id}/{task_id}. From task: "
-                        f"{value_task}. From request: {value_request}."
+                        f"{value_task}. From request: {value_request}.",
                     )
 
             self.__task = task
@@ -262,7 +262,9 @@ class WorkerApi(GenericApi):
     def failed_task(self):
         self.validate_request()
         result = self.request.rundb.failed_task(
-            self.run_id(), self.task_id(), self.message()
+            self.run_id(),
+            self.task_id(),
+            self.message(),
         )
         return self.add_time(result)
 
@@ -285,7 +287,7 @@ class WorkerApi(GenericApi):
         except Exception as e:
             self.handle_error(str(e))
         result = self.request.rundb.upload_pgn(
-            run_id="{}-{}".format(self.run_id(), self.task_id()),
+            run_id=f"{self.run_id()}-{self.task_id()}",
             pgn_zip=pgn_zip,
         )
         return self.add_time(result)
@@ -295,9 +297,7 @@ class WorkerApi(GenericApi):
         self.validate_request()
         error = ""
         if self.cpu_hours() < 1000:
-            error = "User {} has too few games to stop a run".format(
-                self.get_username()
-            )
+            error = f"User {self.get_username()} has too few games to stop a run"
         with self.request.rundb.active_run_lock(self.run_id()):
             run = self.run()
             if not run["finished"]:
@@ -343,7 +343,8 @@ class WorkerApi(GenericApi):
     def request_spsa(self):
         self.validate_request()
         result = self.request.rundb.spsa_handler.request_spsa_data(
-            self.run_id(), self.task_id()
+            self.run_id(),
+            self.task_id(),
         )
         return self.add_time(result)
 
@@ -429,7 +430,8 @@ class UserApi(GenericApi):
         run = self.request.rundb.get_run(run_id)
         if run is None:
             self.handle_error(
-                f"The run {run_id} does not exist", exception=HTTPNotFound
+                f"The run {run_id} does not exist",
+                exception=HTTPNotFound,
             )
         self.request.response.headers["access-control-allow-origin"] = "*"
         self.request.response.headers["access-control-allow-headers"] = "content-type"
@@ -449,7 +451,8 @@ class UserApi(GenericApi):
                 task = copy.deepcopy(run["tasks"][task_id])
         except Exception:
             self.handle_error(
-                f"The task {run_id}/{task_id} does not exist", exception=HTTPNotFound
+                f"The task {run_id}/{task_id} does not exist",
+                exception=HTTPNotFound,
             )
         if "worker_info" in task:
             worker_info = task["worker_info"]
@@ -480,7 +483,8 @@ class UserApi(GenericApi):
         run = self.request.rundb.get_run(run_id)
         if run is None:
             self.handle_error(
-                f"The run {run_id} does not exist", exception=HTTPNotFound
+                f"The run {run_id} does not exist",
+                exception=HTTPNotFound,
             )
         results = run["results"]
         if "sprt" not in run["args"]:
@@ -494,7 +498,12 @@ class UserApi(GenericApi):
         elo1 = sprt["elo1"]
         sprt["elo_model"] = elo_model
         a = SPRT_elo(
-            results, alpha=alpha, beta=beta, elo0=elo0, elo1=elo1, elo_model=elo_model
+            results,
+            alpha=alpha,
+            beta=beta,
+            elo0=elo0,
+            elo1=elo1,
+            elo_model=elo_model,
         )
         run["elo"] = a
         return run
@@ -528,7 +537,7 @@ class UserApi(GenericApi):
 
         if not is_ptnml and not is_wdl:
             self.handle_error(
-                "Invalid or missing parameters. Please provide all values as valid numbers."
+                "Invalid or missing parameters. Please provide all values as valid numbers.",
             )
 
         if is_ptnml:
@@ -566,44 +575,42 @@ class UserApi(GenericApi):
                 elo5_l = elo5 - elo95_5
                 elo5_u = elo5 + elo95_5
                 return {"elo": elo5, "ci": [elo5_l, elo5_u], "LOS": LOS5}
-            else:
-                WLD = [results["wins"], results["losses"], results["draws"]]
-                elo3, elo95_3, LOS3 = get_elo([WLD[1], WLD[2], WLD[0]])
-                elo3_l = elo3 - elo95_3
-                elo3_u = elo3 + elo95_3
-                return {"elo": elo3, "ci": [elo3_l, elo3_u], "LOS": LOS3}
-        else:
-            badEloValues = (
-                not all(
-                    value.replace(".", "").replace("-", "").isdigit()
-                    for value in (elo0, elo1)
-                )
-                or float(elo1) < float(elo0) + 0.5
-                or abs(float(elo0)) > 10
-                or abs(float(elo1)) > 10
+            WLD = [results["wins"], results["losses"], results["draws"]]
+            elo3, elo95_3, LOS3 = get_elo([WLD[1], WLD[2], WLD[0]])
+            elo3_l = elo3 - elo95_3
+            elo3_u = elo3 + elo95_3
+            return {"elo": elo3, "ci": [elo3_l, elo3_u], "LOS": LOS3}
+        badEloValues = (
+            not all(
+                value.replace(".", "").replace("-", "").isdigit()
+                for value in (elo0, elo1)
             )
-            if badEloValues:
-                self.handle_error("Bad elo0, and elo1 values.")
+            or float(elo1) < float(elo0) + 0.5
+            or abs(float(elo0)) > 10
+            or abs(float(elo1)) > 10
+        )
+        if badEloValues:
+            self.handle_error("Bad elo0, and elo1 values.")
 
-            elo_model = self.request.params.get("elo_model", "normalized")
+        elo_model = self.request.params.get("elo_model", "normalized")
 
-            if elo_model not in ["BayesElo", "logistic", "normalized"]:
-                self.handle_error(
-                    "Valid Elo models are: BayesElo, logistic, and normalized."
-                )
-
-            elo0 = float(elo0)
-            elo1 = float(elo1)
-            alpha = 0.05
-            beta = 0.05
-            return SPRT_elo(
-                results,
-                alpha=alpha,
-                beta=beta,
-                elo0=elo0,
-                elo1=elo1,
-                elo_model=elo_model,
+        if elo_model not in ["BayesElo", "logistic", "normalized"]:
+            self.handle_error(
+                "Valid Elo models are: BayesElo, logistic, and normalized.",
             )
+
+        elo0 = float(elo0)
+        elo1 = float(elo1)
+        alpha = 0.05
+        beta = 0.05
+        return SPRT_elo(
+            results,
+            alpha=alpha,
+            beta=beta,
+            elo0=elo0,
+            elo1=elo1,
+            elo_model=elo_model,
+        )
 
     @view_config(route_name="api_download_pgn", renderer="string")
     def download_pgn(self):
@@ -625,7 +632,8 @@ class UserApi(GenericApi):
         match = re.match(r"^([a-zA-Z0-9]+)\.pgn\.gz$", pgns_name)
         if not match:
             self.handle_error(
-                f"Invalid filename format for {pgns_name}", exception=HTTPBadRequest
+                f"Invalid filename format for {pgns_name}",
+                exception=HTTPBadRequest,
             )
         run_id = match.group(1)
         pgns_reader, total_size = self.request.rundb.get_run_pgns(run_id)
@@ -643,12 +651,14 @@ class UserApi(GenericApi):
         nn = self.request.rundb.get_nn(nn_id)
         if nn is None:
             self.handle_error(
-                f"The network {nn_id} does not exist", exception=HTTPNotFound
+                f"The network {nn_id} does not exist",
+                exception=HTTPNotFound,
             )
 
         self.request.rundb.increment_nn_downloads(nn_id)
         nn_base_url = os.environ.get(
-            "FISHTEST_NN_URL", f"{self.request.scheme}://{self.request.host}"
+            "FISHTEST_NN_URL",
+            f"{self.request.scheme}://{self.request.host}",
         ).rstrip("/")
 
         return HTTPFound(f"{nn_base_url}/nn/{nn_id}")

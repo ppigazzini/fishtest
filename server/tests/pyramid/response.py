@@ -8,7 +8,11 @@ from collections.abc import Iterator
 
 class Response:
     def __init__(
-        self, body: bytes | str | None = None, *, json_body=None, content_type=None
+        self,
+        body: bytes | str | None = None,
+        *,
+        json_body=None,
+        content_type=None,
     ):
         self.body = body
         self.json_body = json_body

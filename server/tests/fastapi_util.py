@@ -87,7 +87,8 @@ def make_test_client(*, rundb: Any, include_api: bool, include_views: bool):
 
 
 _CSRF_META_RE = re.compile(
-    r"<meta\s+name=\"csrf-token\"\s+content=\"([^\"]+)\"", re.IGNORECASE
+    r"<meta\s+name=\"csrf-token\"\s+content=\"([^\"]+)\"",
+    re.IGNORECASE,
 )
 
 

@@ -233,7 +233,7 @@ def build_template_context(
     pending_users_count = 0
     try:
         pending_users_count = len(get_userdb(request).get_pending())
-    except Exception:
+    except DependencyNotInitializedError:
         pending_users_count = 0
 
     base_context: dict[str, object] = {

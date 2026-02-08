@@ -51,9 +51,9 @@ def pagination(page_idx, num, page_size, query_params):
     pages = [
         {
             "idx": "Prev",
-            "url": "?page={}".format(page_idx) + query_params,
+            "url": f"?page={page_idx}" + query_params,
             "state": "disabled" if page_idx == 0 else "",
-        }
+        },
     ]
 
     if num <= 0:
@@ -62,14 +62,14 @@ def pagination(page_idx, num, page_size, query_params):
                 "idx": 1,
                 "url": "?page=1" + query_params,
                 "state": "active" if page_idx == 0 else "",
-            }
+            },
         )
         pages.append(
             {
                 "idx": "Next",
-                "url": "?page={}".format(page_idx + 2) + query_params,
+                "url": f"?page={page_idx + 2}" + query_params,
                 "state": "disabled",
-            }
+            },
         )
         return pages
 
@@ -80,9 +80,9 @@ def pagination(page_idx, num, page_size, query_params):
         pages.append(
             {
                 "idx": idx + 1,
-                "url": "?page={}".format(idx + 1) + query_params,
+                "url": f"?page={idx + 1}" + query_params,
                 "state": "active" if page_idx == idx else "",
-            }
+            },
         )
 
     # Always show page 1.
@@ -111,9 +111,9 @@ def pagination(page_idx, num, page_size, query_params):
     pages.append(
         {
             "idx": "Next",
-            "url": "?page={}".format(page_idx + 2) + query_params,
+            "url": f"?page={page_idx + 2}" + query_params,
             "state": "disabled" if disable_next else "",
-        }
+        },
     )
     return pages
 
@@ -144,7 +144,7 @@ def ensure_logged_in(request):
     if not userid:
         request.session.flash("Please login")
         raise HTTPFound(
-            location=request.route_url("login", _query={"next": request.path_qs})
+            location=request.route_url("login", _query={"next": request.path_qs}),
         )
     return userid
 
@@ -284,7 +284,9 @@ def workers(request):
             message = normalize_lf(message)
             was_blocked = request.workerdb.get_worker(worker_name)["blocked"]
             request.rundb.workerdb.update_worker(
-                worker_name, blocked=blocked, message=message
+                worker_name,
+                blocked=blocked,
+                message=message,
             )
             if blocked != was_blocked:
                 request.session.flash(
@@ -321,7 +323,8 @@ def upload(request):
         network = input_file.read()
     except AttributeError:
         request.session.flash(
-            "Specify a network file with the 'Choose File' button", "error"
+            "Specify a network file with the 'Choose File' button",
+            "error",
         )
         return {}
     except Exception as e:
@@ -412,7 +415,9 @@ def signup(request):
     tests_repo = request.POST.get("tests_repo", "").strip()
 
     strong_password, password_err = password_strength(
-        signup_password, signup_username, signup_email
+        signup_password,
+        signup_username,
+        signup_email,
     )
     if not strong_password:
         errors.append(password_err)
@@ -429,7 +434,7 @@ def signup(request):
     try:
         validate(union(github_repo, ""), tests_repo, "tests_repo")
     except ValidationError as e:
-        errors.append(f"Error! Invalid tests repo {tests_repo}: {str(e)}")
+        errors.append(f"Error! Invalid tests repo {tests_repo}: {e!s}")
 
     if errors:
         for error in errors:
@@ -471,7 +476,7 @@ def signup(request):
             "Account created! "
             "To avoid spam, a person will now manually approve your new account. "
             "This is usually quick but sometimes takes a few hours. "
-            "Thank you for contributing!"
+            "Thank you for contributing!",
         )
         return HTTPFound(location=request.route_url("login"))
     return {}
@@ -497,11 +502,11 @@ def nns(request):
 
     query_params = ""
     if user:
-        query_params += "&user={}".format(user)
+        query_params += f"&user={user}"
     if network_name:
-        query_params += "&network_name={}".format(network_name)
+        query_params += f"&network_name={network_name}"
     if master_only:
-        query_params += "&master_only={}".format(master_only)
+        query_params += f"&master_only={master_only}"
 
     pages = pagination(page_idx, num_nns, page_size, query_params)
 
@@ -606,22 +611,22 @@ def actions(request):
             if max_actions is not None:
                 redirect_query["max_actions"] = str(max_actions)
             return HTTPFound(
-                location=request.path_url + "?" + urlencode(redirect_query)
+                location=request.path_url + "?" + urlencode(redirect_query),
             )
 
     query_params = ""
     if username:
-        query_params += "&user={}".format(username)
+        query_params += f"&user={username}"
     if search_action:
-        query_params += "&action={}".format(search_action)
+        query_params += f"&action={search_action}"
     if text:
-        query_params += "&text={}".format(text)
+        query_params += f"&text={text}"
     if max_actions:
-        query_params += "&max_actions={}".format(max_actions)
+        query_params += f"&max_actions={max_actions}"
     if before:
-        query_params += "&before={}".format(before)
+        query_params += f"&before={before}"
     if run_id:
-        query_params += "&run_id={}".format(run_id)
+        query_params += f"&run_id={run_id}"
 
     pages = pagination(page_idx, num_actions, page_size, query_params)
 
@@ -708,7 +713,8 @@ def user(request):
                         return home(request)
                 else:
                     request.session.flash(
-                        "Error! Matching verify password required", "error"
+                        "Error! Matching verify password required",
+                        "error",
                     )
                     return home(request)
 
@@ -716,7 +722,8 @@ def user(request):
                 validate(union(github_repo, ""), tests_repo, "tests_repo")
             except ValidationError as e:
                 request.session.flash(
-                    f"Error! Invalid test repo {tests_repo}: {str(e)}", "error"
+                    f"Error! Invalid test repo {tests_repo}: {e!s}",
+                    "error",
                 )
                 return home(request)
 
@@ -726,19 +733,19 @@ def user(request):
                 email_is_valid, validated_email = email_valid(new_email)
                 if not email_is_valid:
                     request.session.flash(
-                        "Error! Invalid email: " + validated_email, "error"
+                        "Error! Invalid email: " + validated_email,
+                        "error",
                     )
                     return home(request)
-                else:
-                    user_data["email"] = validated_email
-                    request.session.flash("Success! Email updated")
+                user_data["email"] = validated_email
+                request.session.flash("Success! Email updated")
             request.userdb.save_user(user_data)
         elif "blocked" in request.POST and request.POST["blocked"].isdigit():
             user_data["blocked"] = bool(int(request.POST["blocked"]))
             request.session.flash(
                 ("Blocked" if user_data["blocked"] else "Unblocked")
                 + " user "
-                + user_name
+                + user_name,
             )
             request.userdb.clear_cache()
             request.userdb.save_user(user_data)
@@ -801,11 +808,15 @@ def contributors_monthly(request):
 
 
 def get_master_info(
-    user="official-stockfish", repo="Stockfish", ignore_rate_limit=False
+    user="official-stockfish",
+    repo="Stockfish",
+    ignore_rate_limit=False,
 ):
     try:
         commits = gh.get_commits(
-            user=user, repo=repo, ignore_rate_limit=ignore_rate_limit
+            user=user,
+            repo=repo,
+            ignore_rate_limit=ignore_rate_limit,
         )
     except Exception as e:
         print(f"Exception getting commits:\n{e}")
@@ -841,11 +852,10 @@ def get_sha(branch, repo_url):
     try:
         commit = gh.get_commit(user=user, repo=repo, branch=branch)
     except Exception as e:
-        raise Exception(f"Unable to access developer repository {repo_url}: {str(e)}")
+        raise Exception(f"Unable to access developer repository {repo_url}: {e!s}")
     if "sha" in commit:
         return commit["sha"], commit["commit"]["message"].split("\n")[0]
-    else:
-        return "", ""
+    return "", ""
 
 
 def get_nets(commit_sha, repo_url):
@@ -856,7 +866,11 @@ def get_nets(commit_sha, repo_url):
 
         user, repo = gh.parse_repo(repo_url)
         options = gh.download_from_github(
-            "/src/evaluate.h", user=user, repo=repo, branch=commit_sha, method="raw"
+            "/src/evaluate.h",
+            user=user,
+            repo=repo,
+            branch=commit_sha,
+            method="raw",
         ).decode()
         for line in options.splitlines():
             if "EvalFileDefaultName" in line and "define" in line:
@@ -870,7 +884,11 @@ def get_nets(commit_sha, repo_url):
             return nets
 
         options = gh.download_from_github(
-            "/src/ucioption.cpp", user=user, repo=repo, branch=commit_sha, method="raw"
+            "/src/ucioption.cpp",
+            user=user,
+            repo=repo,
+            branch=commit_sha,
+            method="raw",
         ).decode()
         for line in options.splitlines():
             if "EvalFile" in line and "Option" in line:
@@ -881,7 +899,7 @@ def get_nets(commit_sha, repo_url):
                         nets.append(net)
         return nets
     except Exception as e:
-        raise Exception(f"Unable to access developer repository {repo_url}: {str(e)}")
+        raise Exception(f"Unable to access developer repository {repo_url}: {e!s}")
 
 
 def parse_spsa_params(spsa):
@@ -892,7 +910,7 @@ def parse_spsa_params(spsa):
         if len(chunks) == 1 and chunks[0] == "":  # blank line
             continue
         if len(chunks) != 6:
-            raise Exception("the line {} does not have 6 entries".format(chunks))
+            raise Exception(f"the line {chunks} does not have 6 entries")
         param = {
             "name": chunks[0],
             "start": float(chunks[1]),
@@ -939,7 +957,8 @@ def validate_modify(request, run):
         and "spsa" not in run["args"]
     ):
         request.session.flash(
-            "Unable to modify number of games in a fixed game test!", "error"
+            "Unable to modify number of games in a fixed game test!",
+            "error",
         )
         raise home(request)
 
@@ -967,7 +986,7 @@ def sanitize_options(options):
     for token in tokens:
         if not token_regex.fullmatch(token):
             raise ValueError(
-                "Each option must be a 'key=value' pair with no extra spaces and exactly one '='"
+                "Each option must be a 'key=value' pair with no extra spaces and exactly one '='",
             )
     return " ".join(tokens)
 
@@ -996,7 +1015,7 @@ def validate_form(request):
         data["tests_repo"] = gh.normalize_repo(data["tests_repo"])
     except Exception as e:
         raise Exception(
-            f"Unable to access developer repository {data['tests_repo']}: {str(e)}"
+            f"Unable to access developer repository {data['tests_repo']}: {e!s}",
         ) from e
 
     user, repo = gh.parse_repo(data["tests_repo"])
@@ -1011,7 +1030,7 @@ def validate_form(request):
         master_repo = gh.get_master_repo(user, repo, ignore_rate_limit=True)
     except Exception as e:
         print(
-            f"Unable to determine master repo for {data['tests_repo']}: {str(e)}",
+            f"Unable to determine master repo for {data['tests_repo']}: {e!s}",
             flush=True,
         )
     else:
@@ -1032,23 +1051,24 @@ def validate_form(request):
             )
             if u["registration_time"] >= datetime(2025, 7, 1, tzinfo=UTC):
                 raise Exception(message + " " + suffix_hard)
-            else:
-                request.session.flash(
-                    message + " " + suffix_soft,
-                    "warning",
-                )
+            request.session.flash(
+                message + " " + suffix_soft,
+                "warning",
+            )
     odds = request.POST.get("odds", "off")  # off checkboxes are not posted
     if odds == "off":
         data["new_tc"] = data["tc"]
 
     checkbox_compiler = request.POST.get(
-        "checkbox-compiler", "off"
+        "checkbox-compiler",
+        "off",
     )  # off checkboxes are not posted
     if checkbox_compiler == "off":
         del data["compiler"]
 
     checkbox_arch_filter = request.POST.get(
-        "checkbox-arch-filter", "off"
+        "checkbox-arch-filter",
+        "off",
     )  # off checkboxes are not posted
     if checkbox_arch_filter == "off":
         data["arch_filter"] = ""
@@ -1066,7 +1086,8 @@ def validate_form(request):
     # check if there are any remaining arches
     if "arch_filter" in data:
         filtered_arches = filter(
-            lambda x: regex.search(data["arch_filter"], x) is not None, supported_arches
+            lambda x: regex.search(data["arch_filter"], x) is not None,
+            supported_arches,
         )
         if list(filtered_arches) == []:
             raise Exception(f"filter {data['arch_filter']} has no compatible arches")
@@ -1094,15 +1115,18 @@ def validate_form(request):
     if len(data["new_signature"]) == 0 or len(data["info"]) == 0:
         try:
             c = gh.get_commit(
-                user=user, repo=repo, branch=data["new_tag"], ignore_rate_limit=True
+                user=user,
+                repo=repo,
+                branch=data["new_tag"],
+                ignore_rate_limit=True,
             )
         except Exception as e:
             raise Exception(
-                f"Unable to access developer repository {data['tests_repo']}: {str(e)}"
+                f"Unable to access developer repository {data['tests_repo']}: {e!s}",
             ) from e
         if "commit" not in c:
             raise Exception(
-                f"Cannot find branch {data['new_tag']} in developer repository"
+                f"Cannot find branch {data['new_tag']} in developer repository",
             )
         if len(data["new_signature"]) == 0:
             bench_search = re.compile(r"(^|\s)[Bb]ench[ :]+([1-9]\d{5,7})(?!\d)")
@@ -1114,7 +1138,7 @@ def validate_form(request):
                     break
             else:
                 raise Exception(
-                    "This commit has no signature: please supply it manually."
+                    "This commit has no signature: please supply it manually.",
                 )
         if len(data["info"]) == 0:
             data["info"] = strip_message(c["commit"]["message"])
@@ -1140,10 +1164,12 @@ def validate_form(request):
         data["msg_new"] = request.POST["msg_new"]
     else:
         data["resolved_base"], data["msg_base"] = get_sha(
-            data["base_tag"], data["tests_repo"]
+            data["base_tag"],
+            data["tests_repo"],
         )
         data["resolved_new"], data["msg_new"] = get_sha(
-            data["new_tag"], data["tests_repo"]
+            data["new_tag"],
+            data["tests_repo"],
         )
         u = request.userdb.get_user(data["username"])
         if u.get("tests_repo", "") != data["tests_repo"]:
@@ -1159,7 +1185,7 @@ def validate_form(request):
         if master_info is None or master_info["bench"] != data["base_signature"]:
             raise Exception(
                 "Bench signature of Base master does not match, "
-                + 'please "git pull upstream master" !'
+                'please "git pull upstream master" !',
             )
 
     stop_rule = request.POST["stop_rule"]
@@ -1179,7 +1205,7 @@ def validate_form(request):
             "Missing net(s). Please upload to: {} the following net(s): {}".format(
                 request.host_url,
                 ", ".join(missing_nets),
-            )
+            ),
         )
 
     # Integer parameters
@@ -1196,7 +1222,8 @@ def validate_form(request):
         # This means a batch with be completed in roughly 2 minutes on a 8 core worker.
         # This expression adjusts the batch size for threads and TC, to keep timings somewhat similar.
         sprt_batch_size_games = 2 * max(
-            1, int(0.5 + 16 / get_tc_ratio(data["tc"], data["threads"]))
+            1,
+            int(0.5 + 16 / get_tc_ratio(data["tc"], data["threads"])),
         )
         assert sprt_batch_size_games % 2 == 0
         elo_model = request.POST["elo_model"]
@@ -1266,7 +1293,7 @@ def update_nets(request, run):
             "Missing net(s). Please upload to {} the following net(s): {}".format(
                 request.host_url,
                 ", ".join(missing_nets),
-            )
+            ),
         )
 
     tests_repo_ = tests_repo(run)
@@ -1280,7 +1307,7 @@ def update_nets(request, run):
                     net["is_master"] = True
                     request.rundb.update_nn(net)
     except Exception as e:
-        print(f"Unable to evaluate is_master({run['args']['resolved_base']}): {str(e)}")
+        print(f"Unable to evaluate is_master({run['args']['resolved_base']}): {e!s}")
 
     for net in new_nets:
         if "first_test" not in net:
@@ -1331,7 +1358,7 @@ def tests_run(request):
                 message=new_run_message(request, run),
             )
             request.session.flash(
-                "The test was submitted to the queue. Please wait for approval."
+                "The test was submitted to the queue. Please wait for approval.",
             )
             return HTTPFound(location="/tests/view/" + str(run_id) + "?follow=1")
         except Exception as e:
@@ -1440,8 +1467,10 @@ def tests_modify(request):
             if before_ != after_:
                 message.append(
                     "{} changed from {} to {}".format(
-                        k.replace("_", "-"), before_, after_
-                    )
+                        k.replace("_", "-"),
+                        before_,
+                        after_,
+                    ),
                 )
 
     message = "modify: " + ", ".join(message)
@@ -1512,7 +1541,7 @@ def tests_purge(request):
     run = request.rundb.get_run(request.POST["run-id"])
     if not request.has_permission("approve_run") and not is_same_user(request, run):
         request.session.flash(
-            "Only approvers or the submitting user can purge the run."
+            "Only approvers or the submitting user can purge the run.",
         )
         return HTTPFound(location=request.route_url("login"))
 
@@ -1552,7 +1581,7 @@ def tests_delete(request):
             validate(runs_schema, run, "run")
         except ValidationError as e:
             message = (
-                f"The run object {request.POST['run-id']} does not validate: {str(e)}"
+                f"The run object {request.POST['run-id']} does not validate: {e!s}"
             )
             print(message, flush=True)
             if "version" in run and run["version"] >= RUN_VERSION:
@@ -1573,13 +1602,16 @@ def tests_delete(request):
 def get_page_title(run):
     if run["args"].get("sprt"):
         page_title = "SPRT {} vs {}".format(
-            run["args"]["new_tag"], run["args"]["base_tag"]
+            run["args"]["new_tag"],
+            run["args"]["base_tag"],
         )
     elif run["args"].get("spsa"):
         page_title = "SPSA {}".format(run["args"]["new_tag"])
     else:
         page_title = "{} games - {} vs {}".format(
-            run["args"]["num_games"], run["args"]["new_tag"], run["args"]["base_tag"]
+            run["args"]["num_games"],
+            run["args"]["new_tag"],
+            run["args"]["base_tag"],
         )
     return page_title
 
@@ -1685,8 +1717,9 @@ def tests_view(request):
             if value != "":
                 filtered_arches = list(
                     filter(
-                        lambda x: regex.search(value, x) is not None, supported_arches
-                    )
+                        lambda x: regex.search(value, x) is not None,
+                        supported_arches,
+                    ),
                 )
                 value += "  (" + ", ".join(filtered_arches) + ")"
             else:
@@ -1716,12 +1749,7 @@ def tests_view(request):
             A = value["A"]
             alpha = value["alpha"]
             gamma = value["gamma"]
-            summary = "iter: {:d}, A: {:d}, alpha: {:0.3f}, gamma: {:0.3f}".format(
-                iter_local,
-                A,
-                alpha,
-                gamma,
-            )
+            summary = f"iter: {iter_local:d}, A: {A:d}, alpha: {alpha:0.3f}, gamma: {gamma:0.3f}"
             params = value["params"]
             value = [summary]
             for p in params:
@@ -1734,11 +1762,11 @@ def tests_view(request):
                         int(p["start"]),
                         int(p["min"]),
                         int(p["max"]),
-                        "{:.3f}".format(c_iter),
+                        f"{c_iter:.3f}",
                         "{:.3f}".format(p["c_end"]),
-                        "{:.2e}".format(r_iter),
+                        f"{r_iter:.2e}",
                         "{:.2e}".format(p["r_end"]),
-                    ]
+                    ],
                 )
 
         tests_repo_ = tests_repo(run)
@@ -1752,11 +1780,15 @@ def tests_view(request):
 
         if name == "new_tag":
             url = gh.commit_url(
-                user=user, repo=repo, branch=run["args"]["resolved_new"]
+                user=user,
+                repo=repo,
+                branch=run["args"]["resolved_new"],
             )
         elif name == "base_tag":
             url = gh.commit_url(
-                user=user, repo=repo, branch=run["args"]["resolved_base"]
+                user=user,
+                repo=repo,
+                branch=run["args"]["resolved_base"],
             )
 
         if name == "spsa":
@@ -1788,7 +1820,7 @@ def tests_view(request):
     try:
         # use sanitize_options for compatibility with old tests
         same_options = sanitize_options(run["args"]["new_options"]) == sanitize_options(
-            run["args"]["base_options"]
+            run["args"]["base_options"],
         )
     except Exception:
         pass
@@ -1827,7 +1859,7 @@ def tests_view(request):
         warnings.append(f"this test uses a small book with only {book_exits} exits")
     if "master_repo" in run["args"]:  # if present then it is non-standard
         warnings.append(
-            "the developer repository is not forked from official-stockfish/Stockfish"
+            "the developer repository is not forked from official-stockfish/Stockfish",
         )
 
     def allow_github_api_calls():
@@ -1848,7 +1880,7 @@ def tests_view(request):
         user, repo = gh.parse_repo(gh.normalize_repo(tests_repo(run)))
     except Exception as e:
         user, repo = gh.parse_repo(tests_repo(run))
-        print(f"Unable to normalize_repo: {str(e)}")
+        print(f"Unable to normalize_repo: {e!s}")
 
     anchor_url = gh.compare_branches_url(
         user1="official-stockfish",
@@ -1886,7 +1918,7 @@ def tests_view(request):
                     )
                     if merge_base_commit != run["args"]["resolved_base"]:
                         warnings.append(
-                            "base is not the latest common ancestor of new and master"
+                            "base is not the latest common ancestor of new and master",
                         )
             use_3dot_diff = gh.is_ancestor(
                 user1=user,
@@ -1895,7 +1927,7 @@ def tests_view(request):
                 ignore_rate_limit=irl,
             )
         except Exception as e:
-            print(f"Exception processing api calls for {run['_id']}: {str(e)}")
+            print(f"Exception processing api calls for {run['_id']}: {e!s}")
 
     return {
         "run": run,
@@ -1904,7 +1936,10 @@ def tests_view(request):
         "approver": request.has_permission("approve_run"),
         "chi2": chi2,
         "totals": "({} active worker{} with {} core{})".format(
-            active, ("s" if active != 1 else ""), cores, ("s" if cores != 1 else "")
+            active,
+            ("s" if active != 1 else ""),
+            cores,
+            ("s" if cores != 1 else ""),
         ),
         "tasks_shown": show_task != -1 or request.cookies.get("tasks_state") == "Hide",
         "show_task": show_task,
@@ -1953,7 +1988,7 @@ def get_paginated_finished_runs(request):
     if page_idx == 0:
         for run in finished_runs:
             # Look for failed runs
-            if "failed" in run and run["failed"]:
+            if run.get("failed"):
                 failed_runs.append(run)
 
     return {
@@ -1976,7 +2011,7 @@ def tests_user(request):
         (
             ("Cache-Control", "no-store"),
             ("Expires", "0"),
-        )
+        ),
     )
     username = request.matchdict.get("username", "")
     user_data = request.userdb.get_user(username)
@@ -2012,7 +2047,7 @@ def homepage_results(request):
         **get_paginated_finished_runs(request),
         "runs": runs,
         "machines_count": machines_count,
-        "pending_hours": "{:.1f}".format(pending_hours),
+        "pending_hours": f"{pending_hours:.1f}",
         "cores": cores,
         "nps": nps,
         "games_per_minute": int(games_per_minute),
@@ -2025,7 +2060,7 @@ def tests(request):
         (
             ("Cache-Control", "no-store"),
             ("Expires", "0"),
-        )
+        ),
     )
     page_param = request.params.get("page", "")
     if page_param.isdigit() and int(page_param) > 1:

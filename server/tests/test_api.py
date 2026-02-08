@@ -148,7 +148,7 @@ class TestApi(unittest.TestCase):
         cls.rundb.userdb.save_user(user)
 
         cls.rundb.userdb.user_cache.insert_one(
-            {"username": cls.username, "cpu_hours": 0}
+            {"username": cls.username, "cpu_hours": 0},
         )
 
         cls.rundb.schedule_tasks()
@@ -178,7 +178,7 @@ class TestApi(unittest.TestCase):
             {
                 "password": "wrong password",
                 "worker_info": copy.deepcopy(self.worker_info),
-            }
+            },
         )
 
     def correct_password_request(self, json_body={}):
@@ -187,7 +187,7 @@ class TestApi(unittest.TestCase):
                 "password": self.password,
                 "worker_info": copy.deepcopy(self.worker_info),
                 **json_body,
-            }
+            },
         )
 
     def test_invalid_arch(self):
@@ -197,7 +197,7 @@ class TestApi(unittest.TestCase):
             {
                 "password": self.password,
                 "worker_info": worker_info,
-            }
+            },
         )
         with self.assertRaises(HTTPBadRequest) as cm:
             WorkerApi(request).request_task()
@@ -278,7 +278,7 @@ class TestApi(unittest.TestCase):
                     "time_losses": 0,
                     "pentanomial": [0, 0, 0, 0, 1],
                 },
-            }
+            },
         )
         response = WorkerApi(cleanup(request)).update_task()
         self.assertTrue(response["task_alive"])
@@ -299,7 +299,7 @@ class TestApi(unittest.TestCase):
                     "time_losses": 0,
                     "pentanomial": [0, 0, d // 2, 0, w // 2],
                 },
-            }
+            },
         )
         response = WorkerApi(cleanup(request)).update_task()
         self.assertTrue(response["task_alive"])
@@ -318,7 +318,7 @@ class TestApi(unittest.TestCase):
                     "time_losses": 0,
                     "pentanomial": [0, 0, d // 2, 0, w // 2],
                 },
-            }
+            },
         )
         with self.assertRaises(HTTPBadRequest):
             response = WorkerApi(cleanup(request)).update_task()
@@ -335,7 +335,7 @@ class TestApi(unittest.TestCase):
                     "time_losses": 0,
                     "pentanomial": [0, 0, d // 2, 0, w // 2 + 1],
                 },
-            }
+            },
         )
         response = WorkerApi(cleanup(request)).update_task()
         self.assertTrue(response["task_alive"])
@@ -353,7 +353,7 @@ class TestApi(unittest.TestCase):
                     "time_losses": 0,
                     "pentanomial": [0, 0, d // 2, 0, w // 2],
                 },
-            }
+            },
         )
 
         response = WorkerApi(cleanup(request)).update_task()
@@ -390,7 +390,7 @@ class TestApi(unittest.TestCase):
         self.assertTrue(run["tasks"][0]["active"])
         message = "Sorry but I can't run this"
         request = self.correct_password_request(
-            {"run_id": run_id, "task_id": 0, "message": message}
+            {"run_id": run_id, "task_id": 0, "message": message},
         )
         response = WorkerApi(request).failed_task()
         response.pop("duration", None)
@@ -415,7 +415,7 @@ class TestApi(unittest.TestCase):
 
         message = "/api/stop_run request"
         request = self.correct_password_request(
-            {"run_id": run_id, "task_id": 0, "message": message}
+            {"run_id": run_id, "task_id": 0, "message": message},
         )
         with self.assertRaises(HTTPUnauthorized):
             response = WorkerApi(request).stop_run()
@@ -423,7 +423,8 @@ class TestApi(unittest.TestCase):
             self.assertFalse(run["tasks"][0]["active"])
 
         self.rundb.userdb.user_cache.update_one(
-            {"username": self.username}, {"$set": {"cpu_hours": 10000}}
+            {"username": self.username},
+            {"$set": {"cpu_hours": 10000}},
         )
 
         response = WorkerApi(request).stop_run()
@@ -438,7 +439,9 @@ class TestApi(unittest.TestCase):
         pgn_text = "1. e4 e5 2. d4 d5"
         with io.BytesIO() as gz_buffer:
             with gzip.GzipFile(
-                filename=f"{run_id}-{task_id}.pgn.gz", mode="wb", fileobj=gz_buffer
+                filename=f"{run_id}-{task_id}.pgn.gz",
+                mode="wb",
+                fileobj=gz_buffer,
             ) as gz:
                 gz.write(pgn_text.encode())
             request = self.correct_password_request(
@@ -446,13 +449,13 @@ class TestApi(unittest.TestCase):
                     "run_id": run_id,
                     "task_id": task_id,
                     "pgn": base64.b64encode(gz_buffer.getvalue()).decode(),
-                }
+                },
             )
         response = WorkerApi(request).upload_pgn()
         response.pop("duration", None)
         self.assertTrue(response == {})
 
-        pgn_filename_prefix = "{}-{}".format(run_id, task_id)
+        pgn_filename_prefix = f"{run_id}-{task_id}"
         pgn_zip, _ = self.rundb.get_pgn(pgn_filename_prefix)
         with gzip.GzipFile(fileobj=io.BytesIO(pgn_zip), mode="rb") as gz:
             pgn = gz.read().decode()
@@ -469,7 +472,14 @@ class TestApi(unittest.TestCase):
             "gamma": 1,
             "A": 1,
             "params": [
-                {"name": "param name", "a": 1, "c": 1, "theta": 1, "min": 0, "max": 100}
+                {
+                    "name": "param name",
+                    "a": 1,
+                    "c": 1,
+                    "theta": 1,
+                    "min": 0,
+                    "max": 100,
+                },
             ],
         }
         request = self.correct_password_request({"run_id": run_id, "task_id": 0})
@@ -551,7 +561,7 @@ class TestRunFinished(unittest.TestCase):
         cls.rundb.userdb.save_user(user)
 
         cls.rundb.userdb.user_cache.insert_one(
-            {"username": cls.username, "cpu_hours": 0}
+            {"username": cls.username, "cpu_hours": 0},
         )
         cls.rundb.schedule_tasks()
 
@@ -578,7 +588,7 @@ class TestRunFinished(unittest.TestCase):
                 "password": self.password,
                 "worker_info": copy.deepcopy(self.worker_info),
                 **json_body,
-            }
+            },
         )
 
     def test_duplicate_workers(self):
@@ -629,7 +639,7 @@ class TestRunFinished(unittest.TestCase):
                     "time_losses": 0,
                     "pentanomial": [n_losses // 2, 0, n_draws // 2, 0, n_wins // 2],
                 },
-            }
+            },
         )
         response = WorkerApi(request).update_task()
         self.assertFalse(response["task_alive"])
@@ -664,7 +674,7 @@ class TestRunFinished(unittest.TestCase):
                     "time_losses": 0,
                     "pentanomial": [n_losses // 2, 0, n_draws // 2, 0, n_wins // 2],
                 },
-            }
+            },
         )
         response = WorkerApi(request).update_task()
         self.assertFalse(response["task_alive"])
