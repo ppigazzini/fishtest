@@ -327,7 +327,7 @@
     }
   },
   "elo_results.mak": {
-    "show_gauge": true,
+    "show_gauge": false,
     "run": {
       "_id": "run1",
       "args": {
@@ -525,7 +525,7 @@
     "title_text": "Finished Tests - page 1 | Stockfish Testing",
     "alt": "No tests",
     "page_idx": 0,
-    "show_gauge": true
+    "show_gauge": false
   },
   "run_tables.mak": {
     "username": "alice",
@@ -540,7 +540,7 @@
     "prefix": "",
     "toggle_states": {},
     "finished_title_text": "Finished Tests - page 1 | Stockfish Testing",
-    "show_gauge": true,
+    "show_gauge": false,
     "runs": {
       "pending": [],
       "active": []
@@ -574,7 +574,7 @@
       "prefix": "",
       "toggle_states": {},
       "finished_title_text": "Finished Tests - page 1 | Stockfish Testing",
-      "show_gauge": true
+      "show_gauge": false
     }
   },
   "tests_finished.mak": {
@@ -585,7 +585,7 @@
     },
     "title_suffix": "",
     "title_text": "Finished Tests - page 1 | Stockfish Testing",
-    "show_gauge": true,
+    "show_gauge": false,
     "finished_runs": [],
     "num_finished_runs": 0,
     "finished_runs_pages": []
@@ -613,7 +613,7 @@
       "prefix": "",
       "toggle_states": {},
       "finished_title_text": "Finished Tests - page 1 | Stockfish Testing",
-      "show_gauge": true
+      "show_gauge": false
     }
   },
   "tests_live_elo.mak": {

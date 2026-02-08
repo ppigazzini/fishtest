@@ -2627,7 +2627,7 @@ def _build_run_tables_context(
         "prefix": prefix,
         "toggle_states": toggle_states,
         "finished_title_text": finished_title_text,
-        "show_gauge": True,
+        "show_gauge": False,
     }
 
 
@@ -2651,7 +2651,7 @@ def tests_finished(request):
             allow_github_api_calls=False,
         ),
         "title_text": title_text,
-        "show_gauge": True,
+        "show_gauge": False,
     }
 
 
