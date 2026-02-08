@@ -142,7 +142,7 @@ class TestHttpBoundary(unittest.TestCase):
             return {
                 "csrf": template_req.session.get_csrf_token(),
                 "user": template_req.authenticated_userid,
-                "flash": template_req.session.peek_flash(),
+                "flash": context["flash"],
                 "static_url": template_req.static_url("fishtest:static/css/site.css"),
             }
 
@@ -168,7 +168,7 @@ class TestHttpBoundary(unittest.TestCase):
         data = response.json()
         self.assertTrue(data["csrf"])
         self.assertEqual(data["user"], "TestUser")
-        self.assertTrue(data["flash"])
+        self.assertEqual(data["flash"]["info"], ["hello"])
         self.assertTrue(data["static_url"].startswith("/static/css/site.css"))
         self.assertIn("?x=", data["static_url"])
 
