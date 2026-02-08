@@ -236,9 +236,9 @@ def build_template_context(
         "csrf_token": session.get_csrf_token(),
         "current_user": {"username": user} if user else None,
         "flash": {
-            "error": session.pop_flash("error"),
-            "warning": session.pop_flash("warning"),
-            "info": session.pop_flash(),
+            "error": session.peek_flash("error"),
+            "warning": session.peek_flash("warning"),
+            "info": session.peek_flash(),
         },
         "pending_users_count": pending_users_count,
         "static_url": template_request.static_url,
