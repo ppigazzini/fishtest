@@ -116,6 +116,7 @@ C) Adopt Starlette-first rendering patterns
 - Prefer Jinja2Templates + TemplateResponse to ensure url_for, context processors, and response.template/context in tests.
 - Keep rendering sync and off the event loop (threadpool boundary preserved).
 - Use request in context only through the TemplateRequest shim and explicit helpers.
+Status: done – UI rendering now uses TemplateResponse via the shared Jinja2Templates environment; request shims remain in the context and rendering stays sync off the event loop.
 
 D) Explicit context and safety
 - Build explicit per-template context (see 10.0-JINJA2-CONTEXT-CONTRACTS.md).
@@ -135,16 +136,13 @@ Status: done for templates in server/fishtest/templates_jinja2 (.html.j2). Exist
 
 F) Naming and file conventions
 - Rename templates from .mak to .html.j2. (done)
-- Align autoescape configuration with new extensions.
+- Align autoescape configuration with new extensions. (done via server/fishtest/http/jinja.py autoescape list)
 
 G) Reduce legacy Mako coupling
-- Remove Mako-only globals or filters from Jinja environment unless required for parity.
-- Replace any Mako-specific template constructs (e.g., ${self.body()}) with Jinja equivalents (super(), blocks).
+Status: done — runtime Jinja environment now only supplies Jinja-safe globals/filters and templates exclusively use Jinja super()/blocks instead of ${self.*} constructs.
 
 H) Parity-friendly migration tactics
-- Convert logic to helpers before syntax changes.
-- Keep IDs, names, and form fields stable to maintain behavior parity.
-- Normalize HTML output in parity scripts to reduce noise.
+Status: ongoing — logic already moved into helpers, IDs/fields unchanged, parity scripts now run via WIP/tools, but some diff normalization work remains (see Phase 3 tasks).
 
 ## Exhaustive change list needed to reach Milestone 10 goals
 

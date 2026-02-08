@@ -7,11 +7,12 @@ from functools import cache
 from typing import TYPE_CHECKING, Protocol, cast
 
 from fishtest.http import jinja as jinja_renderer
-from starlette.responses import HTMLResponse
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from fastapi import Request
+    from starlette.responses import Response
     from starlette.templating import Jinja2Templates
 
 
@@ -48,13 +49,19 @@ def render_template(
 
 def render_template_to_response(
     *,
+    request: Request,
     template_name: str,
     context: Mapping[str, object],
     status_code: int = 200,
-) -> HTMLResponse:
-    """Render a template and return an HTMLResponse with debug metadata."""
-    rendered = render_template(template_name=template_name, context=context)
-    response = HTMLResponse(rendered.html, status_code=status_code)
+) -> Response:
+    """Render a template and return a TemplateResponse with debug metadata."""
+    response = jinja_renderer.render_template_response(
+        templates=_jinja_templates(),
+        request=request,
+        template_name=template_name,
+        context=context,
+        options=jinja_renderer.TemplateResponseOptions(status_code=status_code),
+    )
     # Attach debug-friendly attributes without changing the response body.
     debug_response = cast("_TemplateDebugResponse", response)
     debug_response.template = template_name

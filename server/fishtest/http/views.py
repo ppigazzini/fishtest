@@ -326,6 +326,7 @@ async def _dispatch_view(fn, cfg, request, path_params):
         status_code = getattr(shim.response, "status", 200) or 200
         response = await run_in_threadpool(
             render_template_to_response,
+            request=request,
             template_name=renderer,
             context=build_template_context(request, session, context),
             status_code=int(status_code),
