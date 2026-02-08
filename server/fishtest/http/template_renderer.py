@@ -28,7 +28,6 @@ def _mako_lookup() -> TemplateLookup:
 
 
 @cache
-@cache
 def _jinja_templates() -> Jinja2Templates:
     return jinja_renderer.default_templates()
 
