@@ -102,6 +102,7 @@ A) Syntax and structure conversion (template-side)
 - Replace Mako ${...} with Jinja {{ ... }} and filters.
 - Replace Mako % include / namespace with Jinja include/import.
 - Use Jinja block scoping (scoped/required) instead of Mako-specific layout patterns.
+Status: done for all templates in server/fishtest/templates_jinja2 (.html.j2). Additional cleanup: replaced document.title scripts with block titles and removed direct request access in templates.
 
 B) Remove embedded Python from templates
 - Move inline Python into view-level context builders or helpers.
@@ -109,6 +110,7 @@ B) Remove embedded Python from templates
   - precomputed values in context
   - helper functions registered as Jinja filters or globals
 - Avoid data access from templates; keep them declarative.
+Status: done for all templates in server/fishtest/templates_jinja2 (.html.j2). Jinja2 templates contain no embedded Python blocks; request access was removed and context-driven values are used.
 
 C) Adopt Starlette-first rendering patterns
 - Prefer Jinja2Templates + TemplateResponse to ensure url_for, context processors, and response.template/context in tests.
