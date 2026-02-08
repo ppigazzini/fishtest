@@ -907,9 +907,11 @@ def actions(request):
         max_actions=max_actions,
         run_id=run_id,
     )
+    actions = list(actions)
 
-    action_rows = []
     for action in actions:
+        action.setdefault("action", "")
+        action.setdefault("username", "")
         time_value = action.get("time")
         if time_value is None:
             time_label = ""
@@ -962,7 +964,7 @@ def actions(request):
         else:
             target_name = action.get("user", "")
 
-        action_rows.append(
+        action.update(
             {
                 "time_label": time_label,
                 "time_url": time_url,
@@ -1004,7 +1006,7 @@ def actions(request):
     pages = pagination(page_idx, num_actions, page_size, query_params)
 
     return {
-        "actions": action_rows,
+        "actions": actions,
         "approver": request.has_permission("approve_run"),
         "pages": pages,
         "action_param": search_action,
