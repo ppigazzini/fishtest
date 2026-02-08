@@ -1,15 +1,13 @@
 {% extends "base.html.j2" %}
 
+{% block title %}Register | Stockfish Testing{% endblock %}
+
 {% block head %}
   <script src='https://www.google.com/recaptcha/api.js'></script>
 {% endblock %}
 
 {% block body %}
 {% set login_url = urls.login %}
-
-<script>
-  document.title = "Register | Stockfish Testing";
-</script>
 
 <div class="col-limited-size">
   <header class="text-md-center py-2">

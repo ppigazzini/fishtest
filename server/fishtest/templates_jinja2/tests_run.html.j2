@@ -1,5 +1,7 @@
 {% extends "base.html.j2" %}
 
+{% block title %}Create New Test | Stockfish Testing{% endblock %}
+
 {% block body %}
 {% set elo_model = "normalized" %}
 {% set setup = setup if setup is defined else {} %}
@@ -20,10 +22,6 @@
 {% set new_options_value = new_options_value if new_options_value is defined else "Hash=16" %}
 {% set base_options_value = base_options_value if base_options_value is defined else "Hash=16" %}
 {% set info_value = info_value if info_value is defined else "" %}
-
-<script>
-  document.title = "Create New Test | Stockfish Testing";
-</script>
 
 <header style="text-align: center; padding-top: 7px">
   <h2>Create New Test</h2>

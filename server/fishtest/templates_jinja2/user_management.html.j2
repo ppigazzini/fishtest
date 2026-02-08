@@ -1,8 +1,9 @@
 {% extends "base.html.j2" %}
 
+{% block title %}User Management | Stockfish Testing{% endblock %}
+
 {% block body %}
 <script>
-  document.title = "User Management | Stockfish Testing";
   async function handleToggleUsers() {
     await DOMContentLoaded();
     const tableHandlers =

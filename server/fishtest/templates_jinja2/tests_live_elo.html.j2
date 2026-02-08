@@ -1,6 +1,6 @@
 {% extends "base.html.j2" %}
 
-{% block title %}Stockfish Testing Framework{% endblock %}
+{% block title %}Live Elo - {{ page_title }} | Stockfish Testing{% endblock %}
 
 {% block body %}
 {% set run_id = run._id %}
@@ -9,7 +9,6 @@
 <script src="{{ static_url('fishtest:static/js/live_elo.js') }}"></script>
 
 <script>
-  document.title = "Live Elo - {{ page_title }} | Stockfish Testing";
   const testId = "{{ run_id }}";
   followLive(testId);
 </script>

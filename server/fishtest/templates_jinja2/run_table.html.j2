@@ -1,11 +1,5 @@
 {% set cookie_name = cookie_name if cookie_name is defined else (toggle ~ '_state' if toggle else '') %}
 {% set toggle_state = toggle_state if toggle_state is defined else "Show" %}
-{% if toggle is none and title_text is defined %}
-  <script>
-    document.title = {{ title_text | tojson }};
-  </script>
-{% endif %}
-
 {% if toggle %}
   <script>
     function toggleSection(toggleName) {

@@ -1,6 +1,6 @@
 {% extends "base.html.j2" %}
 
-{% block title %}Stockfish Testing Framework{% endblock %}
+{% block title %}Statistics - {{ page_title }} | Stockfish Testing{% endblock %}
 
 {% block body %}
 {% macro render_rows(rows) -%}
@@ -25,10 +25,6 @@
 {% set has_sprt = stats.has_sprt %}
 {% set has_pentanomial = stats.has_pentanomial %}
 {% set has_spsa = stats.has_spsa %}
-
-<script>
-  document.title = "Statistics - {{ page_title }} | Stockfish Testing";
-</script>
 
 <div>
   {% if has_spsa %}

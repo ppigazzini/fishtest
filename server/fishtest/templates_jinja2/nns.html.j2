@@ -3,7 +3,7 @@
 {% block title %}Neural Network Repository | Stockfish Testing{% endblock %}
 
 {% block body %}
-{% set filter_source = filters if filters is defined else request.GET %}
+{% set filter_source = filters if filters is defined else {} %}
 {% if filter_source is mapping %}
   {% set network_name_filter = filter_source.get('network_name', '') %}
   {% set user_filter = filter_source.get('user', '') %}

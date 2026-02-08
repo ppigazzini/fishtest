@@ -1,6 +1,6 @@
 {% extends "base.html.j2" %}
 
-{% block title %}Stockfish Testing Framework{% endblock %}
+{% block title %}{{ page_title }} | Stockfish Testing{% endblock %}
 
 {% block body %}
 {% set run_id = run["_id"] %}
@@ -480,7 +480,6 @@
 ></script>
 
 <script>
-  document.title = "{{ page_title }} | Stockfish Testing";
   let cookieTheme = getCookie("theme");
   const currentTime = new Date().getTime();
   const oneDayAgo = currentTime - (24 * 60 * 60 * 1000); // 24 hours ago in milliseconds

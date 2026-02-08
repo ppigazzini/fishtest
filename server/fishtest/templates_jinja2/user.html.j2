@@ -1,5 +1,13 @@
 {% extends "base.html.j2" %}
 
+{% block title %}
+  {% if profile %}
+    Profile | Stockfish Testing
+  {% else %}
+    User Management | Stockfish Testing
+  {% endif %}
+{% endblock %}
+
 {% block body %}
 {% set username = user["username"] %}
 {% set tests_repo = user["tests_repo"] %}
@@ -8,7 +16,6 @@
 {% set user_groups = user["groups"] %}
 {% if profile %}
   <script>
-    document.title = "Profile | Stockfish Testing";
     async function handleGitHubToken() {
       await DOMContentLoaded();
       document.getElementById("github_token").value = localStorage.getItem("github_token") || "";
@@ -20,10 +27,6 @@
       });
     }
     handleGitHubToken();
-  </script>
-{% else %}
-  <script>
-    document.title = "User Management | Stockfish Testing";
   </script>
 {% endif %}
 
