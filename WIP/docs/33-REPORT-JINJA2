@@ -123,6 +123,7 @@ D) Explicit context and safety
 - Use |tojson for JS payloads and avoid string interpolation in scripts.
 - Use autoescape; use |safe only for audited HTML.
 - Use StrictUndefined in tests to detect missing keys.
+Status: done for the shared base context; helpers now precompute labels/URLs and `|tojson` is used for JS payloads so templates stay declarative.
 
 E) Jinja2 idioms for maintainability
 - Use macros for repeated UI fragments (tables, badges, labels, forms).
@@ -130,6 +131,7 @@ E) Jinja2 idioms for maintainability
 - Use loop.cycle for alternating row styles.
 - Use namespace objects to carry values out of loops when needed.
 - Use required blocks to enforce layout overrides.
+Status: done for templates in server/fishtest/templates_jinja2 (.html.j2). Existing macros/includes are retained (run tables, stats helpers), block titles are used for page titles, and templates avoid implicit request access. No further structural changes were made to preserve parity.
 
 F) Naming and file conventions
 - Rename templates from .mak to .html.j2. (done)
