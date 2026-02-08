@@ -280,15 +280,17 @@ Goal: ship a **clean, idiomatic Jinja2** UI while keeping the legacy Mako path o
 
 Scope and intent:
 - The legacy Mako templates in [server/fishtest/templates](server/fishtest/templates) remain untouched and runnable for rebase parity.
-- The parity-tracking Jinja2 set is moved to a separate folder (for example `templates_jinja2_tmp`) and remains comparable to legacy Mako.
+- The parity-tracking Jinja2 set is moved to a separate folder (for example `templates_jinja2_tmp`) and used only as a temporary comparison target.
 - The **new** Jinja2 set in [server/fishtest/templates_jinja2](server/fishtest/templates_jinja2) is idiomatic and **not** required to be line-for-line comparable with Mako.
 - New Mako templates and their renderer are retired (do not maintain `templates_mako` beyond Milestone 9).
+- After the idiomatic Jinja2 set is stable, retire `templates_jinja2_tmp` and all companion code/renderer branches.
 
 Definition of done:
 - Jinja2 templates in [server/fishtest/templates_jinja2](server/fishtest/templates_jinja2) are idiomatic (macros, explicit context, minimal request coupling).
 - Legacy Mako templates remain runnable for rebase safety, but no new work lands there.
-- Parity scripts continue to track legacy Mako vs the parity Jinja2 set (temporary path), while the new Jinja2 set is validated via tests and UI checks rather than line parity.
+- Parity scripts continue to track legacy Mako vs the parity Jinja2 set (temporary path) until the cutover is complete.
 - Rendering stays off the event loop; `TemplateResponse` usage remains aligned with Starlette.
+- The template renderer only supports legacy Mako and the default Jinja2 set; `templates_jinja2_tmp` and its wiring are removed.
 
 ## Milestone N-1 — Optional: Pydantic (only when it buys real safety)
 

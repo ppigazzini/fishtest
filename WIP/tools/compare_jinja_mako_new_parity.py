@@ -7,7 +7,6 @@ Goal:
 
 Usage:
     python WIP/tools/compare_jinja_mako_new_parity.py
-    python WIP/tools/compare_jinja_mako_new_parity.py --jinja-tmp
     python WIP/tools/compare_jinja_mako_new_parity.py --jinja-dir server/fishtest/templates_jinja2
     python WIP/tools/compare_jinja_mako_new_parity.py --templates tests_view.mak
 
@@ -40,17 +39,10 @@ def _run_parity(args: argparse.Namespace) -> int:
         "--left-engine",
         "mako",
         "--right-engine",
-        "jinja_tmp",
+        "jinja",
         "--context",
         str(args.context),
     ]
-    if args.jinja_tmp:
-        argv.extend(
-            [
-                "--jinja-tmp-dir",
-                str(_repo_root() / "server" / "fishtest" / "templates_jinja2_tmp"),
-            ]
-        )
     if args.jinja_dir is not None:
         argv.extend(["--jinja-dir", str(args.jinja_dir)])
     if args.templates:
@@ -87,11 +79,6 @@ def main() -> int:
         type=Path,
         default=None,
         help="Path to templates_jinja2 for the jinja engine.",
-    )
-    parser.add_argument(
-        "--jinja-tmp",
-        action="store_true",
-        help="Use templates_jinja2_tmp for the jinja_tmp engine.",
     )
     parser.add_argument(
         "--json",

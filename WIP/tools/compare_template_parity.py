@@ -8,7 +8,6 @@ Goal:
 
 Usage:
     python WIP/tools/compare_template_parity.py --left-engine mako --right-engine jinja
-    python WIP/tools/compare_template_parity.py --right-dir server/fishtest/templates_jinja2_tmp
     python WIP/tools/compare_template_parity.py --right-dir server/fishtest/templates_jinja2
     python WIP/tools/compare_template_parity.py --templates tests_view.mak,tests.mak
     python WIP/tools/compare_template_parity.py --json --show-diff
@@ -47,7 +46,6 @@ from fishtest.http import template_helpers as helpers  # noqa: E402
 
 DEFAULT_MAKO_DIR = REPO_ROOT / "server" / "fishtest" / "templates"
 DEFAULT_JINJA_DIR = REPO_ROOT / "server" / "fishtest" / "templates_jinja2"
-DEFAULT_JINJA_TMP_DIR = REPO_ROOT / "server" / "fishtest" / "templates_jinja2_tmp"
 SKIP_TEMPLATES = {"base.mak"}
 
 os.environ.setdefault(jinja_renderer.TEMPLATES_DIR_ENV, str(DEFAULT_JINJA_DIR))
@@ -283,11 +281,6 @@ def main() -> int:
         default=None,
         help="Override the Jinja2 templates directory.",
     )
-    parser.add_argument(
-        "--jinja-tmp",
-        action="store_true",
-        help="Shortcut to use templates_jinja2_tmp as the Jinja2 directory.",
-    )
     parser.add_argument("--left-dir", type=Path, default=None)
     parser.add_argument("--right-dir", type=Path, default=None)
     parser.add_argument(
@@ -308,8 +301,6 @@ def main() -> int:
 
     left_dir = args.left_dir
     right_dir = args.right_dir
-    if args.jinja_tmp:
-        os.environ[jinja_renderer.TEMPLATES_DIR_ENV] = str(DEFAULT_JINJA_TMP_DIR)
     if args.jinja_dir is not None:
         os.environ[jinja_renderer.TEMPLATES_DIR_ENV] = str(args.jinja_dir)
     if left_dir is None:

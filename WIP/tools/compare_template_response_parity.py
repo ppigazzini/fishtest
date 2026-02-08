@@ -8,7 +8,7 @@ Goal:
 
 Usage:
     python WIP/tools/compare_template_response_parity.py
-    python WIP/tools/compare_template_response_parity.py --left-engine mako --right-engine jinja_tmp
+    python WIP/tools/compare_template_response_parity.py --left-engine mako --right-engine jinja
     python WIP/tools/compare_template_response_parity.py --templates tests_view.mak
 
 Exit status:
@@ -45,7 +45,6 @@ from fishtest.http.template_renderer import (  # noqa: E402
 
 DEFAULT_CONTEXT = REPO_ROOT / "WIP" / "tools" / "template_parity_context.json"
 DEFAULT_JINJA_DIR = REPO_ROOT / "server" / "fishtest" / "templates_jinja2"
-DEFAULT_JINJA_TMP_DIR = REPO_ROOT / "server" / "fishtest" / "templates_jinja2_tmp"
 SKIP_TEMPLATES = {"base.mak"}
 
 os.environ.setdefault(jinja_renderer.TEMPLATES_DIR_ENV, str(DEFAULT_JINJA_DIR))
@@ -81,11 +80,9 @@ def _get_header(headers, name: str) -> str | None:
     return headers.get(name) or headers.get(name.lower())
 
 
-def _templates_dir(engine: str, *, jinja_dir: Path, jinja_tmp_dir: Path) -> Path:
+def _templates_dir(engine: str, *, jinja_dir: Path) -> Path:
     if engine == "jinja":
         return jinja_dir
-    if engine == "jinja_tmp":
-        return jinja_tmp_dir
     return REPO_ROOT / "server" / "fishtest" / "templates"
 
 
@@ -204,14 +201,14 @@ def main() -> int:
         "--left-engine",
         type=str,
         default="mako",
-        choices=["mako", "jinja", "jinja_tmp"],
+        choices=["mako", "jinja"],
         help="Left-side engine.",
     )
     parser.add_argument(
         "--right-engine",
         type=str,
-        default="jinja_tmp",
-        choices=["mako", "jinja", "jinja_tmp"],
+        default="jinja",
+        choices=["mako", "jinja"],
         help="Right-side engine.",
     )
     parser.add_argument(
@@ -219,12 +216,6 @@ def main() -> int:
         type=Path,
         default=DEFAULT_JINJA_DIR,
         help="Path to templates_jinja2 for the jinja engine.",
-    )
-    parser.add_argument(
-        "--jinja-tmp-dir",
-        type=Path,
-        default=DEFAULT_JINJA_TMP_DIR,
-        help="Path to templates_jinja2_tmp for the jinja_tmp engine.",
     )
     parser.add_argument(
         "--templates",
@@ -248,16 +239,8 @@ def main() -> int:
 
     os.environ[jinja_renderer.TEMPLATES_DIR_ENV] = str(args.jinja_dir)
 
-    left_dir = _templates_dir(
-        args.left_engine,
-        jinja_dir=args.jinja_dir,
-        jinja_tmp_dir=args.jinja_tmp_dir,
-    )
-    right_dir = _templates_dir(
-        args.right_engine,
-        jinja_dir=args.jinja_dir,
-        jinja_tmp_dir=args.jinja_tmp_dir,
-    )
+    left_dir = _templates_dir(args.left_engine, jinja_dir=args.jinja_dir)
+    right_dir = _templates_dir(args.right_engine, jinja_dir=args.jinja_dir)
 
     names = [item.strip() for item in args.templates.split(",") if item.strip()]
     if names:

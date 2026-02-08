@@ -10,7 +10,6 @@ Usage:
     python WIP/tools/templates_benchmark.py --iterations 100
     python WIP/tools/templates_benchmark.py --templates tests_view.mak,tests.mak
     python WIP/tools/templates_benchmark.py --engine mako
-    python WIP/tools/templates_benchmark.py --engine jinja_tmp
 
 Exit status:
     0 on success
@@ -36,7 +35,6 @@ if str(SERVER_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVER_ROOT))
 
 from fishtest.http import jinja as jinja_renderer  # noqa: E402
-from fishtest.http import jinja_tmp as jinja_tmp_renderer  # noqa: E402
 from fishtest.http import mako as mako_renderer  # noqa: E402
 
 LEGACY_MAKO_DIR = SERVER_ROOT / "fishtest" / "templates"
@@ -140,13 +138,8 @@ def _decode_special(value: Any) -> Any:
 def _template_names() -> list[str]:
     mako_names = {item.name for item in LEGACY_MAKO_DIR.glob("*.mak")}
     jinja_names = {item.name for item in jinja_renderer.templates_dir().glob("*.mak")}
-    jinja_tmp_names = {
-        item.name for item in jinja_tmp_renderer.templates_dir().glob("*.mak")
-    }
     return sorted(
-        name
-        for name in (mako_names | jinja_names | jinja_tmp_names)
-        if name not in SKIP_TEMPLATES
+        name for name in (mako_names | jinja_names) if name not in SKIP_TEMPLATES
     )
 
 
@@ -210,7 +203,7 @@ def main() -> int:
         "--engine",
         type=str,
         default="both",
-        choices=["mako", "jinja", "jinja_tmp", "all"],
+        choices=["mako", "jinja", "all"],
         help="Template engine to benchmark.",
     )
     parser.add_argument(
@@ -252,16 +245,12 @@ def main() -> int:
 
     render_mako = None
     render_jinja = None
-    render_jinja_tmp = None
     if args.engine in {"mako", "all"}:
         mako_lookup = mako_renderer.default_template_lookup()
         render_mako = partial(_render_mako, mako_lookup)
     if args.engine in {"jinja", "all"}:
         jinja_env = jinja_renderer.default_environment()
         render_jinja = partial(_render_jinja, jinja_env)
-    if args.engine in {"jinja_tmp", "all"}:
-        jinja_tmp_env = jinja_tmp_renderer.default_environment()
-        render_jinja_tmp = partial(_render_jinja, jinja_tmp_env)
 
     for template in templates:
         context = dict(defaults)
@@ -289,16 +278,6 @@ def main() -> int:
                     render=render_jinja,
                 )
             )
-        if args.engine in {"jinja_tmp", "all"}:
-            results.append(
-                _benchmark_template(
-                    engine="jinja_tmp",
-                    template=template,
-                    context=context,
-                    iterations=args.iterations,
-                    render=render_jinja_tmp,
-                )
-            )
 
     grouped: dict[str, dict[str, BenchmarkResult]] = {}
     for result in results:
@@ -320,22 +299,6 @@ def main() -> int:
             print(
                 f"{template}: mako {mako_median:.2f}ms, "
                 f"jinja {jinja_median:.2f}ms, ratio {ratio:.2f} {flag}".rstrip()
-            )
-        if "mako" in engines and "jinja_tmp" in engines:
-            mako_median = engines["mako"].median_ms
-            jinja_median = engines["jinja_tmp"].median_ms
-            if mako_median:
-                ratio = jinja_median / mako_median
-            else:
-                ratio = 0.0
-            flag = ""
-            if ratio >= args.ratio_threshold:
-                flag = "JINJA_TMP_SLOW"
-            elif ratio > 0 and ratio <= 1 / args.ratio_threshold:
-                flag = "MAKO_SLOW"
-            print(
-                f"{template}: mako {mako_median:.2f}ms, "
-                f"jinja_tmp {jinja_median:.2f}ms, ratio {ratio:.2f} {flag}".rstrip()
             )
         else:
             for result in engines.values():

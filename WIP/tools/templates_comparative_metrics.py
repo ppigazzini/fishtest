@@ -28,7 +28,6 @@ SERVER_ROOT = REPO_ROOT / "server" / "fishtest"
 ENGINE_DIRS = {
     "mako_legacy": SERVER_ROOT / "templates",
     "jinja2": SERVER_ROOT / "templates_jinja2",
-    "jinja2_tmp": SERVER_ROOT / "templates_jinja2_tmp",
 }
 
 MAKO_STATEMENT_RE = re.compile(r"^\s*%")
