@@ -1,16 +1,9 @@
 <!doctype html>
 {% set urls = urls if urls is defined else {} %}
-{% if static_url is not defined %}
-  {% set static_url = request.static_url %}
-{% endif %}
+{% set static_url = static_url if static_url is defined else none %}
 {% set pending_users_count = pending_users_count if pending_users_count is defined else 0 %}
-{% if csrf_token is not defined %}
-  {% if request is defined and request.session is defined %}
-    {% set csrf_token = request.session.get_csrf_token() %}
-  {% else %}
-    {% set csrf_token = "" %}
-  {% endif %}
-{% endif %}
+{% set csrf_token = csrf_token if csrf_token is defined else "" %}
+{% set flash = flash if flash is defined else {"error": [], "warning": [], "info": []} %}
 {% set home_url = urls.home %}
 {% set login_url = urls.login %}
 {% set signup_url = urls.signup %}
@@ -528,9 +521,7 @@
                   });
                 </script>
               </div>
-              {% if request.session.peek_flash('error') %}
-                {% set flash = request.session.pop_flash('error') %}
-                {% for message in flash %}
+              {% for message in flash.error %}
                 <div class="alert alert-danger alert-dismissible">
                   {{ message }}
                   <button
@@ -540,11 +531,8 @@
                     aria-label="Close"
                   ></button>
                 </div>
-                {% endfor %}
-              {% endif %}
-              {% if request.session.peek_flash('warning') %}
-                {% set flash = request.session.pop_flash('warning') %}
-                {% for message in flash %}
+              {% endfor %}
+              {% for message in flash.warning %}
                 <div class="alert alert-warning alert-dismissible">
                   {{ message }}
                   <button
@@ -554,11 +542,8 @@
                     aria-label="Close"
                   ></button>
                 </div>
-                {% endfor %}
-              {% endif %}
-              {% if request.session.peek_flash() %}
-                {% set flash = request.session.pop_flash() %}
-                {% for message in flash %}
+              {% endfor %}
+              {% for message in flash.info %}
                   <div class="alert alert-success alert-dismissible">
                     {{ message }}
                     <button
@@ -568,8 +553,7 @@
                       aria-label="Close"
                     ></button>
                   </div>
-                {% endfor %}
-              {% endif %}
+              {% endfor %}
             </div>
             <div>{% block body %}{% endblock %}</div>
           </div>

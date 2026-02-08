@@ -3,9 +3,9 @@
 {% block title %}Events Log | Stockfish Testing{% endblock %}
 
 {% block body %}
-{% set action_filter = action_param if action_param is defined else (filters.action if filters is defined and filters.action is defined else "") %}
-{% set username_filter = username_param if username_param is defined else (filters.username if filters is defined and filters.username is defined else "") %}
-{% set text_filter = text_param if text_param is defined else (filters.text if filters is defined and filters.text is defined else "") %}
+{% set action_filter = filters.action if filters is defined and filters.action is defined else "" %}
+{% set username_filter = filters.username if filters is defined and filters.username is defined else "" %}
+{% set text_filter = filters.text if filters is defined and filters.text is defined else "" %}
 <h2>Events Log</h2>
 
 <form class="row mb-3" action="{{ urls.actions }}" method="GET">

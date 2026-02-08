@@ -28,7 +28,7 @@
   </script>
 {% endif %}
 
-{% if follow == 1 and run["args"]["username"] == request.authenticated_userid %}
+{% if follow == 1 and current_user and run["args"]["username"] == current_user.username %}
   <script>
     (async () => {
       await DOMContentLoaded();
@@ -51,7 +51,7 @@
     const spsaData = {{ spsa_data | tojson }};
   </script>
 
-  <script src="{{ request.static_url("fishtest:static/js/spsa.js") }}"></script>
+  <script src="{{ static_url("fishtest:static/js/spsa.js") }}"></script>
 
   <script>
     const spsaPromise = handleSPSA();

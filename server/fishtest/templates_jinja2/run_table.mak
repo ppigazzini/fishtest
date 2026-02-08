@@ -1,9 +1,6 @@
-{% if toggle %}
-  {% set cookie_name = toggle ~ '_state' %}
-{% endif %}
-
-{% if toggle is none %}
-  {% set title_text = ((username ~ " - ") if username else "") ~ "Finished Tests" ~ title ~ " - page " ~ (page_idx + 1) ~ " | Stockfish Testing" %}
+{% set cookie_name = cookie_name if cookie_name is defined else (toggle ~ '_state' if toggle else '') %}
+{% set toggle_state = toggle_state if toggle_state is defined else "Show" %}
+{% if toggle is none and title_text is defined %}
   <script>
     document.title = {{ title_text | tojson }};
   </script>
@@ -28,7 +25,7 @@
   <a id="{{ toggle }}-button" class="btn btn-sm btn-light border"
      data-bs-toggle="collapse" href="#{{ toggle }}" role="button" aria-expanded="false"
       aria-controls="{{ toggle }}" onclick="toggleSection({{ toggle | tojson }})">
-  {{ 'Hide' if get_cookie(request, cookie_name) == 'Hide' else 'Show' }}
+  {{ 'Hide' if toggle_state == 'Hide' else 'Show' }}
   </a>
 {% endif %}
 {% if header is not none and count is not none %}
@@ -43,7 +40,7 @@
 <section
   id="{{ toggle }}"
 {% if toggle %}
-  class="{{ 'collapse show' if get_cookie(request, cookie_name) == 'Hide' else 'collapse' }}"
+  class="{{ 'collapse show' if toggle_state == 'Hide' else 'collapse' }}"
 {% endif %}
 >
 
@@ -55,7 +52,7 @@
     <table class="table table-striped table-sm run-table">
       <thead></thead>
       <tbody>
-        {% for run in runs %}
+        {% for row in runs %}
           <tr>
             {% if show_delete %}
               <td style="width: 1%;" class="run-button run-deny">
@@ -68,10 +65,10 @@
                       action="/tests/delete"
                       method="POST"
                       style="display: inline;"
-                      onsubmit="handleStopDeleteButton({{ run['_id'] | string | tojson }}); return true;"
+                      onsubmit="handleStopDeleteButton({{ row.run_id | tojson }}); return true;"
                     >
-                      <input type="hidden" name="csrf_token" value="{{ request.session.get_csrf_token() }}">
-                      <input type="hidden" name="run-id" value="{{ run['_id'] }}">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input type="hidden" name="run-id" value="{{ row.run_id }}">
                       <button type="submit" class="btn btn-danger btn-mini">Confirm</button>
                     </form>
                   </div>
@@ -80,56 +77,56 @@
             {% endif %}
 
             <td style="width: 6%;" class="run-date">
-              {{ run['start_time'].strftime("%y-%m-%d") }}
+              {{ row.start_date_label }}
             </td>
 
             <td style="width: 2%;" class="run-user">
-              <a href="/tests/user/{{ run['args'].get('username', '') }}"
-                 title="{{ run['args'].get('username', '') }}">
-                {{ run['args'].get('username', '')[:3] }}
+              <a href="{{ row.user_url }}"
+                 title="{{ row.user_name }}">
+                {{ row.user_short }}
               </a>
             </td>
-            {% if not run['finished'] %}
+            {% if not row.is_finished %}
               <td class="run-notification" style="width:3em;text-align:center;">
-                <div id=notification_{{ run['_id'] }} class='notifications' onclick='handleNotification(this)' style='display:inline-block;cursor:pointer;'>
+                <div id=notification_{{ row.run_id }} class='notifications' onclick='handleNotification(this)' style='display:inline-block;cursor:pointer;'>
                 </div>
                 <script>
-                  setNotificationStatus_({{ run['_id'] | string | tojson }});   // no broadcast since this is at initialization
+                  setNotificationStatus_({{ row.run_id | tojson }});   // no broadcast since this is at initialization
                 </script>
               </td>
             {% endif %}
             <td style="width: 16%;" class="run-view">
-              <a href="/tests/view/{{ run['_id'] }}">{{ run['args']['new_tag'][:23] }}</a>
+              <a href="{{ row.run_url }}">{{ row.new_tag_short }}</a>
             </td>
 
             <td style="width: 2%;" class="run-diff">
-              <a href="{{ diff_url(run, master_check=False) }}" target="_blank" rel="noopener">diff</a>
+              <a href="{{ row.diff_url }}" target="_blank" rel="noopener">diff</a>
             </td>
 
             <td style="width: 1%;" class="run-elo">
-              {% with run=run %}
+              {% with run=row.run, show_gauge=show_gauge %}
                 {% include "elo_results.mak" %}
               {% endwith %}
             </td>
 
             <td style="width: 13%;" class="run-live">
-              <span class="{{ 'rounded ltc-highlight me-1' if is_active_sprt_ltc(run) else 'me-1' }}">
-              {% if 'sprt' in run['args'] %}
-                <a href="/tests/live_elo/{{ run['_id'] }}" target="_blank">sprt</a>
+              <span class="{{ 'rounded ltc-highlight me-1' if is_active_sprt_ltc(row.run) else 'me-1' }}">
+              {% if row.live_url %}
+                <a href="{{ row.live_url }}" target="_blank">{{ row.live_label }}</a>
               {% else %}
-                {{ run['args']['num_games'] }}
+                {{ row.live_label }}
               {% endif %}
-              @ {{ run['args']['tc'] }} th {{ run['args'].get('threads', 1) }}
+              @ {{ row.tc_label }} th {{ row.threads }}
               </span>
-              {% if not run['finished'] %}
+              {% if not row.is_finished %}
                 <div>
-                  {{ "cores: {} ({})".format(run.get('cores', ''), run.get('workers', '')) }}
+                  {{ row.cores_label }}
                 </div>
               {% endif %}
             </td>
 
             <td class="run-info">
-              {{ run['args'].get('info', '') }}
+              {{ row.info_html | safe }}
             </td>
           </tr>
         {% endfor %}

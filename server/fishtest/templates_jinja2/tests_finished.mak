@@ -3,15 +3,9 @@
 {% block title %}Finished Tests{{ title_suffix }} | Stockfish Testing{% endblock %}
 
 {% block body %}
-{% if filters is defined %}
-  {% set success_only = filters.success_only %}
-  {% set yellow_only = filters.yellow_only %}
-  {% set ltc_only = filters.ltc_only %}
-{% else %}
-  {% set success_only = 'success_only' in request.url %}
-  {% set yellow_only = 'yellow_only' in request.url %}
-  {% set ltc_only = 'ltc_only' in request.url %}
-{% endif %}
+{% set success_only = filters.success_only if filters is defined else false %}
+{% set yellow_only = filters.yellow_only if filters is defined else false %}
+{% set ltc_only = filters.ltc_only if filters is defined else false %}
 <h2>
   Finished Tests
   {% if success_only %}
@@ -28,11 +22,12 @@
   header='Finished',
   count=num_finished_runs,
   pages=finished_runs_pages,
-  title_suffix=title_suffix,
+  title_text=title_text,
   toggle=None,
   toggle_state='Show',
   page_idx=0,
-  username=""
+  username="",
+  show_gauge=show_gauge
 %}
   {% include "run_table.mak" %}
 {% endwith %}

@@ -145,12 +145,18 @@
 
 {% if run_tables_ctx is defined %}
   {% with
-    runs=run_tables_ctx.runs,
+    pending_approval_runs=run_tables_ctx.pending_approval_runs,
+    paused_runs=run_tables_ctx.paused_runs,
+    active_runs=run_tables_ctx.active_runs,
     failed_runs=run_tables_ctx.failed_runs,
     finished_runs=run_tables_ctx.finished_runs,
     num_finished_runs=run_tables_ctx.num_finished_runs,
     finished_runs_pages=run_tables_ctx.finished_runs_pages,
-    page_idx=run_tables_ctx.page_idx
+    page_idx=run_tables_ctx.page_idx,
+    prefix=run_tables_ctx.prefix,
+    toggle_states=run_tables_ctx.toggle_states,
+    finished_title_text=run_tables_ctx.finished_title_text,
+    show_gauge=run_tables_ctx.show_gauge
   %}
     {% include "run_tables.mak" %}
   {% endwith %}

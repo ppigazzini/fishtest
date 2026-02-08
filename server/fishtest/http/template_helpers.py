@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import binascii
+import datetime
+import urllib.parse
 from urllib.parse import quote_plus
 
 from fishtest.stats import LLRcalc, stat_util
@@ -37,6 +39,63 @@ def run_tables_prefix(username: object | None) -> str:
         return ""
     token = binascii.hexlify(text.encode()).decode()
     return f"user{token}_"
+
+
+def build_contributors_summary(users: list[dict]) -> dict:
+    """Build summary counts for contributors."""
+    summary = {
+        "testers": 0,
+        "developers": 0,
+        "active_testers": 0,
+        "cpu_hours": 0,
+        "games": 0,
+        "tests": 0,
+    }
+    last_updated_min = datetime.datetime.min.replace(tzinfo=datetime.UTC)
+    for user in users:
+        if user.get("last_updated") != last_updated_min:
+            summary["testers"] += 1
+        if user.get("tests", 0) > 0:
+            summary["developers"] += 1
+        if user.get("games_per_hour", 0) > 0:
+            summary["active_testers"] += 1
+        summary["cpu_hours"] += int(user.get("cpu_hours", 0))
+        summary["games"] += int(user.get("games", 0))
+        summary["tests"] += int(user.get("tests", 0))
+    return summary
+
+
+def build_contributors_rows(
+    users: list[dict],
+    *,
+    is_approver: bool,
+) -> list[dict]:
+    """Build template-ready contributor rows."""
+    rows = []
+    for user in users:
+        username = user.get("username", "")
+        last_updated = user.get("last_updated")
+        last_updated_label = format_time_ago(last_updated) if last_updated else ""
+        last_updated_sort = (
+            -last_updated.timestamp() if getattr(last_updated, "timestamp", None) else 0
+        )
+        rows.append(
+            {
+                "username": username,
+                "user_url": f"/user/{username}" if is_approver and username else "",
+                "last_updated_label": last_updated_label,
+                "last_updated_sort": last_updated_sort,
+                "games_per_hour": int(user.get("games_per_hour", 0)),
+                "cpu_hours": int(user.get("cpu_hours", 0)),
+                "games": int(user.get("games", 0)),
+                "tests": int(user.get("tests", 0)),
+                "tests_repo_url": user.get("tests_repo", ""),
+                "tests_user_url": f"/tests/user/{urllib.parse.quote(username)}"
+                if username
+                else "",
+            }
+        )
+    return rows
 
 
 def clip_long(text: str, max_length: int = 20) -> str:
@@ -704,7 +763,172 @@ def tests_run_setup(
     }
 
 
+def build_tasks_rows(
+    run: dict,
+    *,
+    show_task: int,
+    chi2: float,
+    is_approver: bool,
+) -> tuple[list[dict], bool, bool]:
+    """Build template-ready task rows for the tasks table."""
+    show_pentanomial = "pentanomial" in run.get("results", {})
+    show_residual = "spsa" not in run.get("args", {})
+    tasks = []
+    all_tasks = run.get("tasks", []) + run.get("bad_tasks", [])
+
+    for idx, task in enumerate(all_tasks):
+        if "bad" in task and idx < len(run.get("tasks", [])):
+            continue
+        if "stats" not in task:
+            continue
+
+        task_id = task.get("task_id", idx)
+        stats = task.get("stats", {})
+        total = stats.get("wins", 0) + stats.get("losses", 0) + stats.get("draws", 0)
+
+        if task_id == show_task:
+            row_class = "highlight"
+        elif task.get("active"):
+            row_class = "info"
+        else:
+            row_class = ""
+
+        worker_info = task.get("worker_info")
+        worker_label = "-"
+        worker_url = ""
+        if worker_info:
+            worker_label = worker_name(worker_info)
+            if is_approver and worker_info.get("username") != "Unknown_worker":
+                worker_url = f"/workers/{worker_name(worker_info, short=True)}"
+
+        info_label = "-"
+        if worker_info:
+            gcc_version = ".".join(str(m) for m in worker_info.get("gcc_version", []))
+            compiler = worker_info.get("compiler", "g++")
+            python_version = ".".join(
+                str(m) for m in worker_info.get("python_version", [])
+            )
+            version = worker_info.get("version", "")
+            arch = worker_info.get("ARCH", "")
+            worker_arch = worker_info.get("worker_arch", "unknown")
+            uname = worker_info.get("uname", "")
+            max_memory = worker_info.get("max_memory", "")
+            info_label = (
+                f"os: {uname}; ram: {max_memory}MiB; compiler: {compiler} {gcc_version}; "
+                f"python: {python_version}; worker: {version}; arch: {worker_arch}; "
+                f"features: {arch}"
+            )
+
+        last_updated_label = str(task.get("last_updated", "-")).split(".")[0]
+        played_label = f"{total:03d} / {task.get('num_games', 0):03d}"
+
+        if show_pentanomial:
+            p = stats.get("pentanomial", [0] * 5)
+            results_cells = [f"[{p[0]}, {p[1]}, {p[2]}, {p[3]}, {p[4]}]"]
+        else:
+            results_cells = [
+                stats.get("wins", "-"),
+                stats.get("losses", "-"),
+                stats.get("draws", "-"),
+            ]
+
+        crashes = stats.get("crashes", "-")
+        time_losses = stats.get("time_losses", "-")
+        residual_label = ""
+        residual_bg = ""
+        if show_residual:
+            residual = display_residual(task, chi2)
+            if residual["residual"] != float("inf"):
+                residual_label = f"{residual['residual']:.3f}"
+                residual_bg = residual["display_color"]
+            else:
+                residual_label = "-"
+
+        tasks.append(
+            {
+                "task_id": task_id,
+                "row_class": row_class,
+                "pgn_url": f"/api/pgn/{run['_id']}-{task_id:d}.pgn",
+                "worker_label": worker_label,
+                "worker_url": worker_url,
+                "info_label": info_label,
+                "last_updated_label": last_updated_label,
+                "played_label": played_label,
+                "results_cells": results_cells,
+                "crashes": crashes,
+                "time_losses": time_losses,
+                "residual_label": residual_label,
+                "residual_bg": residual_bg,
+            }
+        )
+
+    return tasks, show_pentanomial, show_residual
+
+
+def build_run_table_rows(
+    runs: list[dict],
+    *,
+    allow_github_api_calls: bool,
+) -> list[dict]:
+    """Build template-ready run rows for run tables."""
+    rows = []
+    for run in runs:
+        args = run.get("args", {})
+        run_id = str(run.get("_id", ""))
+        start_time = run.get("start_time")
+        start_date_label = (
+            start_time.strftime("%y-%m-%d") if hasattr(start_time, "strftime") else ""
+        )
+        username = args.get("username", "")
+        user_short = username[:3]
+        user_url = f"/tests/user/{username}" if username else ""
+        run_url = f"/tests/view/{run_id}" if run_id else ""
+        new_tag = args.get("new_tag", "")
+        new_tag_short = new_tag[:23]
+        diff_link = diff_url_for_run(run, allow_github_api_calls)
+        is_finished = bool(run.get("finished"))
+        is_sprt = "sprt" in args
+        live_label = "sprt" if is_sprt else str(args.get("num_games", ""))
+        live_url = f"/tests/live_elo/{run_id}" if is_sprt else ""
+        tc_label = args.get("tc", "")
+        threads = args.get("threads", 1)
+        cores = run.get("cores", "")
+        workers = run.get("workers", "")
+        cores_label = ""
+        if not is_finished:
+            cores_label = f"cores: {cores} ({workers})"
+        info = args.get("info", "")
+        info_html = info.replace("\n", "<br>") if info else ""
+
+        rows.append(
+            {
+                "run": run,
+                "run_id": run_id,
+                "start_date_label": start_date_label,
+                "user_short": user_short,
+                "user_name": username,
+                "user_url": user_url,
+                "is_finished": is_finished,
+                "is_sprt": is_sprt,
+                "new_tag_short": new_tag_short,
+                "run_url": run_url,
+                "diff_url": diff_link,
+                "live_label": live_label,
+                "live_url": live_url,
+                "tc_label": tc_label,
+                "threads": threads,
+                "cores_label": cores_label,
+                "info_html": info_html,
+            }
+        )
+    return rows
+
+
 __all__ = [
+    "build_contributors_rows",
+    "build_contributors_summary",
+    "build_tasks_rows",
+    "build_run_table_rows",
     "clip_long",
     "diff_url",
     "diff_url_for_run",

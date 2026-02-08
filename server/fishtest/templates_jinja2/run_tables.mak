@@ -1,20 +1,22 @@
-{% if username is defined %}
-  {% set prefix = run_tables_prefix(username) %}
-{% else %}
-  {% set prefix = '' %}
-{% endif %}
+{% set prefix = prefix if prefix is defined else '' %}
+{% set toggle_states = toggle_states if toggle_states is defined else {} %}
+{% set pending_toggle = prefix ~ 'pending' %}
+{% set paused_toggle = prefix ~ 'paused' %}
+{% set failed_toggle = prefix ~ 'failed' %}
+{% set active_toggle = prefix ~ 'active' %}
 
 {% if page_idx == 0 %}
-  {% set pending_approval_runs = runs['pending'] | selectattr('approved', 'equalto', False) | list %}
-  {% set paused_runs = runs['pending'] | selectattr('approved', 'equalto', True) | list %}
 
   {% with
     runs=pending_approval_runs,
     show_delete=True,
     header='Pending approval',
     count=pending_approval_runs | length,
-    toggle=prefix ~ 'pending',
-    alt='No tests pending approval'
+    toggle=pending_toggle,
+    cookie_name=pending_toggle ~ '_state',
+    toggle_state=toggle_states.get(pending_toggle, 'Show'),
+    alt='No tests pending approval',
+    show_gauge=show_gauge
   %}
     {% include "run_table.mak" %}
   {% endwith %}
@@ -24,8 +26,11 @@
     show_delete=True,
     header='Paused',
     count=paused_runs | length,
-    toggle=prefix ~ 'paused',
-    alt='No paused tests'
+    toggle=paused_toggle,
+    cookie_name=paused_toggle ~ '_state',
+    toggle_state=toggle_states.get(paused_toggle, 'Show'),
+    alt='No paused tests',
+    show_gauge=show_gauge
   %}
     {% include "run_table.mak" %}
   {% endwith %}
@@ -33,20 +38,26 @@
   {% with
     runs=failed_runs,
     show_delete=True,
-    toggle=prefix ~ 'failed',
+    toggle=failed_toggle,
+    cookie_name=failed_toggle ~ '_state',
+    toggle_state=toggle_states.get(failed_toggle, 'Show'),
     count=failed_runs | length,
     header='Failed',
-    alt='No failed tests on this page'
+    alt='No failed tests on this page',
+    show_gauge=show_gauge
   %}
     {% include "run_table.mak" %}
   {% endwith %}
 
   {% with
-    runs=runs['active'],
+    runs=active_runs,
     header='Active',
-    toggle=prefix ~ 'active',
-    count=runs['active'] | length,
-    alt='No active tests'
+    toggle=active_toggle,
+    cookie_name=active_toggle ~ '_state',
+    toggle_state=toggle_states.get(active_toggle, 'Show'),
+    count=active_runs | length,
+    alt='No active tests',
+    show_gauge=show_gauge
   %}
     {% include "run_table.mak" %}
   {% endwith %}
@@ -57,7 +68,11 @@
   header='Finished',
   count=num_finished_runs,
   toggle=(prefix ~ 'finished') if page_idx == 0 else None,
-  pages=finished_runs_pages
+  cookie_name=(prefix ~ 'finished_state') if page_idx == 0 else '',
+  toggle_state=toggle_states.get(prefix ~ 'finished', 'Show') if page_idx == 0 else 'Show',
+  pages=finished_runs_pages,
+  title_text=finished_title_text,
+  show_gauge=show_gauge
 %}
   {% include "run_table.mak" %}
 {% endwith %}

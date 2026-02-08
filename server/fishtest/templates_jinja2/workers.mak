@@ -59,7 +59,7 @@
 {% if show_admin %}
   <h3>{{ worker_name }}</h3>
   <form method="POST">
-    <div class="mb-3">Last changed: {{ format_time_ago(last_updated) if last_updated is not none else "Never" }}</div>
+    <div class="mb-3">Last changed: {{ last_updated_label }}</div>
     <div class="mb-3">
       <label for="messageInput" class="form-label">Issue</label>
       <textarea
@@ -125,23 +125,15 @@
     {% else %}
       {% for w in blocked_workers %}
         {% set worker_name = w["worker_name"] %}
-        {% set last_updated = w["last_updated"] %}
-        {% set owner_email = w["owner_email"] %}
-        {% set subject = w["subject"] %}
-        {% set body = w["body"] %}
         <tr>
           <td><a href="/workers/{{ worker_name }}">{{ worker_name }}</a></td>
-          <td>{{ format_time_ago(last_updated) if last_updated is not none else "Never" }}</td>
+          <td>{{ w.last_updated_label }}</td>
           <td>
-            <a
-              href="/actions?text=%22{{ worker_name }}%22">/actions?text="{{ worker_name }}"</a
-            >
+            <a href="{{ w.actions_url }}">/actions?text="{{ worker_name }}"</a>
           </td>
           {% if show_email %}
             <td>
-              <a
-                href="mailto:{{ owner_email }}?subject={{ urllib.quote(subject) }}&body={{ urllib.quote(body.replace('\n','\r\n')) }}" target="_blank" rel="noopener noreferrer">{{ owner_email }}
-              </a>
+              <a href="{{ w.mailto_url }}" target="_blank" rel="noopener noreferrer">{{ w.owner_email }}</a>
           {% endif %}
         </tr>
       {% endfor %}

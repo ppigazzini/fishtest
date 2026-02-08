@@ -7,7 +7,7 @@ import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import bson
 import fishtest.github_api as gh
@@ -38,7 +38,15 @@ from fishtest.http.dependencies import (
     get_userdb,
     get_workerdb,
 )
-from fishtest.http.template_helpers import build_tests_stats_context
+from fishtest.http.template_helpers import (
+    build_contributors_rows,
+    build_contributors_summary,
+    build_run_table_rows,
+    build_tasks_rows,
+    build_tests_stats_context,
+    run_tables_prefix,
+    tests_run_setup,
+)
 from fishtest.http.template_renderer import render_template_to_response
 from fishtest.http.ui_pipeline import apply_http_cache
 from fishtest.run_cache import Prio
@@ -51,7 +59,6 @@ from fishtest.schemas import (
 )
 from fishtest.schemas import tc as tc_schema
 from fishtest.util import (
-    display_residual,
     email_valid,
     format_bounds,
     format_date,
@@ -525,6 +532,36 @@ def normalize_lf(m):
     return m.rstrip()
 
 
+def _blocked_worker_rows(blocked_workers, *, show_email):
+    rows = []
+    for worker in blocked_workers:
+        worker_name_value = worker.get("worker_name", "")
+        last_updated = worker.get("last_updated")
+        last_updated_label = (
+            format_time_ago(last_updated) if last_updated is not None else "Never"
+        )
+        actions_url = f"/actions?text={quote(f'"{worker_name_value}"')}"
+        owner_email = worker.get("owner_email", "")
+        subject = worker.get("subject", "")
+        body = worker.get("body", "")
+        mailto_url = ""
+        if show_email and owner_email:
+            body_encoded = quote(body.replace("\n", "\r\n"))
+            mailto_url = (
+                f"mailto:{owner_email}?subject={quote(subject)}&body={body_encoded}"
+            )
+        rows.append(
+            {
+                "worker_name": worker_name_value,
+                "last_updated_label": last_updated_label,
+                "actions_url": actions_url,
+                "owner_email": owner_email,
+                "mailto_url": mailto_url,
+            }
+        )
+    return rows
+
+
 @view_config(route_name="workers", renderer="workers.mak", require_csrf=True)
 def workers(request):
     is_approver = request.has_permission("approve_run")
@@ -555,13 +592,19 @@ def workers(request):
         return {
             "show_admin": False,
             "show_email": is_approver,
-            "blocked_workers": blocked_workers,
+            "blocked_workers": _blocked_worker_rows(
+                blocked_workers,
+                show_email=is_approver,
+            ),
         }
     if len(worker_name.split("-")) != 3:
         return {
             "show_admin": False,
             "show_email": is_approver,
-            "blocked_workers": blocked_workers,
+            "blocked_workers": _blocked_worker_rows(
+                blocked_workers,
+                show_email=is_approver,
+            ),
         }
     ensure_logged_in(request)
     owner_name = worker_name.split("-")[0]
@@ -570,7 +613,10 @@ def workers(request):
         return {
             "show_admin": False,
             "show_email": is_approver,
-            "blocked_workers": blocked_workers,
+            "blocked_workers": _blocked_worker_rows(
+                blocked_workers,
+                show_email=is_approver,
+            ),
         }
 
     if request.method == "POST":
@@ -608,8 +654,13 @@ def workers(request):
         "blocked": w["blocked"],
         "message": w["message"],
         "show_email": is_approver,
-        "last_updated": w["last_updated"],
-        "blocked_workers": blocked_workers,
+        "last_updated_label": (
+            format_time_ago(w["last_updated"]) if w["last_updated"] else "Never"
+        ),
+        "blocked_workers": _blocked_worker_rows(
+            blocked_workers,
+            show_email=is_approver,
+        ),
     }
 
 
@@ -1006,13 +1057,14 @@ def actions(request):
     pages = pagination(page_idx, num_actions, page_size, query_params)
 
     return {
-        "actions": actions,
-        "approver": request.has_permission("approve_run"),
+        "actions": action_rows,
         "pages": pages,
-        "action_param": search_action,
-        "username_param": username,
-        "text_param": text,
-        "run_id_param": run_id,
+        "filters": {
+            "action": search_action,
+            "username": username,
+            "text": text,
+            "run_id": run_id,
+        },
         "usernames": [user["username"] for user in request.userdb.get_users()],
     }
 
@@ -1028,6 +1080,30 @@ def get_idle_users(users, request):
     return idle
 
 
+def _user_management_rows(users):
+    rows = []
+    for user in users:
+        username = user.get("username", "")
+        registration_time = user.get("registration_time")
+        registration_label = (
+            registration_time.strftime("%y-%m-%d %H:%M:%S")
+            if registration_time
+            else "Unknown"
+        )
+        groups = user.get("groups", [])
+        rows.append(
+            {
+                "username": username,
+                "user_url": f"/user/{username}" if username else "",
+                "registration_label": registration_label,
+                "groups": groups,
+                "groups_label": format_group(groups),
+                "email": user.get("email", ""),
+            }
+        )
+    return rows
+
+
 @view_config(route_name="user_management", renderer="user_management.mak")
 def user_management(request):
     if not request.has_permission("approve_run"):
@@ -1035,15 +1111,20 @@ def user_management(request):
         return home(request)
 
     users = list(request.userdb.get_users())
+    pending_users = request.userdb.get_pending()
+    blocked_users = request.userdb.get_blocked()
+    idle_users = get_idle_users(users, request)
 
     return {
-        "all_users": users,
-        "pending_users": request.userdb.get_pending(),
-        "blocked_users": request.userdb.get_blocked(),
+        "all_users": _user_management_rows(users),
+        "pending_users": _user_management_rows(pending_users),
+        "blocked_users": _user_management_rows(blocked_users),
         "approvers_users": [
-            user for user in users if "group:approvers" in user.get("groups", [])
+            user
+            for user in _user_management_rows(users)
+            if "group:approvers" in user.get("groups", [])
         ],
-        "idle_users": get_idle_users(users, request),  # depends on cache too
+        "idle_users": _user_management_rows(idle_users),  # depends on cache too
     }
 
 
@@ -1152,13 +1233,20 @@ def user(request):
     else:
         extract_repo_from_link = ""
 
+    registration_time = user_data.get("registration_time")
+    registration_time_label = (
+        format_date(registration_time) if registration_time else "Unknown"
+    )
+
     return {
-        "format_date": format_date,
         "user": user_data,
         "limit": request.userdb.get_machine_limit(user_name),
         "hours": hours,
         "profile": profile,
         "extract_repo_from_link": extract_repo_from_link,
+        "form_action": request.url,
+        "registration_time_label": registration_time_label,
+        "blocked": bool(user_data.get("blocked", False)),
     }
 
 
@@ -1167,9 +1255,13 @@ def user(request):
 def contributors(request):
     users_list = list(request.userdb.user_cache.find())
     users_list.sort(key=lambda k: k["cpu_hours"], reverse=True)
+    is_approver = request.has_permission("approve_run")
     return {
-        "users": users_list,
-        "approver": request.has_permission("approve_run"),
+        "is_monthly": False,
+        "monthly_suffix": "",
+        "summary": build_contributors_summary(users_list),
+        "users": build_contributors_rows(users_list, is_approver=is_approver),
+        "is_approver": is_approver,
     }
 
 
@@ -1177,9 +1269,13 @@ def contributors(request):
 def contributors_monthly(request):
     users_list = list(request.userdb.top_month.find())
     users_list.sort(key=lambda k: k["cpu_hours"], reverse=True)
+    is_approver = request.has_permission("approve_run")
     return {
-        "users": users_list,
-        "approver": request.has_permission("approve_run"),
+        "is_monthly": True,
+        "monthly_suffix": " - Top Month",
+        "summary": build_contributors_summary(users_list),
+        "users": build_contributors_rows(users_list, is_approver=is_approver),
+        "is_approver": is_approver,
     }
 
 
@@ -1748,14 +1844,34 @@ def tests_run(request):
     # official_master_sha is up to date
     gh.update_official_master_sha()
 
+    test_book = "UHO_Lichess_4852_v1.epd"
+    pt_book = "UHO_Lichess_4852_v1.epd"
+    master_info = get_master_info(ignore_rate_limit=True)
+    setup = tests_run_setup(run_args, master_info, request.rundb.pt_info, test_book)
+    tests_repo_value = run_args.get("tests_repo", u.get("tests_repo", ""))
+    new_tag_value = run_args.get("new_tag", "")
+    new_signature_value = run_args.get("new_signature", "")
+    new_options_value = run_args.get("new_options", "Hash=16")
+    base_options_value = run_args.get("base_options", "Hash=16")
+    info_value = run_args.get("info", "")
+
     return {
         "args": run_args,
         "is_rerun": len(run_args) > 0,
         "rescheduled_from": request.params["id"] if "id" in request.params else None,
-        "tests_repo": u.get("tests_repo", ""),
-        "master_info": get_master_info(ignore_rate_limit=True),
+        "form_action": request.url,
+        "tests_repo_value": tests_repo_value,
+        "new_tag_value": new_tag_value,
+        "new_signature_value": new_signature_value,
+        "new_options_value": new_options_value,
+        "base_options_value": base_options_value,
+        "info_value": info_value,
+        "test_book": test_book,
+        "pt_book": pt_book,
+        "master_info": master_info,
         "valid_books": request.rundb.books.keys(),
         "pt_info": request.rundb.pt_info,
+        "setup": setup,
         "supported_arches": supported_arches,
         "supported_compilers": supported_compilers,
     }
@@ -2036,96 +2152,12 @@ def tests_tasks(request):
         show_task = -1
 
     approver = request.has_permission("approve_run")
-    show_pentanomial = "pentanomial" in run["results"]
-    show_residual = "spsa" not in run["args"]
-    tasks = []
-    all_tasks = run["tasks"] + run.get("bad_tasks", [])
-
-    for idx, task in enumerate(all_tasks):
-        if "bad" in task and idx < len(run["tasks"]):
-            continue
-        if "stats" not in task:
-            continue
-
-        task_id = task.get("task_id", idx)
-        stats = task.get("stats", {})
-        total = stats.get("wins", 0) + stats.get("losses", 0) + stats.get("draws", 0)
-
-        if task_id == show_task:
-            row_class = "highlight"
-        elif task.get("active"):
-            row_class = "info"
-        else:
-            row_class = ""
-
-        worker_info = task.get("worker_info")
-        worker_label = "-"
-        worker_url = ""
-        if worker_info:
-            worker_label = worker_name(worker_info)
-            if approver and worker_info.get("username") != "Unknown_worker":
-                worker_url = f"/workers/{worker_name(worker_info, short=True)}"
-
-        info_label = "-"
-        if worker_info:
-            gcc_version = ".".join(str(m) for m in worker_info.get("gcc_version", []))
-            compiler = worker_info.get("compiler", "g++")
-            python_version = ".".join(
-                str(m) for m in worker_info.get("python_version", [])
-            )
-            version = worker_info.get("version", "")
-            arch = worker_info.get("ARCH", "")
-            worker_arch = worker_info.get("worker_arch", "unknown")
-            uname = worker_info.get("uname", "")
-            max_memory = worker_info.get("max_memory", "")
-            info_label = (
-                f"os: {uname}; ram: {max_memory}MiB; compiler: {compiler} {gcc_version}; "
-                f"python: {python_version}; worker: {version}; arch: {worker_arch}; "
-                f"features: {arch}"
-            )
-
-        last_updated_label = str(task.get("last_updated", "-")).split(".")[0]
-        played_label = f"{total:03d} / {task.get('num_games', 0):03d}"
-
-        if show_pentanomial:
-            p = stats.get("pentanomial", [0] * 5)
-            results_cells = [f"[{p[0]}, {p[1]}, {p[2]}, {p[3]}, {p[4]}]"]
-        else:
-            results_cells = [
-                stats.get("wins", "-"),
-                stats.get("losses", "-"),
-                stats.get("draws", "-"),
-            ]
-
-        crashes = stats.get("crashes", "-")
-        time_losses = stats.get("time_losses", "-")
-        residual_label = ""
-        residual_bg = ""
-        if show_residual:
-            residual = display_residual(task, chi2)
-            if residual["residual"] != float("inf"):
-                residual_label = f"{residual['residual']:.3f}"
-                residual_bg = residual["display_color"]
-            else:
-                residual_label = "-"
-
-        tasks.append(
-            {
-                "task_id": task_id,
-                "row_class": row_class,
-                "pgn_url": f"/api/pgn/{run['_id']}-{task_id:d}.pgn",
-                "worker_label": worker_label,
-                "worker_url": worker_url,
-                "info_label": info_label,
-                "last_updated_label": last_updated_label,
-                "played_label": played_label,
-                "results_cells": results_cells,
-                "crashes": crashes,
-                "time_losses": time_losses,
-                "residual_label": residual_label,
-                "residual_bg": residual_bg,
-            }
-        )
+    tasks, show_pentanomial, show_residual = build_tasks_rows(
+        run,
+        show_task=show_task,
+        chi2=chi2,
+        is_approver=approver,
+    )
 
     return {
         "run": run,
@@ -2509,19 +2541,118 @@ def get_paginated_finished_runs(request):
             if "failed" in run and run["failed"]:
                 failed_runs.append(run)
 
+    filters = {
+        "success_only": bool(success_only),
+        "yellow_only": bool(yellow_only),
+        "ltc_only": bool(ltc_only),
+    }
+    title_suffix = ""
+    if filters["success_only"]:
+        title_suffix = " - Greens"
+    elif filters["yellow_only"]:
+        title_suffix = " - Yellows"
+    elif filters["ltc_only"]:
+        title_suffix = " - LTC"
+
     return {
         "finished_runs": finished_runs,
         "finished_runs_pages": pages,
         "num_finished_runs": num_finished_runs,
         "failed_runs": failed_runs,
         "page_idx": page_idx,
+        "filters": filters,
+        "title_suffix": title_suffix,
+    }
+
+
+def _build_toggle_states(request, toggle_names):
+    return {name: request.cookies.get(f"{name}_state", "Show") for name in toggle_names}
+
+
+def _build_run_tables_context(
+    request,
+    *,
+    runs,
+    failed_runs,
+    finished_runs,
+    num_finished_runs,
+    finished_runs_pages,
+    page_idx,
+    username="",
+):
+    runs = runs or {"pending": [], "active": []}
+    pending_runs = [r for r in runs.get("pending", []) if not r.get("approved")]
+    paused_runs = [r for r in runs.get("pending", []) if r.get("approved")]
+    active_runs = list(runs.get("active", []))
+    prefix = run_tables_prefix(username)
+    toggle_names = [prefix + "finished"]
+    if page_idx == 0:
+        toggle_names = [
+            prefix + "pending",
+            prefix + "paused",
+            prefix + "failed",
+            prefix + "active",
+            prefix + "finished",
+        ]
+    toggle_states = _build_toggle_states(request, toggle_names)
+    finished_title_text = (
+        f"{username + ' - ' if username else ''}Finished Tests"
+        f" - page {page_idx + 1} | Stockfish Testing"
+    )
+
+    return {
+        "pending_approval_runs": build_run_table_rows(
+            pending_runs,
+            allow_github_api_calls=False,
+        ),
+        "paused_runs": build_run_table_rows(
+            paused_runs,
+            allow_github_api_calls=False,
+        ),
+        "failed_runs": build_run_table_rows(
+            failed_runs,
+            allow_github_api_calls=False,
+        ),
+        "active_runs": build_run_table_rows(
+            active_runs,
+            allow_github_api_calls=False,
+        ),
+        "finished_runs": build_run_table_rows(
+            finished_runs,
+            allow_github_api_calls=False,
+        ),
+        "num_finished_runs": num_finished_runs,
+        "finished_runs_pages": finished_runs_pages,
+        "page_idx": page_idx,
+        "prefix": prefix,
+        "toggle_states": toggle_states,
+        "finished_title_text": finished_title_text,
+        "show_gauge": True,
     }
 
 
 # === Run lists + homepage ===
 @view_config(route_name="tests_finished", renderer="tests_finished.mak")
 def tests_finished(request):
-    return get_paginated_finished_runs(request)
+    context = get_paginated_finished_runs(request)
+    page_idx = context.get("page_idx", 0)
+    title_suffix = context.get("title_suffix", "")
+    title_text = (
+        f"Finished Tests{title_suffix} - page {page_idx + 1} | Stockfish Testing"
+    )
+    return {
+        **context,
+        "finished_runs": build_run_table_rows(
+            context.get("finished_runs", []),
+            allow_github_api_calls=False,
+        ),
+        "failed_runs": build_run_table_rows(
+            context.get("failed_runs", []),
+            allow_github_api_calls=False,
+        ),
+        "title_text": title_text,
+        "show_gauge": True,
+    }
 
 
 @view_config(route_name="tests_user", renderer="tests_user.mak")
@@ -2537,16 +2668,36 @@ def tests_user(request):
     if user_data is None:
         raise HTTPNotFound()
     is_approver = request.has_permission("approve_run")
+    finished_context = get_paginated_finished_runs(request)
     response = {
-        **get_paginated_finished_runs(request),
+        **finished_context,
         "username": username,
         "is_approver": is_approver,
     }
     page_param = request.params.get("page", "")
     if not page_param.isdigit() or int(page_param) <= 1:
-        response["runs"] = request.rundb.aggregate_unfinished_runs(
+        runs = request.rundb.aggregate_unfinished_runs(username=username)[0]
+        response["run_tables_ctx"] = _build_run_tables_context(
+            request,
+            runs=runs,
+            failed_runs=finished_context.get("failed_runs", []),
+            finished_runs=finished_context.get("finished_runs", []),
+            num_finished_runs=finished_context.get("num_finished_runs", 0),
+            finished_runs_pages=finished_context.get("finished_runs_pages", []),
+            page_idx=finished_context.get("page_idx", 0),
             username=username,
-        )[0]
+        )
+    else:
+        response["run_tables_ctx"] = _build_run_tables_context(
+            request,
+            runs=None,
+            failed_runs=finished_context.get("failed_runs", []),
+            finished_runs=finished_context.get("finished_runs", []),
+            num_finished_runs=finished_context.get("num_finished_runs", 0),
+            finished_runs_pages=finished_context.get("finished_runs_pages", []),
+            page_idx=finished_context.get("page_idx", 0),
+            username=username,
+        )
     # page 2 and beyond only show finished test results
     return response
 
@@ -2562,9 +2713,20 @@ def homepage_results(request):
         games_per_minute,
         machines_count,
     ) = request.rundb.aggregate_unfinished_runs()
+    finished_context = get_paginated_finished_runs(request)
+    run_tables_ctx = _build_run_tables_context(
+        request,
+        runs=runs,
+        failed_runs=finished_context.get("failed_runs", []),
+        finished_runs=finished_context.get("finished_runs", []),
+        num_finished_runs=finished_context.get("num_finished_runs", 0),
+        finished_runs_pages=finished_context.get("finished_runs_pages", []),
+        page_idx=finished_context.get("page_idx", 0),
+    )
     return {
-        **get_paginated_finished_runs(request),
+        **finished_context,
         "runs": runs,
+        "run_tables_ctx": run_tables_ctx,
         "machines_count": machines_count,
         "pending_hours": "{:.1f}".format(pending_hours),
         "cores": cores,
@@ -2585,7 +2747,19 @@ def tests(request):
     page_param = request.params.get("page", "")
     if page_param.isdigit() and int(page_param) > 1:
         # page 2 and beyond only show finished test results
-        return get_paginated_finished_runs(request)
+        finished_context = get_paginated_finished_runs(request)
+        return {
+            **finished_context,
+            "run_tables_ctx": _build_run_tables_context(
+                request,
+                runs=None,
+                failed_runs=finished_context.get("failed_runs", []),
+                finished_runs=finished_context.get("finished_runs", []),
+                num_finished_runs=finished_context.get("num_finished_runs", 0),
+                finished_runs_pages=finished_context.get("finished_runs_pages", []),
+                page_idx=finished_context.get("page_idx", 0),
+            ),
+        }
 
     last_tests = homepage_results(request)
 

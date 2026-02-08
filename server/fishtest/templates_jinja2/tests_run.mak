@@ -2,27 +2,24 @@
 
 {% block body %}
 {% set elo_model = "normalized" %}
-{% set test_book = "UHO_Lichess_4852_v1.epd" %}
-{% set pt_book = "UHO_Lichess_4852_v1.epd" %}
-
-{% set setup = tests_run_setup(args, master_info, pt_info, test_book) %}
-{% set base_branch = setup["base_branch"] %}
-{% set latest_bench = setup["latest_bench"] %}
-{% set pt_version = setup["pt_version"] %}
-{% set pt_branch = setup["pt_branch"] %}
-{% set pt_signature = setup["pt_signature"] %}
-{% set tc = setup["tc"] %}
-{% set new_tc = setup["new_tc"] %}
-{% set default_book = setup["default_book"] %}
-{% set is_odds = setup["is_odds"] %}
-{% set arch_filter = setup["arch_filter"] %}
-{% set compiler = setup["compiler"] %}
-{% set tests_repo_value = args.get("tests_repo", tests_repo) %}
-{% set new_tag_value = args.get("new_tag", "") %}
-{% set new_signature_value = args.get("new_signature", "") %}
-{% set new_options_value = args.get("new_options", "Hash=16") %}
-{% set base_options_value = args.get("base_options", "Hash=16") %}
-{% set info_value = args.get("info", "") %}
+{% set setup = setup if setup is defined else {} %}
+{% set base_branch = setup.base_branch if setup is defined else "" %}
+{% set latest_bench = setup.latest_bench if setup is defined else "" %}
+{% set pt_version = setup.pt_version if setup is defined else "" %}
+{% set pt_branch = setup.pt_branch if setup is defined else "" %}
+{% set pt_signature = setup.pt_signature if setup is defined else "" %}
+{% set tc = setup.tc if setup is defined else "" %}
+{% set new_tc = setup.new_tc if setup is defined else "" %}
+{% set default_book = setup.default_book if setup is defined else "" %}
+{% set is_odds = setup.is_odds if setup is defined else false %}
+{% set arch_filter = setup.arch_filter if setup is defined else "" %}
+{% set compiler = setup.compiler if setup is defined else "" %}
+{% set tests_repo_value = tests_repo_value if tests_repo_value is defined else "" %}
+{% set new_tag_value = new_tag_value if new_tag_value is defined else "" %}
+{% set new_signature_value = new_signature_value if new_signature_value is defined else "" %}
+{% set new_options_value = new_options_value if new_options_value is defined else "Hash=16" %}
+{% set base_options_value = base_options_value if base_options_value is defined else "Hash=16" %}
+{% set info_value = info_value if info_value is defined else "" %}
 
 <script>
   document.title = "Create New Test | Stockfish Testing";
@@ -37,7 +34,7 @@
   </div>
 </header>
 
-<form id="create-new-test" action="{{ request.url }}" method="POST">
+<form id="create-new-test" action="{{ form_action }}" method="POST">
   <div class="container mt-4 mb-2">
     <div class="row">
       <div class="mb-2 container d-flex justify-content-center">
@@ -1127,7 +1124,7 @@
   });
 </script>
 
-<script src="{{ request.static_url("fishtest:static/js/spsa_new.js") }}"></script>
+  <script src="{{ static_url("fishtest:static/js/spsa_new.js") }}"></script>
 
 <script>
   function spsaWork() {

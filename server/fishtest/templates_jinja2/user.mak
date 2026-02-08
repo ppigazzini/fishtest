@@ -4,7 +4,7 @@
 {% set username = user["username"] %}
 {% set tests_repo = user["tests_repo"] %}
 {% set email = user["email"] %}
-{% set registration_time = user["registration_time"] if "registration_time" in user else "Unknown" %}
+{% set registration_time = registration_time_label if registration_time_label is defined else "Unknown" %}
 {% set user_groups = user["groups"] %}
 {% if profile %}
   <script>
@@ -39,7 +39,7 @@
         <a href="/tests/user/{{ username }}" class="alert-link col-6 text-break">{{ username }}</a>
       </h4>
       <ul class="list-group list-group-flush">
-        <li class="list-group-item bg-transparent text-break">Registered: {{ format_date(registration_time) }}</li>
+        <li class="list-group-item bg-transparent text-break">Registered: {{ registration_time }}</li>
         {% if not profile %}
           <li class="list-group-item bg-transparent text-break">Tests Repository:
             {% if tests_repo %}
@@ -63,7 +63,7 @@
     </div>
   </header>
 
-  <form id="profile_form" action="{{ request.url }}" method="POST">
+  <form id="profile_form" action="{{ form_action }}" method="POST">
     <input
       type="hidden"
       name="user"
@@ -257,7 +257,6 @@
         </div>
       </div>
     {% else %}
-      {% set blocked = user['blocked'] if 'blocked' in user else False %}
       {% if blocked %}
         <button
           class="btn btn-primary w-100"
@@ -277,5 +276,5 @@
   </form>
 </div>
 
-<script src="{{ request.static_url('fishtest:static/js/toggle_password.js') }}"></script>
+<script src="{{ static_url('fishtest:static/js/toggle_password.js') }}"></script>
 {% endblock %}
