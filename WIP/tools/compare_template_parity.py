@@ -342,7 +342,12 @@ def main() -> int:
         print("No templates to compare.")
         return 0
 
-    context_map = _load_context(args.context)
+    context_path = args.context
+    if context_path is None:
+        default_context = REPO_ROOT / "WIP" / "tools" / "template_parity_context.json"
+        if default_context.exists():
+            context_path = default_context
+    context_map = _load_context(context_path)
     defaults = _decode_special(context_map.get("_defaults", {}))
     if "_defaults" in context_map:
         context_map.pop("_defaults")

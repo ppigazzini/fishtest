@@ -284,8 +284,8 @@ def build_tests_stats_context(run: dict) -> dict:
             nelo1 = elo1_
             nelo03 = nelo0
             nelo13 = nelo1
-            score0 = nelo0 / nelo_divided_by_nt * stdev3 + 0.5
-            score1 = nelo1 / nelo_divided_by_nt * stdev3 + 0.5
+            score0 = nelo0 / nelo_divided_by_nt * sigma + 0.5
+            score1 = nelo1 / nelo_divided_by_nt * sigma + 0.5
             score03 = score0
             score13 = score1
             lelo0 = stat_util.elo(score0)
