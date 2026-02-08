@@ -138,7 +138,8 @@ class TestHttpBoundary(unittest.TestCase):
             session = CookieSession(data={"user": "TestUser"})
             session.flash("hello")
             context = build_template_context(request, session)
-            template_req = context["request"]
+            template_req = context["template_request"]
+            self.assertTrue(hasattr(context["request"], "scope"))
             return {
                 "csrf": template_req.session.get_csrf_token(),
                 "user": template_req.authenticated_userid,

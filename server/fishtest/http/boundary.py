@@ -274,7 +274,11 @@ def build_template_context(
         },
     }
 
-    context: dict[str, object] = {"request": template_request, **base_context}
+    context: dict[str, object] = {
+        "request": request,
+        "template_request": template_request,
+        **base_context,
+    }
     if extra:
         context.update(extra)
     return context

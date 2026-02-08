@@ -143,6 +143,7 @@ Status: done — runtime Jinja environment now only supplies Jinja-safe globals/
 
 H) Parity-friendly migration tactics
 Status: ongoing — logic already moved into helpers, IDs/fields unchanged, parity scripts now run via WIP/tools, but some diff normalization work remains (see Phase 3 tasks).
+Latest parity (2026-02-08): normalized matches only for `elo_results` and `pagination`; all other templates differ. Context coverage still missing `static_url` on several pages plus NN/upload filters and tests table sizing keys.
 
 ## Exhaustive change list needed to reach Milestone 10 goals
 
