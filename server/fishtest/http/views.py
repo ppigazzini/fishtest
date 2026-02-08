@@ -62,6 +62,7 @@ from fishtest.util import (
     email_valid,
     format_bounds,
     format_date,
+    format_group,
     format_time_ago,
     get_chi2,
     get_hash,
