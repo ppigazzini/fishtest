@@ -35,10 +35,10 @@ if str(SERVER_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVER_ROOT))
 
 from fishtest.http import jinja as jinja_renderer  # noqa: E402
-from fishtest.http import mako as mako_renderer  # noqa: E402
+from fishtest.http import template_helpers as helpers  # noqa: E402
+from mako.lookup import TemplateLookup  # noqa: E402
 
 LEGACY_MAKO_DIR = SERVER_ROOT / "fishtest" / "templates"
-from fishtest.http import template_helpers as helpers  # noqa: E402
 
 DEFAULT_CONTEXT = REPO_ROOT / "WIP" / "tools" / "template_parity_context.json"
 SKIP_TEMPLATES = {"base.mak"}
@@ -151,12 +151,19 @@ def _percentile(values: list[float], percent: float) -> float:
     return ordered[index]
 
 
-def _render_mako(lookup, template: str, context: dict[str, Any]) -> None:
-    mako_renderer.render_template(
-        lookup=lookup,
-        template_name=template,
-        context=context,
+def _default_mako_lookup() -> TemplateLookup:
+    return TemplateLookup(
+        directories=[str(LEGACY_MAKO_DIR)],
+        input_encoding="utf-8",
+        output_encoding=None,
+        strict_undefined=False,
     )
+
+
+def _render_mako(
+    lookup: TemplateLookup, template: str, context: dict[str, Any]
+) -> None:
+    lookup.get_template(template).render(**context)
 
 
 def _render_jinja(env, template: str, context: dict[str, Any]) -> None:
@@ -246,7 +253,7 @@ def main() -> int:
     render_mako = None
     render_jinja = None
     if args.engine in {"mako", "all"}:
-        mako_lookup = mako_renderer.default_template_lookup()
+        mako_lookup = _default_mako_lookup()
         render_mako = partial(_render_mako, mako_lookup)
     if args.engine in {"jinja", "all"}:
         jinja_env = jinja_renderer.default_environment()

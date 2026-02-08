@@ -1,4 +1,4 @@
-"""Template request shim for Mako templates.
+"""Template request shim for UI templates.
 
 The legacy Pyramid UI templates expect a request object with a small subset of
 Pyramid's request API (notably: `session`, `authenticated_userid`, and

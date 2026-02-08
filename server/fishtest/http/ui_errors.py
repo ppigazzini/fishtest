@@ -23,7 +23,7 @@ async def render_notfound_response(request: Request) -> Response:
 
     context = build_template_context(request, session)
 
-    # Mako rendering is sync and can be CPU heavy; keep it off the event loop.
+    # Template rendering is sync and can be CPU heavy; keep it off the event loop.
     response = await run_in_threadpool(
         render_template_to_response,
         template_name="notfound.mak",

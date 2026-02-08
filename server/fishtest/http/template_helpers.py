@@ -1,4 +1,4 @@
-"""Shared template helpers for Mako and Jinja2 renderers."""
+"""Shared template helpers for UI templates and parity tooling."""
 
 from __future__ import annotations
 

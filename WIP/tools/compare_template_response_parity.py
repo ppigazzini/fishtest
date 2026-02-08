@@ -3,7 +3,7 @@
 """Compare response-level parity for templates across engines.
 
 Goal:
-    Render templates via the unified response helper and compare
+    Render templates via local Jinja2/Mako helpers and compare
     status, content type, debug metadata, and HTML parity.
 
 Usage:
@@ -22,7 +22,6 @@ from __future__ import annotations
 import argparse
 import copy
 import json
-import os
 import re
 import sys
 from dataclasses import asdict, dataclass
@@ -31,6 +30,10 @@ from difflib import unified_diff
 from pathlib import Path
 from typing import Any
 
+from jinja2 import Environment, FileSystemLoader
+from mako.lookup import TemplateLookup
+from starlette.responses import HTMLResponse
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SERVER_ROOT = REPO_ROOT / "server"
 if str(SERVER_ROOT) not in sys.path:
@@ -38,16 +41,11 @@ if str(SERVER_ROOT) not in sys.path:
 
 from fishtest.http import jinja as jinja_renderer  # noqa: E402
 from fishtest.http import template_helpers as helpers  # noqa: E402
-from fishtest.http.template_renderer import (  # noqa: E402
-    override_engine,
-    render_template_to_response,
-)
 
 DEFAULT_CONTEXT = REPO_ROOT / "WIP" / "tools" / "template_parity_context.json"
 DEFAULT_JINJA_DIR = REPO_ROOT / "server" / "fishtest" / "templates_jinja2"
+DEFAULT_MAKO_DIR = REPO_ROOT / "server" / "fishtest" / "templates"
 SKIP_TEMPLATES = {"base.mak"}
-
-os.environ.setdefault(jinja_renderer.TEMPLATES_DIR_ENV, str(DEFAULT_JINJA_DIR))
 
 _WHITESPACE_RE = re.compile(r"\s+")
 _TAG_GAP_RE = re.compile(r">\s+<")
@@ -80,16 +78,31 @@ def _get_header(headers, name: str) -> str | None:
     return headers.get(name) or headers.get(name.lower())
 
 
-def _templates_dir(engine: str, *, jinja_dir: Path) -> Path:
+def _templates_dir(engine: str, *, jinja_dir: Path, mako_dir: Path) -> Path:
     if engine == "jinja":
         return jinja_dir
-    return REPO_ROOT / "server" / "fishtest" / "templates"
+    return mako_dir
 
 
 def _template_names(path: Path, engine: str) -> set[str]:
     if engine == "mako":
         return {item.name for item in path.glob("*.mak")}
     return {item.name for item in path.glob("*") if item.is_file()}
+
+
+def _build_jinja_env(template_dir: Path) -> Environment:
+    env = jinja_renderer.default_environment()
+    env.loader = FileSystemLoader(str(template_dir))
+    return env
+
+
+def _build_mako_lookup(template_dir: Path) -> TemplateLookup:
+    return TemplateLookup(
+        directories=[str(template_dir)],
+        input_encoding="utf-8",
+        output_encoding=None,
+        strict_undefined=False,
+    )
 
 
 def _load_context(path: Path | None) -> dict[str, dict[str, Any]]:
@@ -185,14 +198,23 @@ def _with_helpers(context: dict[str, Any]) -> dict[str, Any]:
     return context
 
 
-def _render_response(engine: str, name: str, context: dict[str, Any]):
+def _render_response(
+    engine: str,
+    name: str,
+    context: dict[str, Any],
+    *,
+    jinja_env: Environment,
+    mako_lookup: TemplateLookup,
+):
     context_copy = copy.deepcopy(context)
-    with override_engine(engine):
-        return render_template_to_response(
-            template_name=name,
-            context=context_copy,
-            status_code=200,
-        )
+    if engine == "jinja":
+        html = jinja_env.get_template(name).render(**context_copy)
+    else:
+        html = mako_lookup.get_template(name).render(**context_copy)
+    response = HTMLResponse(html, status_code=200)
+    response.template = name
+    response.context = context_copy
+    return response
 
 
 def main() -> int:
@@ -237,10 +259,16 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    os.environ[jinja_renderer.TEMPLATES_DIR_ENV] = str(args.jinja_dir)
-
-    left_dir = _templates_dir(args.left_engine, jinja_dir=args.jinja_dir)
-    right_dir = _templates_dir(args.right_engine, jinja_dir=args.jinja_dir)
+    left_dir = _templates_dir(
+        args.left_engine,
+        jinja_dir=args.jinja_dir,
+        mako_dir=DEFAULT_MAKO_DIR,
+    )
+    right_dir = _templates_dir(
+        args.right_engine,
+        jinja_dir=args.jinja_dir,
+        mako_dir=DEFAULT_MAKO_DIR,
+    )
 
     names = [item.strip() for item in args.templates.split(",") if item.strip()]
     if names:
@@ -264,6 +292,9 @@ def main() -> int:
     results: list[ResponseParityResult] = []
     mismatches: list[ResponseParityResult] = []
 
+    jinja_env = _build_jinja_env(args.jinja_dir)
+    mako_lookup = _build_mako_lookup(DEFAULT_MAKO_DIR)
+
     for name in templates:
         context = dict(defaults)
         context.update(_decode_special(context_map.get(name, {})))
@@ -271,8 +302,20 @@ def main() -> int:
         context = _with_helpers(context)
 
         try:
-            left = _render_response(args.left_engine, name, context)
-            right = _render_response(args.right_engine, name, context)
+            left = _render_response(
+                args.left_engine,
+                name,
+                context,
+                jinja_env=jinja_env,
+                mako_lookup=mako_lookup,
+            )
+            right = _render_response(
+                args.right_engine,
+                name,
+                context,
+                jinja_env=jinja_env,
+                mako_lookup=mako_lookup,
+            )
         except Exception as exc:
             print(f"FAILED: render {name}: {exc}")
             return 2
