@@ -68,8 +68,8 @@ Runtime templating and environment
 Template rendering path (UI)
 - server/fishtest/http/views.py calls render_template_to_response
 - server/fishtest/http/template_renderer.py uses Jinja2Templates + template.render
-  - wraps HTML in HTMLResponse, adds debug attributes template/context
-  - does not use Starlette TemplateResponse at runtime
+  - returns a Starlette TemplateResponse, adds debug attributes template/context
+  - shares the real FastAPI request plus TemplateRequest shim in the context
 - build_template_context (server/fishtest/http/boundary.py) injects:
   - request (TemplateRequest shim), static_url, url_for
   - csrf_token, current_user, theme, pending_users_count, flash, urls
@@ -89,7 +89,7 @@ Summary status vs Milestone 10 target
 - Jinja2 runtime is active and Mako runtime wiring was removed.
 - Legacy Mako templates remain for parity tooling.
 - Base context is explicit and shared.
-- TemplateResponse is not used in the UI path (HTMLResponse is used instead).
+- UI rendering now uses TemplateResponse so Starlette tests and helpers see `response.template`/`response.context`.
 - Templates have been renamed to .html.j2 in templates_jinja2 (done).
 - Parity tooling is operational, but diffs remain for many templates.
 
@@ -208,5 +208,21 @@ Latest parity (2026-02-08): normalized matches only for `elo_results` and `pagin
 2) Fix remaining missing context keys reported by template_context_coverage tooling.
 3) Convert high-logic templates to helper-driven contexts (actions, tasks, machines, tests_*), preserving existing IDs and form fields.
 4) Verify parity scripts with the .html.j2 mapping layer after the rename.
+
+## Code-verified status and remaining tasks (as of 2026-02-08)
+
+Verified against current code:
+- UI rendering now uses Starlette TemplateResponse via render_template_to_response.
+- The context includes the real FastAPI request plus TemplateRequest under template_request.
+- Base context includes urls, csrf_token, current_user, theme, pending_users_count, flash, static_url, url_for.
+- Jinja2 environment autoescape covers html/xml/j2 and registers helper filters/globals.
+- UI rendering remains off the event loop via run_in_threadpool.
+
+Remaining tasks to complete Milestone 10:
+- Close template context coverage gaps (static_url and any page-specific keys/filters reported by the coverage tool).
+- Resolve remaining template parity diffs beyond elo_results and pagination (raw + normalized) by aligning context and helper outputs.
+- Re-run parity tooling (template_context_coverage, compare_template_parity, compare_template_response_parity) after each context fix.
+- Update WIP/docs/8-TEMPLATE-METRICS.md if template metrics change during parity fixes.
+- Confirm parity tooling uses the same template name mapping as runtime for .html.j2 templates.
 
 End of report.
