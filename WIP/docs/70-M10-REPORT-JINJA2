@@ -68,7 +68,7 @@ Runtime templating and environment
 Template rendering path (UI)
 - server/fishtest/http/views.py calls render_template_to_response
 - server/fishtest/http/template_renderer.py uses Jinja2Templates + template.render
-  - returns a Starlette TemplateResponse, adds debug attributes template/context
+  - calls jinja.render_template_response and returns a TemplateResponse with debug attributes
   - shares the real FastAPI request plus TemplateRequest shim in the context
 - build_template_context (server/fishtest/http/boundary.py) injects:
   - request (TemplateRequest shim), static_url, url_for
@@ -143,7 +143,7 @@ Status: done — runtime Jinja environment now only supplies Jinja-safe globals/
 
 H) Parity-friendly migration tactics
 Status: ongoing — logic already moved into helpers, IDs/fields unchanged, parity scripts now run via WIP/tools, but some diff normalization work remains (see Phase 3 tasks).
-Latest parity (2026-02-08): normalized matches only for `elo_results` and `pagination`; all other templates differ. Context coverage still missing `static_url` on several pages plus NN/upload filters and tests table sizing keys.
+Latest parity (2026-02-08): normalized matches only for `elo_results` and `pagination`; all other templates differ. Context coverage still missing `static_url` for login, signup, sprt_calc, tests, tests_live_elo, tests_run, tests_view, and user; `nn_upload` is missing `cc0_url/nn_stats_url/testing_guidelines_url/upload_url`; `nns` is missing `filters/network_name_filter/pages/user_filter`; `tests` is missing `height/max_height/min_height/nps_m`.
 
 ## Exhaustive change list needed to reach Milestone 10 goals
 
@@ -222,7 +222,7 @@ Remaining tasks to complete Milestone 10:
 - Close template context coverage gaps (static_url and any page-specific keys/filters reported by the coverage tool).
 - Resolve remaining template parity diffs beyond elo_results and pagination (raw + normalized) by aligning context and helper outputs.
 - Re-run parity tooling (template_context_coverage, compare_template_parity, compare_template_response_parity) after each context fix.
-- Update WIP/docs/8-TEMPLATE-METRICS.md if template metrics change during parity fixes.
+- Update WIP/docs/8-TEMPLATE-METRICS.md if template metrics change during parity fixes (latest snapshot is 2026-02-08).
 - Confirm parity tooling uses the same template name mapping as runtime for .html.j2 templates.
 
 End of report.

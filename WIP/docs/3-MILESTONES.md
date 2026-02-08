@@ -278,6 +278,10 @@ Definition of done:
 
 Goal: rewrite the Jinja2 template set in an idiomatic, modern style and run **only Jinja2** at runtime, while keeping legacy Mako templates for parity tooling.
 
+Status:
+
+- In progress (Jinja2-only runtime is live, templates are renamed to .html.j2, parity tooling is centralized in WIP/tools; HTML parity diffs remain for most templates).
+
 Scope and intent:
 - Legacy Mako templates in [server/fishtest/templates](server/fishtest/templates) remain untouched and used only by parity scripts.
 - Runtime rendering uses only Jinja2 templates in [server/fishtest/templates_jinja2](server/fishtest/templates_jinja2).
@@ -293,7 +297,7 @@ Definition of done:
 - Legacy Mako templates remain available for parity scripts, but are not wired into runtime rendering.
 - Dual-renderer runtime code is removed; parity tooling remains able to compare against legacy Mako.
 - Parity helper scripts run from WIP/tools and keep the legacy templates read-only while capturing parity diffs.
-- Templates in `server/fishtest/templates_jinja2` adopt idiomatic Jinja2 extensions (`.html`, `.jinja2`, etc.) once the parity coverage no longer relies on `.mak` suffixes.
+- Templates in `server/fishtest/templates_jinja2` use `.html.j2`, and parity tooling maps legacy `.mak` names to those Jinja2 files.
 
 ## Milestone N-1 — Optional: Pydantic (only when it buys real safety)
 
