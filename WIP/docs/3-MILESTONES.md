@@ -239,7 +239,7 @@ Suggested approach (incremental, parallel):
   - Keep legacy Mako templates intact for parity and rebase safety.
 3. Introduce Jinja2 alongside Mako
   - Add Jinja2 environment for `server/fishtest/templates_jinja2/`.
-  - Keep dual-renderer support and per-template selection.
+  - Keep per-template parity selection so tooling can compare the active Jinja2 set against the legacy templates.
 4. Port templates page-by-page (two tracks)
   - Convert to new Mako and Jinja2 in lockstep, starting with safer pages.
   - Keep diffs minimal and reversible.
@@ -274,23 +274,26 @@ Definition of done:
 - ASGI risks/choices for Jinja2 and Mako are documented in architecture and reference docs.
 - Parity remains green for legacy/new Mako and Jinja2.
 
-## Milestone 10 — Jinja2 idiomatic cutover (retain legacy Mako for rebase)
+## Milestone 10 — Jinja2-only runtime (legacy Mako kept for parity scripts)
 
-Goal: ship a **clean, idiomatic Jinja2** UI while keeping the legacy Mako path only for upstream rebase safety.
+Goal: rewrite the Jinja2 template set in an idiomatic, modern style and run **only Jinja2** at runtime, while keeping legacy Mako templates for parity tooling.
 
 Scope and intent:
-- The legacy Mako templates in [server/fishtest/templates](server/fishtest/templates) remain untouched and runnable for rebase parity.
-- The parity-tracking Jinja2 set is moved to a separate folder (for example `templates_jinja2_tmp`) and used only as a temporary comparison target.
-- The **new** Jinja2 set in [server/fishtest/templates_jinja2](server/fishtest/templates_jinja2) is idiomatic and **not** required to be line-for-line comparable with Mako.
-- New Mako templates and their renderer are retired (do not maintain `templates_mako` beyond Milestone 9).
-- After the idiomatic Jinja2 set is stable, retire `templates_jinja2_tmp` and all companion code/renderer branches.
+- Legacy Mako templates in [server/fishtest/templates](server/fishtest/templates) remain untouched and used only by parity scripts.
+- Runtime rendering uses only Jinja2 templates in [server/fishtest/templates_jinja2](server/fishtest/templates_jinja2).
+- Retire any dual-renderer runtime wiring and temporary parity-template paths.
+- The Jinja2 set is idiomatic and **not** required to be line-for-line comparable with Mako.
+- Keep `http/api.py` and `http/views.py` changes minimal to preserve parity metrics against legacy twins.
+- Centralize parity helper scripts in WIP/tools so the runtime HTTP layer only exposes Jinja2 helpers.
+- Once the runtime shift no longer depends on `.mak` filenames, rename the templates in `server/fishtest/templates_jinja2` to idiomatic Jinja2 extensions (`.html`, `.jinja2`, etc.) so the files do not read like Mako artifacts.
 
 Definition of done:
 - Jinja2 templates in [server/fishtest/templates_jinja2](server/fishtest/templates_jinja2) are idiomatic (macros, explicit context, minimal request coupling).
-- Legacy Mako templates remain runnable for rebase safety, but no new work lands there.
-- Parity scripts continue to track legacy Mako vs the parity Jinja2 set (temporary path) until the cutover is complete.
-- Rendering stays off the event loop; `TemplateResponse` usage remains aligned with Starlette.
-- The template renderer only supports legacy Mako and the default Jinja2 set; `templates_jinja2_tmp` and its wiring are removed.
+- Runtime uses Starlette Jinja2 best practices (`Jinja2Templates` + `TemplateResponse`) and stays off the event loop.
+- Legacy Mako templates remain available for parity scripts, but are not wired into runtime rendering.
+- Dual-renderer runtime code is removed; parity tooling remains able to compare against legacy Mako.
+- Parity helper scripts run from WIP/tools and keep the legacy templates read-only while capturing parity diffs.
+- Templates in `server/fishtest/templates_jinja2` adopt idiomatic Jinja2 extensions (`.html`, `.jinja2`, etc.) once the parity coverage no longer relies on `.mak` suffixes.
 
 ## Milestone N-1 — Optional: Pydantic (only when it buys real safety)
 
