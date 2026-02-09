@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlencode
 
 from fishtest.http import template_helpers as helpers
 
@@ -64,7 +65,12 @@ def with_helpers(context: dict[str, Any]) -> dict[str, Any]:
     context.setdefault("page_title", "")
     context.setdefault("urls", {})
     context.setdefault("static_url", lambda asset: f"/static/{asset}")
-    context.setdefault("url_for", lambda name, **params: f"/url/{name}")
+    context.setdefault(
+        "url_for",
+        lambda name, **params: (
+            f"/url/{name}" + (f"?{urlencode(params)}" if params else "")
+        ),
+    )
     context.setdefault("display_residual", helpers.display_residual)
     context.setdefault("format_bounds", helpers.format_bounds)
     context.setdefault("format_date", helpers.format_date)

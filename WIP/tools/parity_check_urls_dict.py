@@ -24,6 +24,8 @@ BOUNDARY_PATH = SERVER_ROOT / "fishtest" / "http" / "boundary.py"
 
 @dataclass(frozen=True)
 class UrlCheckResult:
+    """Result of validating one URL mapping entry."""
+
     key: str
     value: str
     ok: bool
@@ -36,8 +38,8 @@ def _literal_urls_dict(source: str) -> dict[str, str]:
         def __init__(self) -> None:
             self.urls: dict[str, str] | None = None
 
-        def visit_Dict(self, node: ast.Dict) -> None:  # noqa: N802
-            for key, value in zip(node.keys, node.values):
+        def visit_Dict(self, node: ast.Dict) -> None:
+            for key, value in zip(node.keys, node.values, strict=False):
                 if (
                     isinstance(key, ast.Constant)
                     and key.value == "urls"
@@ -45,15 +47,17 @@ def _literal_urls_dict(source: str) -> dict[str, str]:
                 ):
                     try:
                         self.urls = ast.literal_eval(value)
-                        return
                     except (ValueError, SyntaxError):
+                        return
+                    else:
                         return
             self.generic_visit(node)
 
     finder = Finder()
     finder.visit(tree)
     if finder.urls is None:
-        raise RuntimeError("Unable to locate urls dict in boundary.py")
+        message = "Unable to locate urls dict in boundary.py"
+        raise RuntimeError(message)
     return finder.urls
 
 
@@ -84,6 +88,7 @@ def _check_urls(urls: dict[str, str], route_paths: set[str]) -> list[UrlCheckRes
 
 
 def main() -> int:
+    """Report mismatches between URL mappings and registered routes."""
     source = BOUNDARY_PATH.read_text(encoding="utf-8")
     urls = _literal_urls_dict(source)
     route_paths = _route_paths()

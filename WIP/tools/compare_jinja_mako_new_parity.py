@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402
 """Run parity checks for legacy Mako vs Jinja2 templates.
 
 Goal:
@@ -7,7 +8,8 @@ Goal:
 
 Usage:
     python WIP/tools/compare_jinja_mako_new_parity.py
-    python WIP/tools/compare_jinja_mako_new_parity.py --jinja-dir server/fishtest/templates_jinja2
+    python WIP/tools/compare_jinja_mako_new_parity.py --jinja-dir \
+        server/fishtest/templates_jinja2
     python WIP/tools/compare_jinja_mako_new_parity.py --templates tests_view.html.j2
 
 Exit status:
@@ -21,6 +23,10 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from WIP.tools import compare_template_response_parity as response_parity
 
@@ -60,7 +66,12 @@ def _run_parity(args: argparse.Namespace) -> int:
         sys.argv = original_argv
 
 
+def _write_line(text: str) -> None:
+    sys.stdout.write(f"{text}\n")
+
+
 def main() -> int:
+    """Run the response parity tool with Mako vs Jinja2 defaults."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--context",
@@ -93,8 +104,8 @@ def main() -> int:
     args = parser.parse_args()
 
     banner = "=== MAKO VS JINJA2 PARITY CHECK ==="
-    print(banner)
-    print(f"Context:   {args.context}\n")
+    _write_line(banner)
+    _write_line(f"Context:   {args.context}\n")
 
     return _run_parity(args)
 

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,8 +13,6 @@ from starlette.requests import Request
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SERVER_ROOT = REPO_ROOT / "server"
-
-import sys
 
 if str(SERVER_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVER_ROOT))
@@ -26,6 +25,8 @@ TEMPLATE_NAME = "pagination.html.j2"
 
 @dataclass(frozen=True)
 class MetadataCheck:
+    """Simple metadata verification result."""
+
     template: str
     has_template: bool
     has_context: bool
@@ -54,6 +55,7 @@ def _load_pages(context_path: Path) -> list[dict[str, object]]:
 
 
 def main() -> int:
+    """Render a template and verify debug metadata fields."""
     request = _request()
     pages = _load_pages(DEFAULT_CONTEXT)
     context = {

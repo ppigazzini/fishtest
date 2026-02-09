@@ -50,12 +50,11 @@ def _static_file_token(rel_path: str) -> str | None:
     except OSError:
         return None
 
-    token = (
+    return (
         base64.urlsafe_b64encode(hashlib.sha384(content).digest())
         .decode("utf-8")
         .rstrip("=")
     )
-    return token
 
 
 @dataclass

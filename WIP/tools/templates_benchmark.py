@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SERVER_ROOT = REPO_ROOT / "server"
@@ -38,6 +38,11 @@ from fishtest.http import jinja as jinja_renderer  # noqa: E402
 from fishtest.http import template_helpers as helpers  # noqa: E402
 from mako.lookup import TemplateLookup  # noqa: E402
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from jinja2 import Environment
+
 LEGACY_MAKO_DIR = SERVER_ROOT / "fishtest" / "templates"
 
 DEFAULT_CONTEXT = REPO_ROOT / "WIP" / "tools" / "template_parity_context.json"
@@ -46,6 +51,8 @@ SKIP_TEMPLATES = {"base.mak"}
 
 @dataclass(frozen=True)
 class BenchmarkResult:
+    """Aggregated timing stats for one template and engine."""
+
     template: str
     engine: str
     median_ms: float
@@ -53,33 +60,58 @@ class BenchmarkResult:
     p99_ms: float
 
 
+@dataclass(frozen=True)
+class BenchmarkConfig:
+    """Configuration bundle for benchmark runs."""
+
+    args: argparse.Namespace
+    context_map: dict[str, dict[str, Any]]
+    defaults: dict[str, Any]
+    render_mako: Callable[[str, dict[str, Any]], None] | None
+    render_jinja: Callable[[str, dict[str, Any]], None] | None
+
+
 class SessionStub:
+    """Minimal session stub for template rendering."""
+
     def __init__(self, data: dict[str, Any] | None = None) -> None:
+        """Initialize session data payload."""
         self._data = data or {}
 
     def get_csrf_token(self) -> str:
+        """Return a fixed CSRF token for benchmark rendering."""
         return "csrf-token"
 
     def peek_flash(self, _category: str | None = None) -> bool:
+        """Return whether flash entries exist (always false)."""
         return False
 
     def pop_flash(self, _category: str | None = None) -> list[str]:
+        """Return and clear flash entries (always empty)."""
         return []
 
 
 class UserDbStub:
+    """Minimal user DB stub for template rendering."""
+
     def __init__(self, data: dict[str, Any] | None = None) -> None:
+        """Initialize user DB data payload."""
         self._data = data or {}
 
     def get_users(self) -> list[dict[str, Any]]:
+        """Return the configured user list."""
         return list(self._data.get("users", []))
 
     def get_pending(self) -> list[dict[str, Any]]:
+        """Return the configured pending user list."""
         return list(self._data.get("pending", []))
 
 
 class RequestStub:
+    """Minimal request stub for template rendering."""
+
     def __init__(self, data: dict[str, Any] | None = None) -> None:
+        """Initialize request data payload."""
         data = data or {}
         self.url = data.get("url", "/")
         self.GET = data.get("GET", {})
@@ -91,6 +123,7 @@ class RequestStub:
         self.userdb = UserDbStub(data.get("userdb"))
 
     def static_url(self, asset: str) -> str:
+        """Return a static URL for an asset."""
         return f"/static/{asset}"
 
 
@@ -118,18 +151,19 @@ def _with_helpers(context: dict[str, Any]) -> dict[str, Any]:
 def _load_context(path: Path) -> dict[str, dict[str, Any]]:
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
-        raise ValueError("Context file must contain a JSON object.")
+        message = "Context file must contain a JSON object."
+        raise TypeError(message)
     return {str(k): v for k, v in data.items() if isinstance(v, dict)}
 
 
-def _decode_special(value: Any) -> Any:
-    if isinstance(value, dict) and "__datetime__" in value:
-        raw = value["__datetime__"]
+def _decode_special(value: object) -> object:
+    if isinstance(value, dict):
+        mapping = cast("dict[str, object]", value)
+        raw = mapping.get("__datetime__")
         if isinstance(raw, str):
             normalized = raw.replace("Z", "+00:00")
             return datetime.fromisoformat(normalized)
-    if isinstance(value, dict):
-        return {k: _decode_special(v) for k, v in value.items()}
+        return {k: _decode_special(v) for k, v in mapping.items()}
     if isinstance(value, list):
         return [_decode_special(item) for item in value]
     return value
@@ -162,7 +196,7 @@ def _percentile(values: list[float], percent: float) -> float:
     if not values:
         return 0.0
     ordered = sorted(values)
-    index = max(0, min(len(ordered) - 1, int(round(percent * (len(ordered) - 1)))))
+    index = max(0, min(len(ordered) - 1, round(percent * (len(ordered) - 1))))
     return ordered[index]
 
 
@@ -176,12 +210,14 @@ def _default_mako_lookup() -> TemplateLookup:
 
 
 def _render_mako(
-    lookup: TemplateLookup, template: str, context: dict[str, Any]
+    lookup: TemplateLookup,
+    template: str,
+    context: dict[str, Any],
 ) -> None:
     lookup.get_template(template).render(**context)
 
 
-def _render_jinja(env, template: str, context: dict[str, Any]) -> None:
+def _render_jinja(env: Environment, template: str, context: dict[str, Any]) -> None:
     resolved = _resolve_name(template, "jinja")
     template_obj = env.get_template(resolved)
     template_obj.render(**context)
@@ -193,7 +229,7 @@ def _benchmark_template(
     template: str,
     context: dict[str, Any],
     iterations: int,
-    render,
+    render: Callable[[str, dict[str, Any]], None],
 ) -> BenchmarkResult:
     timings: list[float] = []
     for _ in range(iterations):
@@ -214,7 +250,7 @@ def _benchmark_template(
     )
 
 
-def main() -> int:
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--context",
@@ -247,92 +283,145 @@ def main() -> int:
         default=1.5,
         help="Flag templates when one engine is >= threshold slower.",
     )
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    if not args.context.exists():
-        print(f"Context file not found: {args.context}")
-        return 2
 
-    context_map = _load_context(args.context)
-    defaults = _decode_special(context_map.get("_defaults", {}))
-
+def _resolve_templates(args: argparse.Namespace) -> list[str]:
     templates = [
         _logical_name(item.strip())
         for item in args.templates.split(",")
         if item.strip()
     ]
-    if not templates:
-        templates = _template_names()
+    if templates:
+        return templates
+    return _template_names()
 
-    if not templates:
-        print("No templates to benchmark.")
-        return 0
 
-    results: list[BenchmarkResult] = []
+def _build_context(
+    defaults: dict[str, Any],
+    context_map: dict[str, dict[str, Any]],
+    template: str,
+) -> dict[str, Any]:
+    context = dict(defaults)
+    decoded = _decode_special(context_map.get(template, {}))
+    if isinstance(decoded, dict):
+        context.update(decoded)
+    context = _with_request_stub(context)
+    return _with_helpers(context)
 
-    render_mako = None
-    render_jinja = None
+
+def _normalize_defaults(defaults: object) -> dict[str, Any]:
+    if isinstance(defaults, dict):
+        return cast("dict[str, Any]", defaults).copy()
+    return {}
+
+
+def _build_renderers(
+    args: argparse.Namespace,
+) -> tuple[
+    Callable[[str, dict[str, Any]], None] | None,
+    Callable[[str, dict[str, Any]], None] | None,
+]:
+    render_mako: Callable[[str, dict[str, Any]], None] | None = None
+    render_jinja: Callable[[str, dict[str, Any]], None] | None = None
     if args.engine in {"mako", "all"}:
         mako_lookup = _default_mako_lookup()
         render_mako = partial(_render_mako, mako_lookup)
     if args.engine in {"jinja", "all"}:
         jinja_env = jinja_renderer.default_environment()
         render_jinja = partial(_render_jinja, jinja_env)
+    return render_mako, render_jinja
 
+
+def _collect_results(
+    templates: list[str],
+    *,
+    config: BenchmarkConfig,
+) -> list[BenchmarkResult]:
+    results: list[BenchmarkResult] = []
     for template in templates:
-        context = dict(defaults)
-        context.update(_decode_special(context_map.get(template, {})))
-        context = _with_request_stub(context)
-        context = _with_helpers(context)
-
-        if args.engine in {"mako", "all"}:
+        context = _build_context(config.defaults, config.context_map, template)
+        if config.args.engine in {"mako", "all"} and config.render_mako:
             results.append(
                 _benchmark_template(
                     engine="mako",
                     template=template,
                     context=context,
-                    iterations=args.iterations,
-                    render=render_mako,
-                )
+                    iterations=config.args.iterations,
+                    render=config.render_mako,
+                ),
             )
-        if args.engine in {"jinja", "all"}:
+        if config.args.engine in {"jinja", "all"} and config.render_jinja:
             results.append(
                 _benchmark_template(
                     engine="jinja",
                     template=template,
                     context=context,
-                    iterations=args.iterations,
-                    render=render_jinja,
-                )
+                    iterations=config.args.iterations,
+                    render=config.render_jinja,
+                ),
             )
+    return results
 
-    grouped: dict[str, dict[str, BenchmarkResult]] = {}
-    for result in results:
-        grouped.setdefault(result.template, {})[result.engine] = result
 
+def _emit_results(
+    grouped: dict[str, dict[str, BenchmarkResult]],
+    *,
+    ratio_threshold: float,
+) -> None:
     for template, engines in grouped.items():
         if "mako" in engines and "jinja" in engines:
             mako_median = engines["mako"].median_ms
             jinja_median = engines["jinja"].median_ms
-            if mako_median:
-                ratio = jinja_median / mako_median
-            else:
-                ratio = 0.0
+            ratio = jinja_median / mako_median if mako_median else 0.0
             flag = ""
-            if ratio >= args.ratio_threshold:
+            if ratio >= ratio_threshold:
                 flag = "JINJA_SLOW"
-            elif ratio > 0 and ratio <= 1 / args.ratio_threshold:
+            elif ratio > 0 and ratio <= 1 / ratio_threshold:
                 flag = "MAKO_SLOW"
             print(
                 f"{template}: mako {mako_median:.2f}ms, "
-                f"jinja {jinja_median:.2f}ms, ratio {ratio:.2f} {flag}".rstrip()
+                f"jinja {jinja_median:.2f}ms, ratio {ratio:.2f} {flag}".rstrip(),
             )
         else:
             for result in engines.values():
                 print(
                     f"{template}: {result.engine} {result.median_ms:.2f}ms "
-                    f"(p95 {result.p95_ms:.2f}ms, p99 {result.p99_ms:.2f}ms)"
+                    f"(p95 {result.p95_ms:.2f}ms, p99 {result.p99_ms:.2f}ms)",
                 )
+
+
+def main() -> int:
+    """Run render-time benchmarks for Mako and Jinja templates."""
+    args = _parse_args()
+    if not args.context.exists():
+        print(f"Context file not found: {args.context}")
+        return 2
+
+    context_map = _load_context(args.context)
+    defaults = _normalize_defaults(_decode_special(context_map.get("_defaults", {})))
+
+    templates = _resolve_templates(args)
+
+    if not templates:
+        print("No templates to benchmark.")
+        return 0
+
+    render_mako, render_jinja = _build_renderers(args)
+    config = BenchmarkConfig(
+        args=args,
+        context_map=context_map,
+        defaults=defaults,
+        render_mako=render_mako,
+        render_jinja=render_jinja,
+    )
+    results = _collect_results(templates, config=config)
+
+    grouped: dict[str, dict[str, BenchmarkResult]] = {}
+    for result in results:
+        grouped.setdefault(result.template, {})[result.engine] = result
+
+    _emit_results(grouped, ratio_threshold=args.ratio_threshold)
 
     return 0
 
