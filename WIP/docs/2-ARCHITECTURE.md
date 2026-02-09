@@ -4,9 +4,9 @@
 
 # Fishtest architecture (repo snapshot)
 
-Date: **2026-02-08**
+Date: **2026-02-09**
 
-(Last updated: **2026-02-08** — Jinja2-only runtime; templates renamed to `.html.j2`)
+(Last updated: **2026-02-09** — Jinja2-only runtime; templates use `.html.j2`)
 
 This document describes the **current architecture of this repository**: what the major components are, how the server and worker interact, where the data lives, and what has changed (and *has not changed*) after the Pyramid → FastAPI replacement.
 
@@ -82,8 +82,7 @@ server/fishtest/
 │  ├─ ui_pipeline.py      # UI dispatcher/response pipeline helpers
 │  ├─ template_request.py # UI request shim passed to templates
 │  ├─ template_renderer.py# TemplateResponse adapter (template/context debug)
-│  ├─ jinja.py            # Jinja2 environment + render helpers
-│  └─ mako.py             # Legacy Mako render helpers (parity tooling only)
+│  └─ jinja.py            # Jinja2 environment + render helpers
 ├─ api.py                 # Pyramid-era API module kept as a behavioral spec (tests import it)
 ├─ views.py               # Pyramid-era views module kept as a behavioral spec (tests import it)
 ├─ templates_jinja2/      # Jinja2 templates (*.html.j2) used at runtime
@@ -201,6 +200,28 @@ Error handling:
 - `/api/...` returns JSON errors (404 as JSON).
 - UI 404/403 rendering is implemented in `server/fishtest/http/ui_errors.py` (called by `errors.py`).
 - UI routes return an HTML 404 page rendered from `notfound.html.j2` (and commit the cookie session).
+
+### Request flows (clean path)
+
+UI HTML render flow:
+
+1. FastAPI UI route enters `http/views.py` and calls `_dispatch_view()`.
+2. View logic runs in a threadpool (sync upstream logic preserved).
+3. `build_template_context()` assembles the shared base context.
+4. `render_template_to_response()` returns a Starlette `TemplateResponse`.
+5. Session cookies, cache headers, and response headers are applied.
+
+Worker API JSON flow:
+
+1. FastAPI API route parses JSON and builds the request shim.
+2. `WorkerApi`/`UserApi` handler runs in a threadpool.
+3. Responses are returned as JSON or streaming responses; error shaping stays in `http/errors.py`.
+
+UI error flow:
+
+1. Exception handler in `http/errors.py` chooses UI rendering for non-API paths.
+2. `http/ui_errors.py` renders `notfound.html.j2` or `login.html.j2` via the same threadpool path.
+3. Session cookies are committed before the response returns.
 
 Signals and shutdown:
 
@@ -377,7 +398,7 @@ The UI has two layers:
    - render a Jinja2 template
    - commit the session cookie
 
-2. **Templates** (Jinja2) that expect a request-like object offering:
+2. **Templates** (Jinja2) that expect a `template_request` shim offering:
    - `request.session.get_csrf_token()`
    - `request.session.flash()` / `pop_flash()`
    - `request.authenticated_userid`
@@ -441,15 +462,8 @@ Notes:
 - `FISHTEST_AUTHENTICATION_SECRET` must be set in production; an insecure dev fallback is only enabled via explicit opt-in (e.g. `FISHTEST_INSECURE_DEV=1`).
 - Session cookie growth is capped; flash queues are trimmed deterministically to stay within cookie limits.
 
-#### `server/fishtest/http/mako.py`
-
-Purpose: render the legacy `server/fishtest/templates/*.mak` templates for parity tooling.
-
-What it does:
-
-- Builds a `TemplateLookup` rooted at the repository’s `server/fishtest/templates` directory.
-- Uses `strict_undefined=False` to match Pyramid’s historical template behavior.
-- Provides `render_template(lookup=..., template_name=..., context=...) -> RenderedTemplate`.
+Legacy Mako templates are rendered only by parity tools under WIP/tools. There is
+no runtime Mako renderer in the server package.
 
 #### `server/fishtest/http/jinja.py`
 
@@ -462,7 +476,7 @@ Notes:
 
 #### `server/fishtest/http/template_request.py:TemplateRequest`
 
-Purpose: provide a small “request-like” object passed to templates as `request`.
+Purpose: provide a small “request-like” object passed to templates as `template_request`.
 
 This object deliberately implements only the minimal surface area that templates currently rely on:
 
@@ -476,9 +490,9 @@ The key idea: UI route handlers can stay small and predictable, while the templa
 
 Note on `url_for` in templates:
 
-- Jinja2 templates can call `url_for(...)` via Starlette's injected global (added by `Jinja2Templates`).
-- Mako templates and legacy call sites use `request.url_for(...)` on `TemplateRequest`.
-- Both paths ultimately delegate to the raw FastAPI `Request.url_for(...)`, so routes resolve consistently.
+- Jinja2 templates call `url_for(...)` via Starlette's injected global (added by `Jinja2Templates`).
+- Legacy call sites use `template_request.url_for(...)` when needed.
+- Both paths delegate to the raw FastAPI `Request.url_for(...)`, so routes resolve consistently.
 
 #### `server/fishtest/http/csrf.py`
 

@@ -8,11 +8,11 @@ Scope: analyze WIP/docs, ___starlette repo templates docs/tests, ___jinja repo d
 WIP/docs (authoritative project context):
 - 3.10-ITERATION.md (Milestone 10 plan and progress)
 - 3-MILESTONES.md (roadmap and constraints)
-- 10.0-JINJA2-CONTEXT-CONTRACTS.md (explicit template context contract)
+- 11.1-JINJA2-CONTEXT-CONTRACTS.md (explicit template context contract)
 - 2.3-JINJA2.md (migration plan and best practices)
 - 7-STARLETTE-REFERENCES.md (Starlette guidance)
 - 9-JINJA2-REFERENCES.md (Jinja2 guidance)
-- 8-TEMPLATE-METRICS.md (template metrics and parity tools)
+- 11.3-TEMPLATES-METRICS.md (template metrics and parity tools)
 
 ___starlette repo:
 - docs/templates.md (templating API and guidance)
@@ -82,7 +82,7 @@ Parity tooling and constraints
   - minimal changes in http/api.py and http/views.py
   - parity tools in WIP/tools
   - explicit base context and per-template context contracts
-- WIP/docs/8-TEMPLATE-METRICS.md shows Jinja2 has higher statement/nesting metrics
+- WIP/docs/11.3-TEMPLATES-METRICS.md shows Jinja2 has higher statement/nesting metrics
 - WIP/docs/3.10-ITERATION.md notes remaining missing keys in coverage and parity diffs
 
 Summary status vs Milestone 10 target
@@ -119,7 +119,7 @@ C) Adopt Starlette-first rendering patterns
 Status: done – UI rendering now uses TemplateResponse via the shared Jinja2Templates environment; request shims remain in the context and rendering stays sync off the event loop.
 
 D) Explicit context and safety
-- Build explicit per-template context (see 10.0-JINJA2-CONTEXT-CONTRACTS.md).
+- Build explicit per-template context (see 11.1-JINJA2-CONTEXT-CONTRACTS.md).
 - Preformat strings (labels, times, URLs) in views/helpers.
 - Use |tojson for JS payloads and avoid string interpolation in scripts.
 - Use autoescape; use |safe only for audited HTML.
@@ -157,7 +157,7 @@ Latest parity (2026-02-08): normalized matches only for `elo_results` and `pagin
 - Update template name references in views and parity tooling (mapping layer in tools). (done)
 
 3) Explicit context contract enforcement
-- For every template, align view contexts to 10.0-JINJA2-CONTEXT-CONTRACTS.md.
+- For every template, align view contexts to 11.1-JINJA2-CONTEXT-CONTRACTS.md.
 - Fix remaining missing keys flagged by template context coverage tools (noted in 3.10-ITERATION.md).
 - Ensure shared base context always includes: urls, csrf_token, current_user, theme, pending_users_count, flash, static_url, url_for.
 
@@ -178,7 +178,7 @@ Latest parity (2026-02-08): normalized matches only for `elo_results` and `pagin
 7) Parity tooling and metrics
 - Run WIP/tools/template_context_coverage.py --engine jinja for each template touched.
 - Run WIP/tools/compare_template_parity.py and compare_template_response_parity.py for all touched endpoints.
-- Update WIP/docs/8-TEMPLATE-METRICS.md if metrics materially change.
+- Update WIP/docs/11.3-TEMPLATES-METRICS.md if metrics materially change.
 
 8) Views and API stability constraints (must remain minimal)
 - Keep changes in server/fishtest/http/views.py and server/fishtest/http/api.py small and localized.
@@ -222,7 +222,7 @@ Remaining tasks to complete Milestone 10:
 - Close template context coverage gaps (static_url and any page-specific keys/filters reported by the coverage tool).
 - Resolve remaining template parity diffs beyond elo_results and pagination (raw + normalized) by aligning context and helper outputs.
 - Re-run parity tooling (template_context_coverage, compare_template_parity, compare_template_response_parity) after each context fix.
-- Update WIP/docs/8-TEMPLATE-METRICS.md if template metrics change during parity fixes (latest snapshot is 2026-02-08).
+- Update WIP/docs/11.3-TEMPLATES-METRICS.md if template metrics change during parity fixes (latest snapshot is 2026-02-08).
 - Confirm parity tooling uses the same template name mapping as runtime for .html.j2 templates.
 
 End of report.

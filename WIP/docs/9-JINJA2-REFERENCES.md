@@ -1,80 +1,47 @@
-# Jinja2 references (for this project)
+# Jinja2 references (project usage)
 
-Date: 2026-02-03
+Date: 2026-02-09
 
-Curated web references and a short project-focused synthesis for the Mako -> Jinja2 migration.
+Curated references and a short project-focused summary for the Jinja2 runtime
+used in this repo.
 
 ## Canonical web references
 
 - Jinja2 template designer documentation: https://jinja.palletsprojects.com/en/latest/templates/
 - Jinja2 API (Environment, autoescape, undefined): https://jinja.palletsprojects.com/en/latest/api/
 - Starlette templates: https://www.starlette.dev/templates/
-- Starlette dependencies list (Jinja2 required for templates): https://www.starlette.dev/
 - FastAPI templates: https://fastapi.tiangolo.com/advanced/templates/
 
-## Synthetic report — what matters for this project
+## What matters for this repo
 
-### 1) Starlette and FastAPI templating glue
+### Starlette templating behavior
 
-- Use `Jinja2Templates` from `starlette.templating` or `fastapi.templating`.
-- `TemplateResponse` must include `request` in the context.
-- `url_for` is automatically available in template context when using `Jinja2Templates`.
-- Context processors are supported but must be sync functions.
+- Use `Jinja2Templates(env=...)` or `Jinja2Templates(directory=...)`, not both.
+- `TemplateResponse` requires `request` in the context.
+- `url_for` is injected by Starlette when `Jinja2Templates` is used.
+- `TemplateResponse` exposes `response.template` and `response.context` for tests.
 
-### 2) Dependency requirements
+### Environment configuration
 
-- `jinja2` must be installed (Starlette treats it as an optional dependency).
-- No additional Starlette module is required; `jinja2` is enough.
+- Use `select_autoescape(["html", "xml", "j2"])`.
+- Keep a single `Environment` instance; set globals/filters before templates load.
+- Use a lenient `Undefined` in runtime if parity requires it; enforce strict undefined in tests.
 
-### 3) TemplateResponse signature (FastAPI/Starlette)
+### Project-specific runtime rules
 
-- In newer versions, use the keyword form:
-  - `TemplateResponse(request=request, name="template.html", context={...})`
-- Older versions used positional arguments; avoid positional calls for compatibility.
+- Rendering is synchronous and stays off the event loop.
+- The shared helper base is registered as filters/globals.
+- Templates are declarative; data shaping stays in view builders and helpers.
+- JS payloads are passed via `|tojson`.
 
-### 4) Environment configuration
+## Recommended usage pattern (status quo)
 
-- Prefer `select_autoescape(["html", "xml"])`.
-- Keep `autoescape=True` for HTML and use `|safe` sparingly.
-- Use `StrictUndefined` in tests to catch missing keys early, while keeping production lenient if needed.
-- Add filters via `templates.env.filters[...]` or provide a custom `jinja2.Environment`.
+- Build a per-request context in the view layer.
+- Use `TemplateResponse(request=..., name=..., context=...)` for UI responses.
+- Keep legacy Mako templates read-only for parity tooling.
 
-### 4.1) Environment lifecycle and globals
+## Tooling
 
-- Create one `Environment` per app; avoid changing globals after templates load.
-- Keep globals minimal and audited; prefer explicit context for render-specific values.
-- Use `pass_context` or `pass_eval_context` for filters that need escaping semantics.
-
-### 5) Context processors vs explicit context
-
-- Context processors are useful for shared globals but make migration harder to audit.
-- Prefer explicit context passed by the view for migration safety.
-- Keep a minimal, audited set of globals (e.g., `static_url`, formatting helpers).
-
-### 6) Jinja2 syntax points relevant to migration
-
-- Blocks and inheritance: `{% extends %}`, `{% block %}`, `{{ super() }}`.
-- Macros: `{% macro %}` and `{% import %}` for shared UI components.
-- Includes: `{% include %}` with optional `with context`.
-- Escaping: `|e` for escaped output, `|safe` for trusted HTML.
-- Whitespace control: `trim_blocks`, `lstrip_blocks`, and `-%}` when required.
-
-### 7) Testing templates (Starlette)
-
-- `TemplateResponse` exposes `.template` and `.context` in tests.
-- Use snapshot tests or DOM diffs to compare Mako vs Jinja2 outputs.
-
-## Recommended usage pattern (project-specific)
-
-- Keep Mako templates and Mako rendering available during migration for rebase safety.
-- Introduce Jinja2 rendering behind a per-template feature map.
-- Convert hardest templates first and validate with DOM diff checks.
-- Remove Mako runtime dependencies only after full parity is proven.
-
-## Project-specific notes (current)
-
-- The Jinja2 environment uses `select_autoescape(["html", "xml", "mak"])` to align `.mak` template names with autoescape defaults.
-- `MakoUndefined` is used to render missing values as `UNDEFINED` for parity with legacy Mako.
-- Rendering is synchronous and must run off the event loop (threadpool).
-- Response parity checks compare status, content type, cache-control, set-cookie, and debug metadata (`template`, `context`).
-- Context coverage is tracked via [WIP/tools/template_context_coverage.py](WIP/tools/template_context_coverage.py) to surface missing keys in parity contexts.
+- Context coverage: [WIP/tools/template_context_coverage.py](WIP/tools/template_context_coverage.py)
+- HTML parity: [WIP/tools/compare_template_parity.py](WIP/tools/compare_template_parity.py)
+- Response parity: [WIP/tools/compare_template_response_parity.py](WIP/tools/compare_template_response_parity.py)

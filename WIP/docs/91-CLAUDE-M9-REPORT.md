@@ -3,6 +3,9 @@
 **Date:** 2026-02-06
 **Target output file:** `WIP/docs/91-CLAUDE-M9.md`
 
+Note: The new Mako plan doc (2.4-MAKO-NEW) was retired in Milestone 10; any
+references in this closed report are historical.
+
 ---
 
 ## Role & Perspective
@@ -37,14 +40,14 @@ Read in this order:
 | `2.1-ASYNC-INVENTORY.md` | Async/blocking boundaries |
 | `2.2-MAKO.md` | Legacy Mako template catalog |
 | `2.3-JINJA2.md` | Jinja2 migration plan (environment, filters/globals, rendering flow, DOM diff strategy) |
-| `2.4-MAKO-NEW.md` | New Mako plan (best practices, helper base, rendering setup) |
+| new Mako plan (retired in M10) | Best practices, helper base, rendering setup |
 | `3-MILESTONES.md` | Roadmap — pay special attention to Milestone 8 (complete) and Milestone 9 (in progress) |
 | `3.0-ITERATION-RULES.md` | Rules of engagement, two-step landing, verification gates |
 | `3.8-ITERATION.md` | Milestone 8 completion record (parity, metrics, helper assessment) |
 | `3.9-ITERATION.md` | **Milestone 9 iteration plan** — the primary subject of this report (phases 0-4, ASGI risks, decision log) |
 | `5-REBASE.md` | Rebase process and parity tooling |
 | `7-STARLETTE-REFERENCES.md` | Starlette reference synthesis (templates section is key) |
-| `8-TEMPLATE-METRICS.md` | Metrics snapshot (legacy Mako vs new Mako vs Jinja2) |
+| `11.3-TEMPLATES-METRICS.md` | Metrics snapshot (legacy Mako vs new Mako vs Jinja2) |
 | `9-JINJA2-REFERENCES.md` | Jinja2 reference synthesis |
 | `10-MAKO-REFERENCES.md` | Mako reference synthesis |
 | `90-CLAUDE-REPORT.md` | Previous analysis report (Milestone 6 era — compare progress) |
@@ -248,14 +251,14 @@ WIP/docs/2-ARCHITECTURE.md
 WIP/docs/2.1-ASYNC-INVENTORY.md
 WIP/docs/2.2-MAKO.md
 WIP/docs/2.3-JINJA2.md
-WIP/docs/2.4-MAKO-NEW.md
+Retired new Mako plan (Milestone 10)
 WIP/docs/3-MILESTONES.md
 WIP/docs/3.0-ITERATION-RULES.md
 WIP/docs/3.8-ITERATION.md
 WIP/docs/3.9-ITERATION.md
 WIP/docs/5-REBASE.md
 WIP/docs/7-STARLETTE-REFERENCES.md
-WIP/docs/8-TEMPLATE-METRICS.md
+WIP/docs/11.3-TEMPLATES-METRICS.md
 WIP/docs/9-JINJA2-REFERENCES.md
 WIP/docs/10-MAKO-REFERENCES.md
 WIP/docs/90-CLAUDE-REPORT.md
@@ -1040,7 +1043,7 @@ Refactor to import and call `compare_template_parity.main()` directly or extract
 | 10 | Enrich parity script with DOM-level normalization | `compare_template_parity.py` | 6h | A |
 | 11 | Lint-check parity tools with `ruff --select ALL` | CI / Makefile | 30min | B |
 | 12 | Refactor `compare_jinja_mako_new_parity.py` to avoid subprocess | `WIP/tools/` | 1h | Either |
-| 13 | Document `default_filters` difference (legacy vs new Mako) | `3.9-ITERATION.md` or `2.4-MAKO-NEW.md` | 30min | A |
+| 13 | Document `default_filters` difference (legacy vs new Mako) | `3.9-ITERATION.md` or retired new Mako plan | 30min | A |
 
 ### Low Priority (future milestones)
 

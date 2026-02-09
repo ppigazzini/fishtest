@@ -149,6 +149,7 @@ Completed:
 - Central error handler delegates UI 404/401/403 rendering via [server/fishtest/http/errors.py](../../server/fishtest/http/errors.py), which now calls into [server/fishtest/http/ui_errors.py](../../server/fishtest/http/ui_errors.py) instead of UI views.
 - UI rendering attaches response metadata (`template`, `context`) for debug/test parity via the unified response adapter.
 - UI rendering now runs Jinja2-only at runtime (TemplateResponse path); legacy Mako templates remain read-only for parity tooling under WIP/tools.
+- No new Mako track exists in the runtime; legacy Mako is parity-only.
 - Production deployment scaffolding exists (systemd + nginx), see [4-VPS.md](4-VPS.md).
 - Parity tools live under [../tools/](../tools/): route coverage, AST parity, HTML parity, response parity, and context coverage.
 - Milestone 3 async/blocking boundaries are complete; see 2.1-ASYNC-INVENTORY.md for the inventory and invariants.
