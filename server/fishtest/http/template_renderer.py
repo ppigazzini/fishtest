@@ -38,7 +38,11 @@ def render_template(
     template_name: str,
     context: Mapping[str, object],
 ) -> RenderedTemplate:
-    """Render a template using the Jinja2 renderer."""
+    """Render a template using the Jinja2 renderer.
+
+    Note: the live UI pipeline uses `render_template_to_response()` instead.
+    This helper is intended for tests or tools that only need HTML output.
+    """
     rendered = jinja_renderer.render_template(
         templates=_jinja_templates(),
         template_name=template_name,

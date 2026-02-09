@@ -448,6 +448,14 @@
   },
   "nns.mak": {
     "master_only": false,
+    "filters": {
+      "network_name": "",
+      "user": "",
+      "master_only": false
+    },
+    "network_name_filter": "",
+    "user_filter": "",
+    "pages": [],
     "nns": [
       {
         "time": {
@@ -458,6 +466,12 @@
         "downloads": 0
       }
     ]
+  },
+  "nn_upload.mak": {
+    "upload_url": "/upload",
+    "testing_guidelines_url": "https://github.com/official-stockfish/fishtest/wiki/Creating-my-first-test",
+    "cc0_url": "https://creativecommons.org/share-your-work/public-domain/cc0/",
+    "nn_stats_url": "/nns"
   },
   "run_table.mak": {
     "runs": [
@@ -550,10 +564,14 @@
     "page_idx": 0,
     "cores": 0,
     "nps": 0,
+    "nps_m": "0M",
     "games_per_minute": 0,
     "pending_hours": 0,
     "machines_shown": false,
     "machines_count": 0,
+    "height": "0px",
+    "min_height": "37px",
+    "max_height": "34.7vh",
     "runs": {
       "pending": [],
       "active": []

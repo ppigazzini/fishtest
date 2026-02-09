@@ -674,9 +674,15 @@ def workers(request):
 )
 def upload(request):
     ensure_logged_in(request)
+    base_context = {
+        "upload_url": str(request.url),
+        "testing_guidelines_url": "https://github.com/official-stockfish/fishtest/wiki/Creating-my-first-test",
+        "cc0_url": "https://creativecommons.org/share-your-work/public-domain/cc0/",
+        "nn_stats_url": "/nns",
+    }
 
     if request.method != "POST":
-        return {}
+        return base_context
     try:
         filename = request.POST["network"].filename
         input_file = request.POST["network"].file
@@ -685,14 +691,14 @@ def upload(request):
         request.session.flash(
             "Specify a network file with the 'Choose File' button", "error"
         )
-        return {}
+        return base_context
     except Exception as e:
         print("Error reading the network file:", e)
         request.session.flash("Error reading the network file", "error")
-        return {}
+        return base_context
     if request.rundb.get_nn(filename):
         request.session.flash(f"Network {filename} already exists", "error")
-        return {}
+        return base_context
     errors = []
     if len(network) >= 200000000:
         errors.append("Network must be < 200MB")
@@ -704,7 +710,7 @@ def upload(request):
     if errors:
         for error in errors:
             request.session.flash(error, "error")
-        return {}
+        return base_context
     net_file_gz = Path("/var/www/fishtest/nn") / f"{filename}.gz"
     try:
         with gzip.open(net_file_gz, "xb") as f:
@@ -712,29 +718,29 @@ def upload(request):
     except FileExistsError as e:
         print(f"Network {filename} already uploaded:", e)
         request.session.flash(f"Network {filename} already uploaded", "error")
-        return {}
+        return base_context
     except Exception as e:
         net_file_gz.unlink(missing_ok=True)
         print(f"Failed to write network {filename}:", e)
         request.session.flash(f"Failed to write network {filename}", "error")
-        return {}
+        return base_context
     try:
         net_data = gzip.decompress(net_file_gz.read_bytes())
     except Exception as e:
         net_file_gz.unlink()
         print(f"Failed to read uploaded network {filename}:", e)
         request.session.flash(f"Failed to read uploaded network {filename}", "error")
-        return {}
+        return base_context
 
     hash = hashlib.sha256(net_data).hexdigest()
     if hash[:12] != filename[3:15]:
         net_file_gz.unlink()
         request.session.flash(f"Invalid hash for uploaded network {filename}", "error")
-        return {}
+        return base_context
 
     if request.rundb.get_nn(filename):
         request.session.flash(f"Network {filename} already exists", "error")
-        return {}
+        return base_context
 
     request.rundb.upload_nn(request.authenticated_userid, filename)
 
@@ -872,6 +878,13 @@ def nns(request):
         "nns": nns,
         "pages": pages,
         "master_only": request.cookies.get("master_only") == "true",
+        "filters": {
+            "network_name": network_name,
+            "user": user,
+            "master_only": master_only,
+        },
+        "network_name_filter": network_name,
+        "user_filter": user,
     }
 
 
@@ -2735,6 +2748,9 @@ def homepage_results(request):
         "nps": nps,
         "nps_m": f"{nps / 1000000:.0f}M",
         "games_per_minute": int(games_per_minute),
+        "height": f"{machines_count * 37}px",
+        "min_height": "37px",
+        "max_height": "34.7vh",
     }
 
 

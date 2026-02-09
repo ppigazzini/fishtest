@@ -247,7 +247,6 @@ def build_template_context(
         "pending_users_count": pending_users_count,
         "static_url": template_request.static_url,
         "theme": request.cookies.get("theme", ""),
-        "url_for": template_request.url_for,
         "urls": {
             "home": "/",
             "login": "/login",

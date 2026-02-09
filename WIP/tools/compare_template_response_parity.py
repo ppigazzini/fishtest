@@ -21,12 +21,14 @@ from __future__ import annotations
 
 import argparse
 import copy
+import html
 import json
 import re
 import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from difflib import unified_diff
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
@@ -35,7 +37,10 @@ from mako.lookup import TemplateLookup
 from starlette.responses import HTMLResponse
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+TOOLS_ROOT = Path(__file__).resolve().parent
 SERVER_ROOT = REPO_ROOT / "server"
+if str(TOOLS_ROOT) not in sys.path:
+    sys.path.insert(0, str(TOOLS_ROOT))
 if str(SERVER_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVER_ROOT))
 
@@ -73,8 +78,57 @@ class ResponseParityResult:
     right_len: int
 
 
-def normalize_html(html: str) -> str:
-    value = _TAG_GAP_RE.sub("><", html)
+class _DomNormalizer(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        ordered = sorted(attrs, key=lambda item: item[0])
+        rendered = " ".join(
+            f'{name}="{html.escape(value or "", quote=True)}"'
+            for name, value in ordered
+        )
+        suffix = f" {rendered}" if rendered else ""
+        self._parts.append(f"<{tag}{suffix}>")
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        ordered = sorted(attrs, key=lambda item: item[0])
+        rendered = " ".join(
+            f'{name}="{html.escape(value or "", quote=True)}"'
+            for name, value in ordered
+        )
+        suffix = f" {rendered}" if rendered else ""
+        self._parts.append(f"<{tag}{suffix} />")
+
+    def handle_endtag(self, tag: str) -> None:
+        self._parts.append(f"</{tag}>")
+
+    def handle_data(self, data: str) -> None:
+        self._parts.append(data)
+
+    def handle_comment(self, data: str) -> None:
+        self._parts.append(f"<!--{data}-->")
+
+    def handle_entityref(self, name: str) -> None:
+        self._parts.append(f"&{name};")
+
+    def handle_charref(self, name: str) -> None:
+        self._parts.append(f"&#{name};")
+
+    def normalized(self) -> str:
+        return "".join(self._parts)
+
+
+def _normalize_dom(html_text: str) -> str:
+    parser = _DomNormalizer()
+    parser.feed(html_text)
+    return parser.normalized()
+
+
+def normalize_html(html_text: str) -> str:
+    value = _normalize_dom(html_text)
+    value = _TAG_GAP_RE.sub("><", value)
     value = _WHITESPACE_RE.sub(" ", value)
     return value.strip()
 

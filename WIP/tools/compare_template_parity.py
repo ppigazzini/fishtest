@@ -37,7 +37,10 @@ from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 from mako.lookup import TemplateLookup
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+TOOLS_ROOT = Path(__file__).resolve().parent
 SERVER_ROOT = REPO_ROOT / "server"
+if str(TOOLS_ROOT) not in sys.path:
+    sys.path.insert(0, str(TOOLS_ROOT))
 if str(SERVER_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVER_ROOT))
 

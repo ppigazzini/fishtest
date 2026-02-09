@@ -54,21 +54,7 @@ Starlette's `_setup_env_defaults()` injects a `@pass_context` `url_for` global v
 
 `url_for` is NOT in the project's `env.globals.update(...)` dict — this is correct. Starlette's `setdefault` injects it.
 
-However, templates also access `url_for` via the context:
-- `build_template_context()` in `boundary.py` (line 233) passes `"url_for": template_request.url_for` in the base context.
-- `template_request.url_for()` (line 108 in `template_request.py`) delegates to `raw_request.url_for()`.
-- Starlette's injected `url_for` in `env.globals` reads `context["request"]`, which is the FastAPI `Request` (NOT the `TemplateRequest`), and calls `request.url_for()` directly.
-
-The two `url_for` paths:
-| Path | Template syntax | Resolution |
-|------|----------------|------------|
-| Starlette environment global | `{{ url_for("route_name") }}` | Starlette `@pass_context` → `context["request"].url_for()` |
-| Context-injected function | `{{ url_for("route_name") }}` (ALSO) | `template_request.url_for()` → `raw_request.url_for()` |
-
-> [!WARNING]
-> With the current code, both paths produce `url_for` in the template namespace. The context-injected `url_for` (from `build_template_context`) **shadows** Starlette's environment global, since Jinja2 resolves context keys before environment globals. Both delegate to the same FastAPI `Request.url_for()`, so the result is identical. But the shadowing is implicit and could cause confusion if either path changes.
-
-**Recommendation:** Remove `"url_for": template_request.url_for` from `build_template_context()` and let Starlette's injected global handle it. Or, if templates must call `url_for` with non-standard arguments, document the shadowing explicitly.
+Templates now rely exclusively on Starlette's injected `url_for` global. The shared base context no longer overrides `url_for`, avoiding shadowing and keeping URL generation aligned with Starlette's `@pass_context` helper.
 
 ### 2.3 Context Processors — Not wired (deliberate)
 
@@ -433,25 +419,12 @@ Both `ruff check --select ALL` and `ty check` pass cleanly on the 69-line module
 
 #### 6.2.1 Context Coverage Gaps
 
-Per the latest parity run (2026-02-08), `template_context_coverage.py` reports missing keys:
-
-| Template | Missing Keys |
-|----------|-------------|
-| `login.html.j2` | `static_url` |
-| `signup.html.j2` | `static_url` |
-| `sprt_calc.html.j2` | `static_url` |
-| `tests_live_elo.html.j2` | `static_url` |
-| `tests_run.html.j2` | `static_url` |
-| `tests_view.html.j2` | `static_url` |
-| `user.html.j2` | `static_url` |
-| `nns.html.j2` | `filters`, `network_name_filter`, `user_filter`, `pages` |
-| `nn_upload.html.j2` | `cc0_url`, `nn_stats_url`, `testing_guidelines_url`, `upload_url` |
-| `tests.html.j2` | `height`, `max_height`, `min_height`, `nps_m` |
+After the latest run (2026-02-09), Jinja2 context coverage is clean. The remaining missing-key reports come from legacy Mako parsing, which still flags template-local variables and macro locals as missing in a few templates.
 
 > [!IMPORTANT]
-> `static_url` IS present in `build_template_context()` (line 228 of `boundary.py`). The coverage tool may be reporting false positives if its test context fixture does not exercise the full `build_template_context()` pipeline. The page-specific keys (`filters`, `pages`, `height`, `nps_m`, etc.) are genuine gaps — they should be passed by the view functions but may not be present in the parity tool's test context JSON.
+> The `static_url` false positives are fixed in `template_context_coverage.py` by treating it as a base context key, and page-specific keys for `nns`, `nn_upload`, and `tests` are now provided in view contexts and fixtures.
 
-**Assessment:** The `static_url` reports are likely tool false-positives. The page-specific gaps are real but low-risk — the templates will render `UNDEFINED` (via `MakoUndefined`) rather than crash.
+**Assessment:** Jinja coverage is now green; Mako reports should be treated as advisory until the Mako parser is refined.
 
 #### 6.2.2 HTML Parity: 23 Templates Still Differ
 
@@ -486,6 +459,8 @@ These duplicate the route paths defined in `views.py` and `api.py`. If a route p
 **Suggestion:** Generate the `urls` dict from `views_router.routes` and `api_router.routes` at app startup. Or use Starlette's `url_for` in templates directly (avoiding the `urls` dict entirely).
 
 **Reviewer B counter:** The hardcoded dict is intentional — it avoids coupling template context to router internals. Templates reference `{{ urls.login }}` which is stable across refactors. The risk of route path divergence is low because fishtest routes rarely change.
+
+**Update:** The new `parity_check_urls_dict.py` tool flags `workers_blocked` (`/workers/show`) as missing from the current router paths. This should be resolved either by adding a route or removing the URL entry if obsolete.
 
 #### 6.2.4 `template_request.py` Manual LRU Cache
 
@@ -592,7 +567,7 @@ WIP/tools/templates_jinja_metrics.py
 
 #### 7.1.1 Fix REPO_ROOT in metrics scripts
 
-Status: to be implemented
+Status: Implemented
 
 **Files:** `WIP/tools/templates_jinja_metrics.py`, `WIP/tools/templates_mako_metrics.py`
 
@@ -605,11 +580,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 ```
 
 **Effort:** 5min. **Risk:** None.
-Implementation: completed in this update.
 
 #### 7.1.2 Fix context coverage false positives for `static_url`
 
-Status: to be analyzed more
+Status: Implemented
 
 **File:** `WIP/tools/template_context_coverage.py`
 
@@ -618,12 +592,13 @@ The tool reports `static_url` as missing for 7 templates, but `build_template_co
 - Or add `static_url` to the test context fixture.
 
 **Effort:** 1h.
+Implementation: added `static_url` to the base context key set in `template_context_coverage.py`.
 
 ### 7.2 Improving Code
 
 #### 7.2.1 Remove `url_for` shadowing in `build_template_context()`
 
-Status: to be analyzed more
+Status: Implemented
 
 **File:** `server/fishtest/http/boundary.py`, line 233
 
@@ -650,6 +625,7 @@ base_context: dict[str, object] = {
 > Before removing, verify that no template calls `{{ url_for(...) }}` with arguments that differ from Starlette's signature (`url_for(name, **path_params)`). If any templates call `url_for` with keyword arguments that Starlette doesn't support, keep the context override.
 
 **Effort:** 30min (includes template audit). **Risk:** Low.
+Implementation: removed `url_for` from the shared base context.
 
 #### 7.2.2 Replace `MakoUndefined` with `StrictUndefined` (future)
 
@@ -676,7 +652,7 @@ And remove the `MakoUndefined` class.
 
 #### 7.2.3 Replace manual LRU cache in `template_request.py`
 
-Status: to be analyzed more
+Status: Implemented
 
 **File:** `server/fishtest/http/template_request.py`, lines 32-46
 
@@ -696,6 +672,7 @@ def _static_file_token(rel_path: str) -> str | None:
 Remove `_STATIC_TOKEN_CACHE`, `_cache_get`, `_cache_set`, and the manual cache lookups inside `_static_file_token`.
 
 **Effort:** 30min. **Risk:** Low (behavioral equivalence, simpler code).
+Implementation: `_static_file_token` now uses `@lru_cache(maxsize=1024)`.
 
 #### 7.2.4 Consider splitting `template_helpers.py`
 
@@ -713,7 +690,7 @@ The stats module would import from `fishtest.stats` (LLRcalc, stat_util, sprt) a
 
 #### 7.2.5 Audit `render_template()` usage
 
-Status: to be analyzed more
+Status: Implemented
 
 **File:** `server/fishtest/http/template_renderer.py`
 
@@ -730,12 +707,13 @@ def render_template(...) -> RenderedTemplate:
 ```
 
 **Effort:** 15min.
+Implementation: documented `render_template()` as a test/tool helper.
 
 ### 7.3 Improving Parity & Metrics Scripts
 
 #### 7.3.1 Extract shared stubs from WIP/tools
 
-Status: to be implemented
+Status: Implemented
 
 **Files:** parity scripts in `WIP/tools/`
 
@@ -763,11 +741,10 @@ from _stubs import SessionStub, RequestStub, UserDbStub, with_helpers
 ```
 
 **Effort:** 1h. **Impact:** DRY, easier maintenance.
-Implementation: completed in this update.
 
 #### 7.3.2 Add TemplateResponse debug metadata verification
 
-Status: to be analyzed more
+Status: Implemented
 
 **File:** New test or enhancement to `WIP/tools/compare_template_response_parity.py`
 
@@ -778,10 +755,11 @@ Verify that responses from `_dispatch_view()` have:
 - Correct status code
 
 **Effort:** 2h.
+Implementation: added `verify_template_response_metadata.py` to exercise TemplateResponse metadata.
 
 #### 7.3.3 Add linting for WIP/tools scripts
 
-Status: to be analyzed more
+Status: Implemented
 
 Create a Makefile target or shell script:
 ```bash
@@ -790,6 +768,7 @@ cd server && uv run ty check ../WIP/tools/*.py
 ```
 
 **Effort:** 30min.
+Implementation: added `WIP/tools/lint_tools.sh`.
 
 ---
 
@@ -843,26 +822,26 @@ cd server && uv run ty check ../WIP/tools/*.py
 
 | # | Item | File(s) | Effort | Owner |
 |---|------|---------|--------|-------|
-| 1 | Fix REPO_ROOT in metrics scripts (`.parents[3]` → `.parents[2]`) | `WIP/tools/templates_jinja_metrics.py`, `WIP/tools/templates_mako_metrics.py` | 5min | Either |
+| 1 | Implemented: Fix REPO_ROOT in metrics scripts (`.parents[3]` → `.parents[2]`) | `WIP/tools/templates_jinja_metrics.py`, `WIP/tools/templates_mako_metrics.py` | 5min | Either |
 
 ### High Priority (quality/completeness)
 
 | # | Item | File(s) | Effort | Owner |
 |---|------|---------|--------|-------|
-| 2 | Extract shared stubs from WIP/tools scripts | `WIP/tools/_stubs.py` + parity consumers | 1h | B |
-| 3 | Fix context coverage tool false positives for `static_url` | `WIP/tools/template_context_coverage.py` | 1h | B |
-| 4 | Add parity check: `urls` dict vs actual router routes | `WIP/tools/` (new script) | 2h | B |
-| 5 | Audit and document `render_template()` usage | `server/fishtest/http/template_renderer.py` | 15min | Either |
+| 2 | Implemented: Extract shared stubs from WIP/tools scripts | `WIP/tools/_stubs.py` + parity consumers | 1h | B |
+| 3 | Implemented: Fix context coverage tool false positives for `static_url` | `WIP/tools/template_context_coverage.py` | 1h | B |
+| 4 | Implemented: Add parity check for `urls` dict vs router routes | `WIP/tools/parity_check_urls_dict.py` | 2h | B |
+| 5 | Implemented: Audit and document `render_template()` usage | `server/fishtest/http/template_renderer.py` | 15min | Either |
 
 ### Medium Priority (improvements)
 
 | # | Item | File(s) | Effort | Owner |
 |---|------|---------|--------|-------|
-| 6 | Replace manual LRU cache with `@lru_cache` in `template_request.py` | `server/fishtest/http/template_request.py` | 30min | A |
-| 7 | Audit `url_for` shadowing; remove if safe | `server/fishtest/http/boundary.py` | 30min | A |
-| 8 | Add linting for WIP/tools scripts | CI / Makefile | 30min | B |
-| 9 | Add TemplateResponse debug metadata verification test | `server/tests/` or `WIP/tools/` | 2h | Either |
-| 10 | Fill page-specific context gaps (nns, nn_upload, tests) | View functions + context builders | 3h | A |
+| 6 | Implemented: Replace manual LRU cache with `@lru_cache` in `template_request.py` | `server/fishtest/http/template_request.py` | 30min | A |
+| 7 | Implemented: Remove `url_for` shadowing | `server/fishtest/http/boundary.py` | 30min | A |
+| 8 | Implemented: Add linting for WIP/tools scripts | `WIP/tools/lint_tools.sh` | 30min | B |
+| 9 | Implemented: Add TemplateResponse debug metadata verification test | `WIP/tools/verify_template_response_metadata.py` | 2h | Either |
+| 10 | Implemented: Fill page-specific context gaps (nns, nn_upload, tests) | View functions + context builders | 3h | A |
 
 ### Low Priority (future milestones)
 
@@ -928,7 +907,7 @@ cd server && uv run ty check ../WIP/tools/*.py
 | 1 | `compare_template_parity.py` | Core parity engine: renders Mako vs Jinja2, normalizes HTML, diffs | Working |
 | 2 | `compare_template_response_parity.py` | Response-level parity: status, headers, HTML | Working |
 | 3 | `compare_jinja_mako_new_parity.py` | Jinja2 vs legacy Mako runner (wraps response parity) | Working (legacy name) |
-| 4 | `template_context_coverage.py` | Context key coverage per template | Working (false positives for `static_url`) |
+| 4 | `template_context_coverage.py` | Context key coverage per template | Working (static_url false positives fixed) |
 | 5 | `template_context_coverage.latest.json` | Latest coverage snapshot | Current (2026-02-08) |
 | 6 | `template_parity_context.json` | Test context fixtures for parity runs | Current |
 | 7 | `parity_check_api_routes.py` | API route parity (legacy vs FastAPI) | Working |
@@ -937,10 +916,13 @@ cd server && uv run ty check ../WIP/tools/*.py
 | 10 | `parity_check_views_ast.py` | Views AST parity | Working |
 | 11 | `parity_check_hotspots_similarity.py` | Hotspot similarity check | Working |
 | 12 | `parity_check_views_no_renderer.py` | Views without renderer inventory | Working |
-| 13 | `templates_jinja_metrics.py` | Jinja2 template complexity metrics | Working (REPO_ROOT bug) |
-| 14 | `templates_mako_metrics.py` | Mako template complexity metrics | Working (REPO_ROOT bug) |
+| 13 | `templates_jinja_metrics.py` | Jinja2 template complexity metrics | Working (REPO_ROOT fixed) |
+| 14 | `templates_mako_metrics.py` | Mako template complexity metrics | Working (REPO_ROOT fixed) |
 | 15 | `templates_comparative_metrics.py` | Cross-engine comparative metrics | Working |
 | 16 | `templates_benchmark.py` | Rendering performance benchmark | Working |
+| 17 | `parity_check_urls_dict.py` | Validate URLs dict vs router paths | Working (flags missing routes) |
+| 18 | `verify_template_response_metadata.py` | TemplateResponse metadata smoke test | Working |
+| 19 | `lint_tools.sh` | Lint WIP/tools scripts with ruff and ty | Working |
 
 > [!NOTE]
 > `compare_jinja_mako_new_parity.py` (#3) still compares legacy Mako vs Jinja2 but carries a legacy name. Consider renaming for clarity.

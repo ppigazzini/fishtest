@@ -43,6 +43,7 @@ DEFAULT_CONTEXT = REPO_ROOT / "WIP" / "tools" / "template_parity_context.json"
 DEFAULT_MAKO_DIR = REPO_ROOT / "server" / "fishtest" / "templates"
 DEFAULT_JINJA_DIR = REPO_ROOT / "server" / "fishtest" / "templates_jinja2"
 SKIP_TEMPLATES = {"base.mak"}
+BASE_CONTEXT_KEYS = {"static_url"}
 
 MAKO_EXPR_RE = re.compile(r"\$\{(.*?)\}", re.DOTALL)
 MAKO_BLOCK_RE = re.compile(r"<%([!]?)\s*(.*?)\s*%>", re.DOTALL)
@@ -206,7 +207,7 @@ def _allowed_names(env: Environment) -> set[str]:
 def _context_keys(context_map: dict[str, dict[str, Any]], template: str) -> set[str]:
     defaults = context_map.get("_defaults", {})
     template_context = context_map.get(template, {})
-    return set(defaults) | set(template_context)
+    return set(defaults) | set(template_context) | BASE_CONTEXT_KEYS
 
 
 def main() -> int:
