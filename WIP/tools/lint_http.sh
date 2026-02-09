@@ -18,7 +18,7 @@ if command -v uv >/dev/null 2>&1; then
     exit 1
   fi
 
-  uv run ruff check --select ALL "${HTTP_FILES[@]}"
+  uv run ruff check --select ALL "${HTTP_FILES[@]}" --fix
   uv run ty check "${HTTP_FILES[@]}"
 else
   echo "uv not found; run ruff and ty manually." >&2
