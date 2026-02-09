@@ -270,7 +270,7 @@ Both functions exist in `template_renderer.py`:
 
 | Symbol | In module? | In `__all__`? | Status |
 |--------|-----------|--------------|--------|
-| `diff_url_for_run` | Yes | No | **Gap** (was flagged in M9, still not added) |
+| `diff_url_for_run` | Yes | Yes | OK |
 | `clip_long` | Yes | Yes | Not in `jinja.py` globals |
 | `_format_range` | Yes (private) | No (correct) | OK |
 | `_build_trinomial_stats` | Yes (private) | No (correct) | OK |
@@ -280,7 +280,7 @@ Both functions exist in `template_renderer.py`:
 | `_SprtInputs` | Yes (private) | No (correct) | OK |
 | `_task_*` | Yes (private) | No (correct) | OK |
 
-**Fix needed:** Add `diff_url_for_run` to `__all__`.
+**Assessment:** `__all__` is complete for public helpers.
 
 ### 4.3 Globals Registered in `jinja.py` vs `template_helpers.py`
 
@@ -464,7 +464,7 @@ Only `elo_results.html.j2` and `pagination.html.j2` produce identical normalized
 
 **Reviewer B:** These diffs are expected and documented. The parity tooling tracks them. Achieving 100% string parity is a non-goal — the M10 requirement is that the rendered HTML is functionally equivalent, not character-identical.
 
-**Reviewer A:** Agree, but the tooling should provide confidence that the diffs are cosmetic, not functional. Consider adding DOM-level comparison (parse both outputs, compare the tree structure).
+**Reviewer A:** Agree, but the tooling should provide confidence that the diffs are cosmetic, not functional. The core parity tool already includes DOM-level normalization; remaining diffs are beyond attribute ordering and whitespace.
 
 #### 6.2.3 `boundary.py` Hardcoded URL Mappings
 
@@ -561,16 +561,7 @@ This means templates have access to the full FastAPI `Request` object (cookies, 
 
 #### 6.3.4 WIP/tools Stub Duplication
 
-Four WIP/tools scripts contain copy-pasted stubs:
-
-| Stub | Files |
-|------|-------|
-| `SessionStub` | `compare_template_parity.py`, `compare_template_response_parity.py`, `template_context_coverage.py`, `compare_jinja_mako_new_parity.py` |
-| `RequestStub` | Same 4 files |
-| `UserDbStub` | Same 4 files |
-| `_with_helpers` | Same 4 files |
-
-**Assessment:** This is WIP tooling, not production code. But the duplication makes maintenance harder — a change to the stub structure must be replicated in 4 files. Extract stubs into a shared `WIP/tools/_stubs.py` module.
+Two WIP/tools scripts contained copy-pasted stubs (`SessionStub`, `UserDbStub`, `RequestStub`, and helper builders). This has now been consolidated into `WIP/tools/_stubs.py` and imported by both parity scripts. No remaining duplication was observed in the current tool set.
 
 #### 6.3.5 REPO_ROOT Bug in Metrics Scripts
 
@@ -590,8 +581,8 @@ WIP/tools/templates_jinja_metrics.py
 
 `jinja.py` uses `REPO_ROOT_DEPTH: Final[int] = 3` for `Path(__file__).resolve().parents[REPO_ROOT_DEPTH]`, which is correct because `jinja.py` is at `server/fishtest/http/jinja.py` (depth 3 from repo root).
 
-> [!WARNING]
-> The metrics scripts will fail or read from the wrong directory. Fix `.parents[3]` to `.parents[2]` in both scripts.
+> [!NOTE]
+> This has been corrected to `.parents[2]` in both metrics scripts.
 
 ---
 
@@ -600,6 +591,8 @@ WIP/tools/templates_jinja_metrics.py
 ### 7.1 Fixing Issues
 
 #### 7.1.1 Fix REPO_ROOT in metrics scripts
+
+Status: to be implemented
 
 **Files:** `WIP/tools/templates_jinja_metrics.py`, `WIP/tools/templates_mako_metrics.py`
 
@@ -612,19 +605,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 ```
 
 **Effort:** 5min. **Risk:** None.
+Implementation: completed in this update.
 
-#### 7.1.2 Add `diff_url_for_run` to `__all__`
+#### 7.1.2 Fix context coverage false positives for `static_url`
 
-**File:** `server/fishtest/http/template_helpers.py`
-
-Add to the `__all__` list:
-```python
-"diff_url_for_run",
-```
-
-**Effort:** 5min. This was flagged in the M9 report and is still not fixed.
-
-#### 7.1.3 Fix context coverage false positives for `static_url`
+Status: to be analyzed more
 
 **File:** `WIP/tools/template_context_coverage.py`
 
@@ -637,6 +622,8 @@ The tool reports `static_url` as missing for 7 templates, but `build_template_co
 ### 7.2 Improving Code
 
 #### 7.2.1 Remove `url_for` shadowing in `build_template_context()`
+
+Status: to be analyzed more
 
 **File:** `server/fishtest/http/boundary.py`, line 233
 
@@ -666,6 +653,8 @@ base_context: dict[str, object] = {
 
 #### 7.2.2 Replace `MakoUndefined` with `StrictUndefined` (future)
 
+Status: to be analyzed more
+
 **File:** `server/fishtest/http/jinja.py`, line 64
 
 Once all templates are verified to not reference undefined variables, replace:
@@ -686,6 +675,8 @@ And remove the `MakoUndefined` class.
 **Effort:** 2h (including verification). **Risk:** Medium — may surface templates that silently use undefined variables.
 
 #### 7.2.3 Replace manual LRU cache in `template_request.py`
+
+Status: to be analyzed more
 
 **File:** `server/fishtest/http/template_request.py`, lines 32-46
 
@@ -708,6 +699,8 @@ Remove `_STATIC_TOKEN_CACHE`, `_cache_get`, `_cache_set`, and the manual cache l
 
 #### 7.2.4 Consider splitting `template_helpers.py`
 
+Status: to be analyzed more
+
 **File:** `server/fishtest/http/template_helpers.py` (1253 lines)
 
 Natural split point:
@@ -719,6 +712,8 @@ The stats module would import from `fishtest.stats` (LLRcalc, stat_util, sprt) a
 **Effort:** 2h. **Risk:** Low (additive, changes import in `jinja.py` and `views.py`). Defer if rebase stability is prioritized.
 
 #### 7.2.5 Audit `render_template()` usage
+
+Status: to be analyzed more
 
 **File:** `server/fishtest/http/template_renderer.py`
 
@@ -740,7 +735,9 @@ def render_template(...) -> RenderedTemplate:
 
 #### 7.3.1 Extract shared stubs from WIP/tools
 
-**Files:** 4 scripts in `WIP/tools/`
+Status: to be implemented
+
+**Files:** parity scripts in `WIP/tools/`
 
 Create `WIP/tools/_stubs.py`:
 
@@ -760,28 +757,17 @@ def with_helpers(context: dict) -> dict:
     ...
 ```
 
-Then import from the 4 consuming scripts:
+Then import from the parity scripts that need stubs:
 ```python
 from _stubs import SessionStub, RequestStub, UserDbStub, with_helpers
 ```
 
 **Effort:** 1h. **Impact:** DRY, easier maintenance.
+Implementation: completed in this update.
 
-#### 7.3.2 Add DOM-level HTML comparison
+#### 7.3.2 Add TemplateResponse debug metadata verification
 
-**File:** New `WIP/tools/compare_template_parity_dom.py` or enhance `compare_template_parity.py`
-
-Current normalization is string-based (whitespace collapse, tag gap removal). Add DOM-level comparison:
-- Parse both outputs with `html.parser` or `html5lib`.
-- Sort element attributes alphabetically.
-- Normalize self-closing tags.
-- Compare the tree structure.
-
-This would distinguish functional diffs from cosmetic diffs and increase confidence in the 23 templates that currently report mismatches.
-
-**Effort:** 6h.
-
-#### 7.3.3 Add TemplateResponse debug metadata verification
+Status: to be analyzed more
 
 **File:** New test or enhancement to `WIP/tools/compare_template_response_parity.py`
 
@@ -793,11 +779,9 @@ Verify that responses from `_dispatch_view()` have:
 
 **Effort:** 2h.
 
-#### 7.3.4 Fix REPO_ROOT in metrics scripts (see 7.1.1)
+#### 7.3.3 Add linting for WIP/tools scripts
 
-Already listed as a fix. Repeating here for parity tool completeness.
-
-#### 7.3.5 Add linting for WIP/tools scripts
+Status: to be analyzed more
 
 Create a Makefile target or shell script:
 ```bash
@@ -860,37 +844,35 @@ cd server && uv run ty check ../WIP/tools/*.py
 | # | Item | File(s) | Effort | Owner |
 |---|------|---------|--------|-------|
 | 1 | Fix REPO_ROOT in metrics scripts (`.parents[3]` → `.parents[2]`) | `WIP/tools/templates_jinja_metrics.py`, `WIP/tools/templates_mako_metrics.py` | 5min | Either |
-| 2 | Add `diff_url_for_run` to `__all__` | `server/fishtest/http/template_helpers.py` | 5min | Either |
 
 ### High Priority (quality/completeness)
 
 | # | Item | File(s) | Effort | Owner |
 |---|------|---------|--------|-------|
-| 3 | Extract shared stubs from 4 WIP/tools scripts | `WIP/tools/_stubs.py` + 4 consumers | 1h | B |
-| 4 | Fix context coverage tool false positives for `static_url` | `WIP/tools/template_context_coverage.py` | 1h | B |
-| 5 | Add parity check: `urls` dict vs actual router routes | `WIP/tools/` (new script) | 2h | B |
-| 6 | Audit and document `render_template()` usage | `server/fishtest/http/template_renderer.py` | 15min | Either |
-| 7 | Add DOM-level HTML comparison to parity tooling | `WIP/tools/` | 6h | A |
+| 2 | Extract shared stubs from WIP/tools scripts | `WIP/tools/_stubs.py` + parity consumers | 1h | B |
+| 3 | Fix context coverage tool false positives for `static_url` | `WIP/tools/template_context_coverage.py` | 1h | B |
+| 4 | Add parity check: `urls` dict vs actual router routes | `WIP/tools/` (new script) | 2h | B |
+| 5 | Audit and document `render_template()` usage | `server/fishtest/http/template_renderer.py` | 15min | Either |
 
 ### Medium Priority (improvements)
 
 | # | Item | File(s) | Effort | Owner |
 |---|------|---------|--------|-------|
-| 8 | Replace manual LRU cache with `@lru_cache` in `template_request.py` | `server/fishtest/http/template_request.py` | 30min | A |
-| 9 | Audit `url_for` shadowing; remove if safe | `server/fishtest/http/boundary.py` | 30min | A |
-| 10 | Add linting for WIP/tools scripts | CI / Makefile | 30min | B |
-| 11 | Add TemplateResponse debug metadata verification test | `server/tests/` or `WIP/tools/` | 2h | Either |
-| 12 | Fill page-specific context gaps (nns, nn_upload, tests) | View functions + context builders | 3h | A |
+| 6 | Replace manual LRU cache with `@lru_cache` in `template_request.py` | `server/fishtest/http/template_request.py` | 30min | A |
+| 7 | Audit `url_for` shadowing; remove if safe | `server/fishtest/http/boundary.py` | 30min | A |
+| 8 | Add linting for WIP/tools scripts | CI / Makefile | 30min | B |
+| 9 | Add TemplateResponse debug metadata verification test | `server/tests/` or `WIP/tools/` | 2h | Either |
+| 10 | Fill page-specific context gaps (nns, nn_upload, tests) | View functions + context builders | 3h | A |
 
 ### Low Priority (future milestones)
 
 | # | Item | File(s) | Effort | Owner |
 |---|------|---------|--------|-------|
-| 13 | Replace `MakoUndefined` with `StrictUndefined` | `server/fishtest/http/jinja.py` | 2h | A |
-| 14 | Split `template_helpers.py` into helpers + stats | `server/fishtest/http/` | 2h | Either |
-| 15 | Convert `BaseHTTPMiddleware` to pure ASGI (if perf needed) | `server/fishtest/http/middleware.py` | 4h | A |
-| 16 | Consider Starlette `context_processors` for base context | `jinja.py`, `boundary.py` | 4h | A |
-| 17 | Generate `urls` dict from router routes at startup | `boundary.py`, `app.py` | 2h | B |
+| 11 | Replace `MakoUndefined` with `StrictUndefined` | `server/fishtest/http/jinja.py` | 2h | A |
+| 12 | Split `template_helpers.py` into helpers + stats | `server/fishtest/http/` | 2h | Either |
+| 13 | Convert `BaseHTTPMiddleware` to pure ASGI (if perf needed) | `server/fishtest/http/middleware.py` | 4h | A |
+| 14 | Consider Starlette `context_processors` for base context | `jinja.py`, `boundary.py` | 4h | A |
+| 15 | Generate `urls` dict from router routes at startup | `boundary.py`, `app.py` | 2h | B |
 
 ---
 
@@ -945,7 +927,7 @@ cd server && uv run ty check ../WIP/tools/*.py
 |---|--------|---------|--------|
 | 1 | `compare_template_parity.py` | Core parity engine: renders Mako vs Jinja2, normalizes HTML, diffs | Working |
 | 2 | `compare_template_response_parity.py` | Response-level parity: status, headers, HTML | Working |
-| 3 | `compare_jinja_mako_new_parity.py` | Jinja2 vs new Mako runner (wraps core) | Obsolete (new Mako removed) |
+| 3 | `compare_jinja_mako_new_parity.py` | Jinja2 vs legacy Mako runner (wraps response parity) | Working (legacy name) |
 | 4 | `template_context_coverage.py` | Context key coverage per template | Working (false positives for `static_url`) |
 | 5 | `template_context_coverage.latest.json` | Latest coverage snapshot | Current (2026-02-08) |
 | 6 | `template_parity_context.json` | Test context fixtures for parity runs | Current |
@@ -961,7 +943,7 @@ cd server && uv run ty check ../WIP/tools/*.py
 | 16 | `templates_benchmark.py` | Rendering performance benchmark | Working |
 
 > [!NOTE]
-> `compare_jinja_mako_new_parity.py` (#3) compares Jinja2 vs new Mako. Since the new Mako directory no longer exists, this script is effectively obsolete. It should be archived or removed.
+> `compare_jinja_mako_new_parity.py` (#3) still compares legacy Mako vs Jinja2 but carries a legacy name. Consider renaming for clarity.
 
 ---
 
