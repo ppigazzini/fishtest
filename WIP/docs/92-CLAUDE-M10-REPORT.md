@@ -460,7 +460,7 @@ These duplicate the route paths defined in `views.py` and `api.py`. If a route p
 
 **Reviewer B counter:** The hardcoded dict is intentional — it avoids coupling template context to router internals. Templates reference `{{ urls.login }}` which is stable across refactors. The risk of route path divergence is low because fishtest routes rarely change.
 
-**Update:** The new `parity_check_urls_dict.py` tool flags `workers_blocked` (`/workers/show`) as missing from the current router paths. This should be resolved either by adding a route or removing the URL entry if obsolete.
+**Update:** The `workers_blocked` entry (`/workers/show`) is referenced in the base template and maps to the existing `workers` route (`/workers/{worker_name}`). The parity tool now treats concrete paths as valid matches for parameterized routes, so `/workers/show` is no longer flagged.
 
 #### 6.2.4 `template_request.py` Manual LRU Cache
 

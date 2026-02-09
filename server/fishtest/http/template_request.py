@@ -11,8 +11,8 @@ context.
 from __future__ import annotations
 
 import base64
-import functools
 import hashlib
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
@@ -27,18 +27,23 @@ if TYPE_CHECKING:
 
 _STATIC_DIR: Final[Path] = Path(__file__).resolve().parents[1] / "static"
 _STATIC_URL_PARAM: Final[str] = "x"
+_STATIC_TOKEN_CACHE_MAX: int = 1024
+_STATIC_TOKEN_CACHE: "OrderedDict[str, str]" = OrderedDict()
 _MISSING_RAW_REQUEST_ERROR: Final[str] = (
     "TemplateRequest.url_for requires a FastAPI request"
 )
 
 
-@functools.lru_cache(maxsize=1024)
 def _static_file_token(rel_path: str) -> str | None:
     """Return a Pyramid-compatible cache-buster token for a static file."""
     rel_path = rel_path.replace("\\", "/")
     rel_obj = Path(rel_path)
     if rel_obj.is_absolute() or ".." in rel_obj.parts:
         return None
+
+    cached = _STATIC_TOKEN_CACHE.get(rel_path)
+    if cached is not None:
+        return cached
 
     file_path = (_STATIC_DIR / rel_path).resolve()
     try:
@@ -50,11 +55,18 @@ def _static_file_token(rel_path: str) -> str | None:
     except OSError:
         return None
 
-    return (
+    token = (
         base64.urlsafe_b64encode(hashlib.sha384(content).digest())
         .decode("utf-8")
         .rstrip("=")
     )
+
+    if _STATIC_TOKEN_CACHE_MAX > 0:
+        if len(_STATIC_TOKEN_CACHE) >= _STATIC_TOKEN_CACHE_MAX:
+            _STATIC_TOKEN_CACHE.popitem(last=False)
+        _STATIC_TOKEN_CACHE[rel_path] = token
+
+    return token
 
 
 @dataclass

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import ast
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -74,12 +75,21 @@ def _is_prefix_key(key: str, value: str) -> bool:
     return value.endswith("/")
 
 
+def _path_matches_route(path: str, route_path: str) -> bool:
+    if path == route_path:
+        return True
+    if "{" not in route_path:
+        return False
+    pattern = re.sub(r"\{[^/]+\}", r"[^/]+", route_path)
+    return bool(re.fullmatch(pattern, path))
+
+
 def _check_urls(urls: dict[str, str], route_paths: set[str]) -> list[UrlCheckResult]:
     results: list[UrlCheckResult] = []
     for key, value in urls.items():
         path = value.split("?", 1)[0]
         ok = False
-        if path in route_paths:
+        if any(_path_matches_route(path, route) for route in route_paths):
             ok = True
         elif _is_prefix_key(key, path):
             ok = any(route.startswith(path) for route in route_paths)
