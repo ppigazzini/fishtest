@@ -20,12 +20,17 @@ Exit status:
 
 from __future__ import annotations
 
+import argparse
 import ast
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC_VIEWS = REPO_ROOT / "server" / "fishtest" / "views.py"
 GLUE_VIEWS = REPO_ROOT / "server" / "fishtest" / "http" / "views.py"
+
+# Functions that are expected to diverge due to framework wiring or refactors.
+# Keep this list small and documented.
+EXPECTED_BODY_DRIFT: set[str] = set()
 
 
 def _func_body_dumps(path: Path) -> dict[str, str]:
@@ -64,18 +69,56 @@ def _func_body_dumps(path: Path) -> dict[str, str]:
 
 def main() -> int:
     """Run the AST body parity check and return process exit code."""
+    ap = argparse.ArgumentParser()
+    ap.add_argument(
+        "--strict",
+        action="store_true",
+        help="Fail on expected drift and extra functions.",
+    )
+    args = ap.parse_args()
+
     spec = _func_body_dumps(SPEC_VIEWS)
     glue = _func_body_dumps(GLUE_VIEWS)
 
+    spec_only = sorted(set(spec) - set(glue))
+    glue_only = sorted(set(glue) - set(spec))
     common = sorted(set(spec) & set(glue))
-    changed = [name for name in common if spec[name] != glue[name]]
 
+    changed_all = [name for name in common if spec[name] != glue[name]]
+    allowed_changed = [name for name in changed_all if name in EXPECTED_BODY_DRIFT]
+    changed = [name for name in changed_all if name not in EXPECTED_BODY_DRIFT]
+
+    coverage = (len(common) / len(spec)) if spec else 1.0
+    print("spec functions", len(spec))
+    print("http functions", len(glue))
     print("common functions", len(common))
+    print("coverage ratio", f"{coverage:.3f}")
+    print("missing in http", len(spec_only))
+    print("extra in http", len(glue_only))
     print("changed ast bodies", len(changed))
+    print("expected drift bodies", len(allowed_changed))
+
+    if spec_only:
+        print("\nMissing in http:")
+        for name in spec_only[:200]:
+            print(" ", name)
+
+    if glue_only:
+        print("\nExtra in http:")
+        for name in glue_only[:200]:
+            print(" ", name)
 
     if changed:
+        print("\nBody drift:")
         for name in changed[:200]:
             print(" ", name)
+
+    if allowed_changed:
+        print("\nExpected drift (informational):")
+        for name in allowed_changed[:200]:
+            print(" ", name)
+
+    if spec_only or changed or (args.strict and (glue_only or allowed_changed)):
         return 1
 
     print("OK: no function-body drift detected.")
