@@ -59,25 +59,30 @@ class TestHttpApp(unittest.TestCase):
 
         settings = AppSettings(port=8000, primary_port=8000, is_primary_instance=False)
 
-        with (
-            mock.patch.object(app_module, "RunDb", _RunDbStub),
-            mock.patch.object(app_module, "run_in_threadpool", _fake_run_in_threadpool),
-            mock.patch.object(
-                app_module.AppSettings,
-                "from_env",
-                return_value=settings,
-            ),
-        ):
-            app = app_module.create_app()
+        with mock.patch.dict("os.environ", {"FISHTEST_INSECURE_DEV": "1"}, clear=False):
+            with (
+                mock.patch.object(app_module, "RunDb", _RunDbStub),
+                mock.patch.object(
+                    app_module,
+                    "run_in_threadpool",
+                    _fake_run_in_threadpool,
+                ),
+                mock.patch.object(
+                    app_module.AppSettings,
+                    "from_env",
+                    return_value=settings,
+                ),
+            ):
+                app = app_module.create_app()
 
-        middleware_names = {mw.cls.__name__ for mw in app.user_middleware}
-        self.assertIn("ShutdownGuardMiddleware", middleware_names)
-        self.assertIn("AttachRequestStateMiddleware", middleware_names)
-        self.assertIn("RejectNonPrimaryWorkerApiMiddleware", middleware_names)
-        self.assertIn("RedirectBlockedUiUsersMiddleware", middleware_names)
+            middleware_names = {mw.cls.__name__ for mw in app.user_middleware}
+            self.assertIn("ShutdownGuardMiddleware", middleware_names)
+            self.assertIn("AttachRequestStateMiddleware", middleware_names)
+            self.assertIn("RejectNonPrimaryWorkerApiMiddleware", middleware_names)
+            self.assertIn("RedirectBlockedUiUsersMiddleware", middleware_names)
 
-        client = TestClient(app)
-        response = client.get("/", follow_redirects=False)
+            client = TestClient(app)
+            response = client.get("/", follow_redirects=False)
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers.get("location"), "/tests")
 

@@ -5,18 +5,20 @@ Ownership: request shims, session commit helpers, and template context wiring.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, Annotated, Protocol
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Annotated, Protocol, cast
 
 from fastapi import Depends, Request
 from fishtest.http.cookie_session import (
+    REMEMBER_MAX_AGE_SECONDS,
     CookieSession,
     authenticated_user,
-    clear_session_cookie,
-    commit_session,
     is_https,
     load_session,
+    mark_session_force_clear,
+    mark_session_max_age,
 )
 from fishtest.http.csrf import csrf_or_403
 from fishtest.http.dependencies import (
@@ -25,46 +27,33 @@ from fishtest.http.dependencies import (
     get_rundb,
     get_userdb,
 )
+from fishtest.http.jinja import static_url
 from fishtest.http.ui_context import UIRequestContext, build_ui_context
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, MutableMapping
+    from collections.abc import Mapping
 
     from starlette.responses import Response
 
 
-class ResponseShimLike(Protocol):
-    """Protocol for shim response metadata."""
-
-    headers: MutableMapping[str, str]
-    headerlist: Iterable[tuple[str, str]]
-
-
-class RequestShimHeaders(Protocol):
-    """Protocol for shims that expose response headers."""
-
-    response: ResponseShimLike
-
-
-class RequestShimSession(Protocol):
-    """Protocol for shims that control session persistence."""
-
-    forget: bool
+class _SessionFlags(Protocol):
     remember: bool
+    forget: bool
+    remember_max_age: int | None
 
 
-class RequestShimSessionUser(RequestShimSession, Protocol):
-    """Protocol for UI shims with session state."""
+class _SessionUser(_SessionFlags, Protocol):
+    raw_request: Request | None
+    session: CookieSession | dict[str, object]
 
-    session: CookieSession
 
+@dataclass(frozen=True, slots=True)
+class SessionCommitFlags:
+    """Container for session persistence flags."""
 
-@dataclass
-class ResponseShim:
-    """Minimal response shim for header propagation."""
-
-    headers: dict[str, str] = field(default_factory=dict)
-    headerlist: list[tuple[str, str]] = field(default_factory=list)
+    remember: bool
+    forget: bool
+    remember_max_age: int | None = None
 
 
 class ApiRequestShim:
@@ -91,7 +80,7 @@ class ApiRequestShim:
         self.host = request.headers.get("host") or request.url.netloc
         self.host_url = str(request.base_url).rstrip("/")
         self.remote_addr = request.client.host if request.client else None
-        self.response = ResponseShim()
+        self.response = SimpleNamespace(headers={})
 
         try:
             self.rundb = get_rundb(request)
@@ -146,45 +135,40 @@ async def get_request_shim(
     )
 
 
-def apply_response_headers(shim: RequestShimHeaders, response: Response) -> Response:
-    """Apply Pyramid-style response headers from the request shim."""
-    for k, v in getattr(shim.response, "headers", {}).items():
-        response.headers[k] = v
-    for k, v in getattr(shim.response, "headerlist", []):
-        response.headers[k] = v
-    return response
-
-
 def commit_session_flags(
     request: Request,
     session: CookieSession,
     response: Response,
     *,
-    remember: bool,
-    forget: bool,
+    flags: SessionCommitFlags,
 ) -> Response:
-    """Commit or clear the session cookie with explicit flags."""
-    if forget:
-        clear_session_cookie(response=response, secure=is_https(request))
-    else:
-        commit_session(
-            response=response,
-            session=session,
-            remember=remember,
-            secure=is_https(request),
+    """Apply session persistence flags for the middleware."""
+    if flags.forget:
+        session.invalidate()
+        mark_session_force_clear(request)
+        return response
+
+    if flags.remember:
+        max_age = (
+            flags.remember_max_age
+            if flags.remember_max_age is not None
+            else REMEMBER_MAX_AGE_SECONDS
         )
+        mark_session_max_age(request, max_age)
+        request.scope["session_secure"] = is_https(request)
     return response
 
 
 def commit_session_response(
     request: Request,
     session: CookieSession,
-    shim: RequestShimSession,
+    shim: _SessionFlags,
     response: Response,
 ) -> Response:
     """Commit or clear the session cookie based on shim flags."""
     remember_flag = getattr(shim, "remember", False)
     forget_flag = getattr(shim, "forget", False)
+    remember_max_age = getattr(shim, "remember_max_age", None)
     if not remember_flag:
         remember_flag = getattr(shim, "_remember", False)
     if not forget_flag:
@@ -193,28 +177,70 @@ def commit_session_response(
         request,
         session,
         response,
-        remember=remember_flag,
-        forget=forget_flag,
+        flags=SessionCommitFlags(
+            remember=bool(remember_flag),
+            forget=bool(forget_flag),
+            remember_max_age=remember_max_age,
+        ),
     )
 
 
+def _resolve_session_data(session: object) -> dict[str, object] | None:
+    if isinstance(session, CookieSession):
+        return session.data
+    if isinstance(session, dict):
+        return cast("dict[str, object]", session)
+    data = getattr(session, "data", None)
+    if isinstance(data, dict):
+        return cast("dict[str, object]", data)
+    return None
+
+
+def _invalidate_session(session: object) -> None:
+    if isinstance(session, CookieSession):
+        session.invalidate()
+        return
+    if isinstance(session, dict):
+        session.clear()
+        return
+    invalidate = getattr(session, "invalidate", None)
+    if callable(invalidate):
+        invalidate()
+
+
+def _resolve_raw_request(request: object) -> Request | None:
+    if isinstance(request, Request):
+        return request
+    raw_request = getattr(request, "raw_request", None)
+    if raw_request is None:
+        raw_request = getattr(request, "_request", None)
+    return raw_request
+
+
 def remember(
-    request: RequestShimSessionUser,
+    request: _SessionUser,
     username: str,
     max_age: int | None = None,
 ) -> list[tuple[str, str]]:
     """Remember a user in the session and mark the cookie for persistence."""
-    request.session.data["user"] = username
-    request.session.dirty = True
+    session_data = _resolve_session_data(request.session)
+    if session_data is not None:
+        session_data["user"] = username
     request.remember = max_age is not None
+    request.remember_max_age = max_age
+    raw_request = _resolve_raw_request(request)
+    if max_age is not None and raw_request is not None:
+        mark_session_max_age(raw_request, max_age)
     return []
 
 
-def forget(request: RequestShimSessionUser) -> list[tuple[str, str]]:
+def forget(request: _SessionUser) -> list[tuple[str, str]]:
     """Forget the current user and mark the session to clear the cookie."""
-    request.session.data.pop("user", None)
-    request.session.dirty = True
+    _invalidate_session(request.session)
     request.forget = True
+    raw_request = _resolve_raw_request(request)
+    if raw_request is not None:
+        mark_session_force_clear(raw_request)
     return []
 
 
@@ -228,7 +254,6 @@ def build_template_context(
     def _pop_flash_list(queue: str | None = None) -> list[str]:
         return session.pop_flash(queue)
 
-    template_request = build_ui_context(request, session).template_request
     user = authenticated_user(session)
     pending_users_count = 0
     try:
@@ -245,7 +270,7 @@ def build_template_context(
             "info": _pop_flash_list(),
         },
         "pending_users_count": pending_users_count,
-        "static_url": template_request.static_url,
+        "static_url": static_url,
         "theme": request.cookies.get("theme", ""),
         "urls": {
             "home": "/",
@@ -275,7 +300,6 @@ def build_template_context(
 
     context: dict[str, object] = {
         "request": request,
-        "template_request": template_request,
         **base_context,
     }
     if extra:
@@ -298,8 +322,8 @@ __all__ = [
     "JsonBodyDep",
     "JsonBodyResult",
     "RequestShimDep",
+    "SessionCommitFlags",
     "UIContextDep",
-    "apply_response_headers",
     "build_template_context",
     "commit_session_flags",
     "commit_session_response",

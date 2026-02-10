@@ -7,7 +7,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fishtest.http.boundary import build_template_context, commit_session_flags
+from fishtest.http.boundary import (
+    SessionCommitFlags,
+    build_template_context,
+    commit_session_flags,
+)
 from fishtest.http.cookie_session import load_session
 from fishtest.http.template_renderer import render_template_to_response
 from starlette.concurrency import run_in_threadpool
@@ -35,8 +39,7 @@ async def render_notfound_response(request: Request) -> Response:
         request,
         session,
         response,
-        remember=False,
-        forget=False,
+        flags=SessionCommitFlags(remember=False, forget=False),
     )
     return response
 
@@ -59,7 +62,6 @@ async def render_forbidden_response(request: Request) -> Response:
         request,
         session,
         response,
-        remember=False,
-        forget=False,
+        flags=SessionCommitFlags(remember=False, forget=False),
     )
     return response

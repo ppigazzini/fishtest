@@ -35,7 +35,69 @@ GLUE_VIEWS = REPO_ROOT / "server" / "fishtest" / "http" / "views.py"
 
 # Functions that are expected to diverge due to framework wiring or refactors.
 # Keep this list small and documented.
-EXPECTED_BODY_DRIFT: set[str] = set()
+#
+# Pre-M11: drifts inherited from earlier milestones (M0-M10).
+# M11-Phase1: replaced HTTPFound→RedirectResponse, HTTPNotFound→StarletteHTTPException,
+# route_url()→hardcoded paths, ensure_logged_in raise→return pattern.
+EXPECTED_BODY_DRIFT: set[str] = {
+    # --- Pre-M11 inherited drifts ---
+    "contributors",
+    "contributors_monthly",
+    "get_nets",
+    "get_paginated_finished_runs",
+    "get_sha",
+    "homepage_results",
+    "pagination",
+    "parse_spsa_params",
+    "tests",
+    "tests_finished",
+    "tests_machines",
+    "update_nets",
+    "validate_form",
+    # --- M11-Phase1 drifts ---
+    "actions",
+    "ensure_logged_in",
+    "home",
+    "login",
+    "logout",
+    "nns",
+    "signup",
+    "tests_approve",
+    "tests_delete",
+    "tests_live_elo",
+    "tests_modify",
+    "tests_purge",
+    "tests_run",
+    "tests_stats",
+    "tests_stop",
+    "tests_tasks",
+    "tests_view",
+    "tests_user",
+    "upload",
+    "user",
+    "user_management",
+    "validate_modify",
+    "workers",
+}
+
+# Functions expected to be missing from the http side (removed as dead code).
+EXPECTED_MISSING: set[str] = {
+    "notfound_view",  # M11-Phase1: dead code, 404 handled by errors.py
+}
+
+
+def _split_missing(names: set[str]) -> tuple[list[str], list[str]]:
+    unexpected = [name for name in names if name not in EXPECTED_MISSING]
+    expected = [name for name in names if name in EXPECTED_MISSING]
+    return unexpected, expected
+
+
+def _print_names(title: str, names: list[str]) -> None:
+    if not names:
+        return
+    print(f"\n{title}:")
+    for name in names[:200]:
+        print(" ", name)
 
 
 def _func_body_dumps(path: Path) -> dict[str, str]:
@@ -86,6 +148,7 @@ def main() -> int:
     glue = _func_body_dumps(GLUE_VIEWS)
 
     spec_only = sorted(set(spec) - set(glue))
+    spec_only_unexpected, spec_only_expected = _split_missing(set(spec_only))
     glue_only = sorted(set(glue) - set(spec))
     common = sorted(set(spec) & set(glue))
 
@@ -98,32 +161,20 @@ def main() -> int:
     print("http functions", len(glue))
     print("common functions", len(common))
     print("coverage ratio", f"{coverage:.3f}")
-    print("missing in http", len(spec_only))
+    print("missing in http", len(spec_only_unexpected))
+    print("expected missing", len(spec_only_expected))
     print("extra in http", len(glue_only))
     print("changed ast bodies", len(changed))
     print("expected drift bodies", len(allowed_changed))
 
-    if spec_only:
-        print("\nMissing in http:")
-        for name in spec_only[:200]:
-            print(" ", name)
+    _print_names("Missing in http", spec_only_unexpected)
+    _print_names("Expected missing (informational)", spec_only_expected)
+    _print_names("Extra in http", glue_only)
+    _print_names("Body drift", changed)
+    _print_names("Expected drift (informational)", allowed_changed)
 
-    if glue_only:
-        print("\nExtra in http:")
-        for name in glue_only[:200]:
-            print(" ", name)
-
-    if changed:
-        print("\nBody drift:")
-        for name in changed[:200]:
-            print(" ", name)
-
-    if allowed_changed:
-        print("\nExpected drift (informational):")
-        for name in allowed_changed[:200]:
-            print(" ", name)
-
-    if spec_only or changed or (args.strict and (glue_only or allowed_changed)):
+    strict_failures = args.strict and (glue_only or allowed_changed)
+    if spec_only_unexpected or changed or strict_failures:
         return 1
 
     print("OK: no function-body drift detected.")

@@ -14,9 +14,9 @@ This repo convention:
 
 - Treat `server/fishtest/api.py` and `server/fishtest/views.py` as the
 	**upstream behavioral spec** (they get rebased from upstream).
-- Treat `server/fishtest/glue/api.py` and `server/fishtest/glue/views.py` as
+- Treat `server/fishtest/http/api.py` and `server/fishtest/http/views.py` as
 	the **mechanical port hotspots** (see [3.0-ITERATION-RULES.md](3.0-ITERATION-RULES.md) for hotspot rules).
-- Prefer copy/paste of upstream logic into glue, with minimal FastAPI/Starlette
+- Prefer copy/paste of upstream logic into the http layer, with minimal FastAPI/Starlette
 	adaptation (no refactors).
 
 ## 0) Pre-flight
@@ -111,34 +111,34 @@ Practical approach:
 
 2. Decide whether the change affects:
 
-	 - FastAPI glue API (`server/fishtest/glue/api.py`)
-	 - FastAPI glue UI (`server/fishtest/glue/views.py`)
+	 - FastAPI HTTP layer API (`server/fishtest/http/api.py`)
+	 - FastAPI HTTP layer UI (`server/fishtest/http/views.py`)
 	 - Tests (server unit tests and FastAPI HTTP tests)
 	 - WIP parity scripts
 
-## 3) Update glue code (mechanical port only)
+## 3) Update HTTP layer code (mechanical port only)
 
 See [3.0-ITERATION-RULES.md](3.0-ITERATION-RULES.md) for hotspot rules and two-step landing strategy.
 
 Rule: when upstream changes a behavior in `server/fishtest/api.py` or
-`server/fishtest/views.py`, apply the same logic to glue with the smallest
+`server/fishtest/views.py`, apply the same logic to the HTTP layer with the smallest
 possible framework adaptations.
 
-### 3.1 Glue API parity
+### 3.1 HTTP API parity
 
-- File: `server/fishtest/glue/api.py`
+- File: `server/fishtest/http/api.py`
 - Typical work:
 	- Update request parsing / validation to match new schemas.
 	- Preserve worker-style error shaping (`/api/...: ...` + `duration`).
 	- Keep blocking work off the event loop (threadpool).
 
-### 3.2 Glue UI parity
+### 3.2 HTTP UI parity
 
-- File: `server/fishtest/glue/views.py`
+- File: `server/fishtest/http/views.py`
 - Typical work:
 	- Mirror form validation logic and error messages.
 	- Ensure every template variable added upstream is passed in the context.
-	- Keep Mako rendering off the event loop (threadpool).
+	- Keep Jinja2 rendering off the event loop (threadpool).
 
 ## 4) Update tests
 
@@ -167,7 +167,13 @@ Recommended (from repo root):
 	- `uv run python WIP/tools/parity_check_api_ast.py`
 	- `uv run python WIP/tools/parity_check_views_ast.py`
 	- `uv run python WIP/tools/parity_check_hotspots_similarity.py`
+	- `server/.venv/bin/python WIP/tools/parity_check_urls_dict.py`
 	- (optional inventory) `uv run python WIP/tools/parity_check_views_no_renderer.py`
+
+Template parity (verify Jinja2 vs legacy Mako parity unchanged):
+
+	- `server/.venv/bin/python WIP/tools/compare_template_parity.py`
+	- `server/.venv/bin/python WIP/tools/template_context_coverage.py`
 
 One-liner (stop on first failure):
 
@@ -179,7 +185,7 @@ One-liner (stop on first failure):
 
 Guideline:
 
-- If a parity script reports drift, fix glue first (mechanical port), then
+- If a parity script reports drift, fix the HTTP layer first (mechanical port), then
 	adjust the script only if upstream behavior genuinely changed.
 
 ## 6) Validate locally
@@ -198,10 +204,10 @@ Keep validation scoped:
 
 Prefer running these on *only the files you changed*.
 
-Example (changed glue hotspot + parity scripts):
+Example (changed HTTP hotspot + parity scripts):
 
 	- `cd server`
-	- `uv run ruff check fishtest/glue/views.py \
+	- `uv run ruff check fishtest/http/views.py \
 	  ../WIP/tools/parity_check_api_routes.py \
 	  ../WIP/tools/parity_check_views_routes.py \
 	  ../WIP/tools/parity_check_api_ast.py \
@@ -209,7 +215,7 @@ Example (changed glue hotspot + parity scripts):
 	  ../WIP/tools/parity_check_hotspots_similarity.py \
 	  ../WIP/tools/parity_check_views_no_renderer.py`
 
-	- `uv run ruff format --check fishtest/glue/views.py \
+	- `uv run ruff format --check fishtest/http/views.py \
 	  ../WIP/tools/parity_check_api_routes.py \
 	  ../WIP/tools/parity_check_views_routes.py \
 	  ../WIP/tools/parity_check_api_ast.py \
@@ -217,13 +223,10 @@ Example (changed glue hotspot + parity scripts):
 	  ../WIP/tools/parity_check_hotspots_similarity.py \
 	  ../WIP/tools/parity_check_views_no_renderer.py`
 
-	- `uv run ty check fishtest/glue/views.py \
-	  ../WIP/tools/parity_check_api_routes.py \
-	  ../WIP/tools/parity_check_views_routes.py \
-	  ../WIP/tools/parity_check_api_ast.py \
-	  ../WIP/tools/parity_check_views_ast.py \
-	  ../WIP/tools/parity_check_hotspots_similarity.py \
-	  ../WIP/tools/parity_check_views_no_renderer.py`
+Or use the bundled lint scripts:
+
+	- `bash WIP/tools/lint_http.sh`
+	- `bash WIP/tools/lint_tools.sh`
 
 ## 7) Record the rebase outcome
 
@@ -231,10 +234,10 @@ Example (changed glue hotspot + parity scripts):
 	 `WIP/docs/` describing:
 
 	 - What upstream changed
-	 - Which glue files were updated to match
+	 - Which HTTP layer files were updated to match
 	 - Which tests were added/updated
 
 	Practical option:
 	- Use `diff_upstream.txt` as the attachment/report for the PR/review.
 
-2. Prefer one small “sync” commit for the glue/test parity updates.
+2. Prefer one small "sync" commit for the HTTP layer/test parity updates.

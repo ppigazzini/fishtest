@@ -5,19 +5,16 @@ from pathlib import Path
 from unittest import mock
 
 from fishtest.app import _require_single_worker_on_primary
-from fishtest.http import cookie_session
+from fishtest.http import cookie_session, jinja
 from fishtest.http.api import WORKER_API_PATHS
 from fishtest.http.errors import _WORKER_API_PATHS
 from fishtest.http.middleware import _get_blocked_cached
 from fishtest.http.settings import AppSettings
-from fishtest.http.template_request import TemplateRequest
 from starlette.responses import Response
 
 
 class TemplateRequestStaticUrlTests(unittest.TestCase):
     def test_static_url_blocks_traversal(self):
-        from fishtest.http import template_request
-
         with tempfile.TemporaryDirectory() as tmpdir:
             static_dir = Path(tmpdir) / "static"
             static_dir.mkdir(parents=True, exist_ok=True)
@@ -25,29 +22,18 @@ class TemplateRequestStaticUrlTests(unittest.TestCase):
             outside = Path(tmpdir) / "secret.txt"
             outside.write_text("nope", encoding="utf-8")
 
-            original_dir = template_request._STATIC_DIR
-            template_request._STATIC_DIR = static_dir
-            template_request._static_file_token.cache_clear()
+            original_dir = jinja._STATIC_DIR
+            jinja._STATIC_DIR = static_dir
+            jinja._static_file_token.cache_clear()
             try:
-                req = TemplateRequest(
-                    headers={},
-                    cookies={},
-                    query_params={},
-                    session=cookie_session.CookieSession(data={}),
-                    authenticated_userid=None,
-                    userdb=object(),
-                    url="/tests",
-                )
-                url = req.static_url("fishtest:static/../secret.txt")
+                url = jinja.static_url("fishtest:static/../secret.txt")
                 self.assertTrue(url.startswith("/static/"))
                 self.assertNotIn("?x=", url)
             finally:
-                template_request._STATIC_DIR = original_dir
-                template_request._static_file_token.cache_clear()
+                jinja._STATIC_DIR = original_dir
+                jinja._static_file_token.cache_clear()
 
     def test_static_url_token_is_urlsafe(self):
-        from fishtest.http import template_request
-
         with tempfile.TemporaryDirectory() as tmpdir:
             static_dir = Path(tmpdir) / "static"
             static_dir.mkdir(parents=True, exist_ok=True)
@@ -55,51 +41,40 @@ class TemplateRequestStaticUrlTests(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text("body{}", encoding="utf-8")
 
-            original_dir = template_request._STATIC_DIR
-            template_request._STATIC_DIR = static_dir
-            template_request._static_file_token.cache_clear()
+            original_dir = jinja._STATIC_DIR
+            jinja._STATIC_DIR = static_dir
+            jinja._static_file_token.cache_clear()
             try:
-                req = TemplateRequest(
-                    headers={},
-                    cookies={},
-                    query_params={},
-                    session=cookie_session.CookieSession(data={}),
-                    authenticated_userid=None,
-                    userdb=object(),
-                    url="/tests",
-                )
-                url = req.static_url("fishtest:static/css/site.css")
+                url = jinja.static_url("fishtest:static/css/site.css")
                 self.assertIn("?x=", url)
                 token = url.split("?x=", 1)[1]
                 self.assertRegex(token, r"^[A-Za-z0-9_-]+$")
                 self.assertNotIn("=", token)
             finally:
-                template_request._STATIC_DIR = original_dir
-                template_request._static_file_token.cache_clear()
+                jinja._STATIC_DIR = original_dir
+                jinja._static_file_token.cache_clear()
 
     def test_static_token_cache_eviction(self):
-        from fishtest.http import template_request
-
         with tempfile.TemporaryDirectory() as tmpdir:
             static_dir = Path(tmpdir) / "static"
             static_dir.mkdir(parents=True, exist_ok=True)
             (static_dir / "a.txt").write_text("a", encoding="utf-8")
             (static_dir / "b.txt").write_text("b", encoding="utf-8")
 
-            original_dir = template_request._STATIC_DIR
-            template_request._STATIC_DIR = static_dir
-            template_request._static_file_token.cache_clear()
+            original_dir = jinja._STATIC_DIR
+            jinja._STATIC_DIR = static_dir
+            jinja._static_file_token.cache_clear()
             try:
-                template_request._static_file_token("a.txt")
-                template_request._static_file_token("b.txt")
-                cache_info = template_request._static_file_token.cache_info()
+                jinja._static_file_token("a.txt")
+                jinja._static_file_token("b.txt")
+                cache_info = jinja._static_file_token.cache_info()
                 self.assertLessEqual(
                     cache_info.currsize,
                     cache_info.maxsize,
                 )
             finally:
-                template_request._STATIC_DIR = original_dir
-                template_request._static_file_token.cache_clear()
+                jinja._STATIC_DIR = original_dir
+                jinja._static_file_token.cache_clear()
 
 
 class CookieSessionTests(unittest.TestCase):
@@ -116,44 +91,51 @@ class CookieSessionTests(unittest.TestCase):
         ):
             self.assertEqual(cookie_session._secret_key(), "insecure-dev-secret")
 
-    def test_commit_session_trims_flashes(self):
+    def test_session_middleware_trims_flashes(self):
         with mock.patch.dict(
             os.environ,
             {"FISHTEST_AUTHENTICATION_SECRET": "test-secret"},
             clear=True,
         ):
-            original_limit = cookie_session.MAX_COOKIE_BYTES
-            cookie_session.MAX_COOKIE_BYTES = 200
             try:
-                session = cookie_session.CookieSession(data={"flashes": {"": []}})
-                session.dirty = True
-                for i in range(100):
+                import fastapi_util
+            except ModuleNotFoundError:  # pragma: no cover
+                from tests import fastapi_util
+
+            _FastAPI, TestClient = fastapi_util.require_fastapi()
+            app = _FastAPI()
+
+            from fishtest.http.cookie_session import MAX_COOKIE_BYTES, load_session
+            from fishtest.http.session_middleware import FishtestSessionMiddleware
+
+            app.add_middleware(
+                FishtestSessionMiddleware,
+                secret_key=cookie_session.session_secret_key,
+                session_cookie=cookie_session.SESSION_COOKIE_NAME,
+                max_age=None,
+                same_site=cookie_session.DEFAULT_SAMESITE,
+                https_only=False,
+            )
+
+            from fastapi import Request
+
+            @app.get("/flash")
+            async def _flash(request: Request):
+                session = load_session(request)
+                for i in range(1000):
                     session.flash(f"msg-{i}")
+                return Response("ok")
 
-                response = Response()
-                cookie_session.commit_session(
-                    response=response,
-                    session=session,
-                    remember=False,
-                    secure=False,
-                )
-
-                set_cookie = response.headers.get("set-cookie")
-                self.assertIsNotNone(set_cookie)
-                cookie_value = set_cookie.split("fishtest_session=", 1)[1].split(
-                    ";",
-                    1,
-                )[0]
-                self.assertLessEqual(
-                    len(cookie_value.encode("utf-8")),
-                    cookie_session.MAX_COOKIE_BYTES,
-                )
-                self.assertLessEqual(
-                    len(session.data.get("flashes", {}).get("", [])),
-                    100,
-                )
-            finally:
-                cookie_session.MAX_COOKIE_BYTES = original_limit
+            client = TestClient(app)
+            response = client.get("/flash")
+            self.assertEqual(response.status_code, 200)
+            set_cookie = response.headers.get("set-cookie")
+            self.assertIsNotNone(set_cookie)
+            cookie_value = set_cookie.split("fishtest_session=", 1)[1].split(
+                ";",
+                1,
+            )[0]
+            self.assertLessEqual(len(cookie_value.encode("utf-8")), MAX_COOKIE_BYTES)
 
 
 class SettingsTests(unittest.TestCase):

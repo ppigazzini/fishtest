@@ -4,9 +4,9 @@
 
 # Fishtest architecture (repo snapshot)
 
-Date: **2026-02-09**
+Date: **2026-02-11**
 
-(Last updated: **2026-02-09** — Jinja2-only runtime; templates use `.html.j2`)
+(Last updated: **2026-02-11** — M11 complete; Pyramid shims removed; session via `itsdangerous`; pure ASGI middleware)
 
 This document describes the **current architecture of this repository**: what the major components are, how the server and worker interact, where the data lives, and what has changed (and *has not changed*) after the Pyramid → FastAPI replacement.
 
@@ -71,18 +71,18 @@ server/fishtest/
 │  ├─ api.py              # ALL /api/... endpoints (worker + public)
 │  ├─ views.py            # ALL UI endpoints (Jinja2 HTML)
 │  ├─ errors.py           # Error shaping: API JSON vs UI HTML
-│  ├─ boundary.py         # Threadpool + sync/async boundary helpers
-│  ├─ middleware.py       # Middleware (shutdown guard, request.state attach, redirects)
+│  ├─ boundary.py         # API request adapter + session commit helpers
+│  ├─ middleware.py        # Pure ASGI middleware (shutdown guard, request.state, blocked-user redirect)
+│  ├─ session_middleware.py# Pure ASGI session cookie middleware (itsdangerous TimestampSigner)
 │  ├─ settings.py         # Env parsing + derived runtime settings
 │  ├─ dependencies.py     # Typed dependency getters (RunDb/UserDb/etc)
-│  ├─ cookie_session.py   # Cookie session + CSRF + flashes for UI
+│  ├─ cookie_session.py   # Dict-backed session wrapper (CSRF, flash, auth helpers)
 │  ├─ csrf.py             # Shared CSRF validation helpers for UI POSTs
 │  ├─ ui_errors.py        # UI error rendering helpers (404/403)
 │  ├─ ui_context.py       # UI template context assembly helpers
-│  ├─ ui_pipeline.py      # UI dispatcher/response pipeline helpers
-│  ├─ template_request.py # UI request shim passed to templates
+│  ├─ ui_pipeline.py      # Cache-Control header helper
 │  ├─ template_renderer.py# TemplateResponse adapter (template/context debug)
-│  └─ jinja.py            # Jinja2 environment + render helpers
+│  └─ jinja.py            # Jinja2 environment + static_url + render helpers
 ├─ api.py                 # Pyramid-era API module kept as a behavioral spec (tests import it)
 ├─ views.py               # Pyramid-era views module kept as a behavioral spec (tests import it)
 ├─ templates_jinja2/      # Jinja2 templates (*.html.j2) used at runtime
@@ -180,8 +180,8 @@ Static files:
 
 Static URL cache-busting:
 
-- UI templates use a Pyramid-style helper (`request.static_url('fishtest:static/...')`).
-- The FastAPI template request shim preserves Pyramid behavior by appending a stable query-string token:
+- UI templates use a legacy-style helper (`static_url('fishtest:static/...')`).
+- The Jinja2 helper appends a stable query-string token:
   - `/static/<path>?x=<base64(sha384(file-bytes))>`
 - The token is URL-safe and only computed for safe paths under `static/` (path traversal is rejected).
 - Token computation is cached with bounded eviction to avoid repeated hashing.
@@ -242,7 +242,7 @@ Operational constraint enforcement:
 UI form POST behavior (CSRF + flash + redirects):
 
 - Implemented in `server/fishtest/http/views.py` using helpers from `server/fishtest/http/cookie_session.py` and `server/fishtest/http/csrf.py`.
-- UI routes build a small “template request” object (see `server/fishtest/http/template_request.py`) to preserve the Pyramid-era template contract.
+- Session data is loaded via `load_session()` (dict-backed, persisted by `session_middleware.py`).
 
 ---
 
@@ -398,26 +398,28 @@ The UI has two layers:
    - render a Jinja2 template
    - commit the session cookie
 
-2. **Templates** (Jinja2) that expect a `template_request` shim offering:
-   - `request.session.get_csrf_token()`
-   - `request.session.flash()` / `pop_flash()`
-   - `request.authenticated_userid`
-   - `request.static_url(...)`
+2. **Templates** (Jinja2) that expect a shared context offering:
+  - `csrf_token`
+  - `flash` queues (`error`/`warning`/`info`)
+  - `current_user`
+  - `static_url(...)`
+  - `request` (for `url_for`, `query_params`, and cookies)
 
 The FastAPI implementation provides a small compatibility layer via:
 
-- `server/fishtest/http/template_request.py:TemplateRequest`
-- `server/fishtest/http/cookie_session.py` (CSRF + flash support)
+- `server/fishtest/http/cookie_session.py` (dict-backed CSRF + flash helpers)
+- `server/fishtest/http/jinja.py` (`static_url` global)
+- `server/fishtest/http/session_middleware.py` (cookie persistence)
 
-### 7.1 FastAPI HTTP glue (Pyramid template compatibility)
+### 7.1 FastAPI HTTP glue (template context compatibility)
 
-Fishtest’s UI templates were originally written for Pyramid and expect a Pyramid-style request object and session API. The FastAPI server keeps the existing templates by providing a small set of compatibility shims.
+Fishtest’s UI templates were originally written for Pyramid and expect stable session and helper surfaces. The FastAPI server keeps the existing templates by providing a small set of compatibility helpers.
 
-Why these shims exist:
+Why these helpers exist:
 
-- The templates (notably `base.html.j2`) depend on Pyramid-style **flash messages** and **CSRF token** access (`request.session.*`).
-- The templates also use Pyramid’s `request.static_url("fishtest:static/...")` asset notation.
-- Rewriting all templates at once would be high-risk and provides little user value, so the shims preserve the existing template contract while the HTTP framework is FastAPI.
+- The templates (notably `base.html.j2`) depend on **flash messages** and **CSRF token** access.
+- The templates also use the legacy `static_url("fishtest:static/...")` asset notation.
+- Rewriting all templates at once would be high-risk and provides little user value, so the helpers preserve the existing template contract while the HTTP framework is FastAPI.
 
 ### 7.2 How `http/views.py` adapts Pyramid views
 
@@ -425,15 +427,15 @@ Pyramid UI code relies on decorators + implicit request/session/response behavio
 
 Mechanics:
 
-- **Decorator metadata instead of Pyramid scanning**: decorators equivalent to `@view_config`/`@notfound_view_config`/`@forbidden_view_config` store metadata on callables (route name/path, methods, renderer template, permission, CSRF requirement). A registration step walks module globals and registers FastAPI routes from that metadata.
+- **Data-driven route registration**: UI routes are defined in a `_VIEW_ROUTES` list of `(function, path, config)` tuples. A registration function walks this list and calls `router.add_api_route()` for each entry. There are no Pyramid-style decorator stubs.
 - **Central dispatch pipeline**: instead of re-implementing session/CSRF/template logic per route, UI requests flow through a single dispatcher that:
-  - loads the cookie session and constructs a template request object,
-  - parses form data for POST so legacy-style `request.POST` access works,
+  - loads the cookie session (dict-backed, persisted by `session_middleware.py`) and constructs the shared template context,
+  - parses form data for POST,
   - enforces CSRF only where required,
   - runs the synchronous view handler in a threadpool,
-  - converts Pyramid-style outcomes (dict-for-template, redirect/notfound/forbidden-style control flow) into Starlette responses,
+  - handles `RedirectResponse` returns and `HTTPException` raises for control flow,
   - renders Jinja2 templates off the event loop (threadpool) and returns HTML,
-  - commits or clears the session cookie and propagates response headers/status.
+  - applies response headers, cache controls, and session flags.
 
 This is why UI routes behave like Pyramid pages (HTML 404/login pages, redirects, flashes) instead of FastAPI’s default JSON validation errors.
 
@@ -443,8 +445,7 @@ Purpose: provide a minimal session implementation that satisfies template expect
 
 What it does:
 
-- Stores session data client-side in a cookie named `fishtest_session`.
-- Signs the cookie payload using HMAC (key derived from `FISHTEST_AUTHENTICATION_SECRET`).
+- Wraps a dict stored in `request.scope["session"]`.
 - Implements:
 
   - CSRF token generation/rotation (`get_csrf_token()`, `new_csrf_token()`)
@@ -452,8 +453,8 @@ What it does:
 - Provides helpers used by FastAPI routes:
 
   - `load_session(request)`
-  - `commit_session(response=..., session=..., remember=..., secure=...)`
-  - `clear_session_cookie(response=..., secure=...)`
+  - `mark_session_max_age(request, max_age)`
+  - `mark_session_force_clear(request)`
 
 Notes:
 
@@ -461,6 +462,29 @@ Notes:
 - Routes decide whether cookies are `Secure` using `fishtest.http.cookie_session.is_https()`.
 - `FISHTEST_AUTHENTICATION_SECRET` must be set in production; an insecure dev fallback is only enabled via explicit opt-in (e.g. `FISHTEST_INSECURE_DEV=1`).
 - Session cookie growth is capped; flash queues are trimmed deterministically to stay within cookie limits.
+
+#### `server/fishtest/http/session_middleware.py`
+
+Purpose: persist the session dict to a signed cookie using `itsdangerous.TimestampSigner`.
+
+What it does:
+
+- Pure ASGI middleware (`FishtestSessionMiddleware`) that reads/writes the `fishtest_session` cookie.
+- On request: decodes the cookie, populates `scope["session"]` as a mutable dict.
+- On response: re-encodes the session dict if non-empty, sets the `Set-Cookie` header.
+- Supports per-request overrides via scope flags:
+  - `session_max_age` — per-request `Max-Age` (for "remember me" login)
+  - `session_secure` — per-request `Secure` flag
+  - `session_force_clear` — force cookie deletion (logout)
+- Enforces a max cookie size (`MAX_COOKIE_BYTES`); trims flash queues if the session exceeds the limit.
+
+Notes:
+
+- Cookie format: `base64(json(session)).timestamp.HMAC-SHA1-signature` (via `itsdangerous.TimestampSigner`).
+- Cookie name is configurable (default: `fishtest_session`).
+- `itsdangerous` is listed as an explicit dependency in `server/pyproject.toml`.
+- Secret key supports lazy initialization via a callable.
+- The per-request `max_age` override is the main divergence from Starlette's built-in `SessionMiddleware` (which only supports a single `max_age` at construction).
 
 Legacy Mako templates are rendered only by parity tools under WIP/tools. There is
 no runtime Mako renderer in the server package.
@@ -473,26 +497,6 @@ Notes:
 
 - Jinja2 rendering uses Starlette `Jinja2Templates` with a custom `Environment` and autoescape enabled for `.html.j2`.
 - UI rendering uses a unified response adapter that attaches `template` and `context` to responses for test/debug parity.
-
-#### `server/fishtest/http/template_request.py:TemplateRequest`
-
-Purpose: provide a small “request-like” object passed to templates as `template_request`.
-
-This object deliberately implements only the minimal surface area that templates currently rely on:
-
-- `request.session`: a `CookieSession` (CSRF + flashes)
-- `request.authenticated_userid`: current user name (or `None`)
-- `request.cookies`, `request.headers`, `request.query_params`
-- `request.GET`: Pyramid-compatible alias for query params
-- `request.static_url("fishtest:static/...")`: maps old Pyramid asset specs to `/static/...`
-
-The key idea: UI route handlers can stay small and predictable, while the templates remain largely unchanged.
-
-Note on `url_for` in templates:
-
-- Jinja2 templates call `url_for(...)` via Starlette's injected global (added by `Jinja2Templates`).
-- Legacy call sites use `template_request.url_for(...)` when needed.
-- Both paths delegate to the raw FastAPI `Request.url_for(...)`, so routes resolve consistently.
 
 #### `server/fishtest/http/csrf.py`
 
@@ -514,15 +518,15 @@ Concrete differences:
 - **Registration**
 
   - Pyramid: route config + decorator scanning.
-  - HTTP: explicit FastAPI router registration; UI uses decorator metadata + a registration pass.
+  - HTTP: explicit FastAPI router registration; UI uses a data-driven `_VIEW_ROUTES` list + `router.add_api_route()` calls.
 - **Request/response objects**
 
   - Pyramid: rich request/response types.
-  - HTTP: small shims for the handful of attributes used by legacy codepaths (`json_body`, `matchdict`, `POST/params`, response headers/status), plus a separate `TemplateRequest` for templates.
+  - HTTP: two thin adapters remain — `_ViewContext` (UI views, provides session/DB/auth/URL access) and `ApiRequestShim` (API endpoints, provides `rundb`/`json_body`/`matchdict`/`params`) — plus a shared template context (`csrf_token`, `flash`, `current_user`, `static_url`). No Pyramid-era shim classes, response shims, or decorator stubs remain.
 - **Exceptions and control flow**
 
   - Pyramid: `HTTPFound`/`HTTPNotFound`/`HTTPForbidden` exceptions.
-  - HTTP: internal equivalents are caught by the dispatcher and turned into Starlette responses, while still committing UI session cookies and preserving HTML-vs-JSON behavior.
+  - HTTP: uses native Starlette/FastAPI patterns — `RedirectResponse` for redirects, `raise HTTPException(status_code=404)` for not-found, `raise HTTPException(status_code=403)` for forbidden. No Pyramid exception shims remain.
 - **Streaming**
 
   - Pyramid: WSGI iteration (`FileIter`).

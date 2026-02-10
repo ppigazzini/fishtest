@@ -16,10 +16,14 @@ from typing import TYPE_CHECKING, Any, cast
 
 import fishtest.github_api as gh
 from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fishtest import schemas
 from fishtest.http.api import router as api_router
+from fishtest.http.cookie_session import (
+    DEFAULT_SAMESITE,
+    SESSION_COOKIE_NAME,
+    session_secret_key,
+)
 from fishtest.http.errors import install_error_handlers
 from fishtest.http.middleware import (
     AttachRequestStateMiddleware,
@@ -27,6 +31,7 @@ from fishtest.http.middleware import (
     RejectNonPrimaryWorkerApiMiddleware,
     ShutdownGuardMiddleware,
 )
+from fishtest.http.session_middleware import FishtestSessionMiddleware
 from fishtest.http.settings import AppSettings, default_static_dir
 from fishtest.http.views import router as views_router
 from fishtest.rundb import RunDb
@@ -137,6 +142,14 @@ def create_app() -> FastAPI:
     app.add_middleware(cast("Any", AttachRequestStateMiddleware))
     app.add_middleware(cast("Any", RejectNonPrimaryWorkerApiMiddleware))
     app.add_middleware(cast("Any", RedirectBlockedUiUsersMiddleware))
+    app.add_middleware(
+        cast("Any", FishtestSessionMiddleware),
+        secret_key=session_secret_key,
+        session_cookie=SESSION_COOKIE_NAME,
+        max_age=None,
+        same_site=DEFAULT_SAMESITE,
+        https_only=False,
+    )
 
     static_dir = default_static_dir()
 
@@ -145,10 +158,6 @@ def create_app() -> FastAPI:
         StaticFiles(directory=str(static_dir)),
         name="static",
     )
-
-    @app.get("/", include_in_schema=False)
-    async def home() -> RedirectResponse:
-        return RedirectResponse(url="/tests", status_code=302)
 
     app.include_router(views_router)
     app.include_router(api_router)

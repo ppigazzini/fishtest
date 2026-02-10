@@ -1,6 +1,6 @@
 """UI request context helpers for FastAPI HTTP views.
 
-Ownership: assemble the request-scoped context (DB handles + template request).
+Ownership: assemble the request-scoped context (DB handles + request metadata).
 """
 
 from __future__ import annotations
@@ -15,13 +15,11 @@ from fishtest.http.dependencies import (
     get_userdb,
     get_workerdb,
 )
-from fishtest.http.ui_pipeline import build_template_request
 
 if TYPE_CHECKING:
     from fastapi import Request
     from fishtest.actiondb import ActionDb
     from fishtest.http.cookie_session import CookieSession
-    from fishtest.http.template_request import TemplateRequest
     from fishtest.rundb import RunDb
     from fishtest.userdb import UserDb
     from fishtest.workerdb import WorkerDb
@@ -39,11 +37,10 @@ class UIRequestContext:
     workerdb: WorkerDb
     url: str
     base_url: str
-    template_request: TemplateRequest
 
 
 def build_ui_context(request: Request, session: CookieSession) -> UIRequestContext:
-    """Build a UI request context with DB handles and template request."""
+    """Build a UI request context with DB handles and request metadata."""
     return UIRequestContext(
         session=session,
         authenticated_userid=authenticated_user(session),
@@ -53,5 +50,4 @@ def build_ui_context(request: Request, session: CookieSession) -> UIRequestConte
         workerdb=get_workerdb(request),
         url=str(request.url),
         base_url=str(request.base_url).rstrip("/"),
-        template_request=build_template_request(request, session),
     )

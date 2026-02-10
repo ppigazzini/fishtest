@@ -19,7 +19,14 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from starlette.routing import Route
+try:
+    from starlette.routing import Route
+except ModuleNotFoundError:
+    try:
+        from fastapi.routing import APIRoute as Route
+    except ModuleNotFoundError as exc:  # pragma: no cover
+        message = "starlette (or fastapi) is required to validate router paths"
+        raise ModuleNotFoundError(message) from exc
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SERVER_ROOT = REPO_ROOT / "server"

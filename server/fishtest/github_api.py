@@ -17,6 +17,8 @@ GITHUB_API_VERSION = 2
 TIMEOUT = 3
 INITIAL_RATELIMIT = 5000
 LRU_CACHE_SIZE = 6000
+_RETRYABLE_STATUS = {502, 503, 504}
+_MAX_RETRIES = 2
 
 _api_initialized = False
 
@@ -80,7 +82,22 @@ def call(url, *args, _method="GET", _ignore_rate_limit=False, **kwargs):
     if "GH_TOKEN" in os.environ:
         headers["Authorization"] = "Bearer " + os.environ["GH_TOKEN"]
 
-    r = requests.request(_method, url, *args, headers=headers, **kwargs)
+    r = None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            r = requests.request(_method, url, *args, headers=headers, **kwargs)
+        except requests.RequestException:
+            if attempt >= _MAX_RETRIES or _method not in {"GET", "HEAD"}:
+                raise
+            time.sleep(0.2 * (2**attempt))
+            continue
+
+        if _method in {"GET", "HEAD"} and r.status_code in _RETRYABLE_STATUS:
+            if attempt >= _MAX_RETRIES:
+                break
+            time.sleep(0.2 * (2**attempt))
+            continue
+        break
     resource = r.headers.get("X-RateLimit-Resource", "")
     if resource == "core":
         _github_rate_limit["remaining"] = int(

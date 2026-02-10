@@ -107,7 +107,11 @@ class TestHttpMiddleware(unittest.TestCase):
         self.assertIn("/api/request_task", body["error"])
 
     def test_redirect_blocked_ui_users(self):
-        from fishtest.http.cookie_session import SESSION_COOKIE_NAME, _encode_cookie
+        import json
+        from base64 import b64encode
+
+        from fishtest.http.cookie_session import SESSION_COOKIE_NAME, session_secret_key
+        from itsdangerous import TimestampSigner
 
         os.environ.setdefault("FISHTEST_AUTHENTICATION_SECRET", "test-secret")
 
@@ -125,7 +129,9 @@ class TestHttpMiddleware(unittest.TestCase):
             return {"ok": True}
 
         client = self.TestClient(app)
-        cookie_value = _encode_cookie({"user": "blocked_user"})
+        signer = TimestampSigner(session_secret_key())
+        data = b64encode(json.dumps({"user": "blocked_user"}).encode("utf-8"))
+        cookie_value = signer.sign(data).decode("utf-8")
         client.cookies.set(SESSION_COOKIE_NAME, cookie_value)
         response = client.get("/tests", follow_redirects=False)
         self.assertEqual(response.status_code, 302)

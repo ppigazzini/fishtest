@@ -48,7 +48,7 @@ class AppSettings:
         port = env_int("FISHTEST_PORT", default=-1)
         primary_port = env_int("FISHTEST_PRIMARY_PORT", default=-1)
 
-        # Match Pyramid behavior: if the port number cannot be determined,
+        # Legacy behavior: if the port number cannot be determined,
         # assume the instance is primary for backward compatibility.
         if port < 0 or primary_port < 0:
             is_primary_instance = True

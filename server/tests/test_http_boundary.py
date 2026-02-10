@@ -127,7 +127,7 @@ class TestHttpBoundary(unittest.TestCase):
         self.assertIsNone(body["body"])
 
     def test_template_context_includes_helpers(self):
-        from fishtest.http import template_request
+        from fishtest.http import jinja
         from fishtest.http.boundary import build_template_context
         from fishtest.http.cookie_session import CookieSession
 
@@ -138,13 +138,12 @@ class TestHttpBoundary(unittest.TestCase):
             session = CookieSession(data={"user": "TestUser"})
             session.flash("hello")
             context = build_template_context(request, session)
-            template_req = context["template_request"]
             self.assertTrue(hasattr(context["request"], "scope"))
             return {
-                "csrf": template_req.session.get_csrf_token(),
-                "user": template_req.authenticated_userid,
+                "csrf": context["csrf_token"],
+                "user": context["current_user"]["username"],
                 "flash": context["flash"],
-                "static_url": template_req.static_url("fishtest:static/css/site.css"),
+                "static_url": context["static_url"]("fishtest:static/css/site.css"),
             }
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -153,15 +152,15 @@ class TestHttpBoundary(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text("body{}", encoding="utf-8")
 
-            original_dir = template_request._STATIC_DIR
-            template_request._STATIC_DIR = static_dir
-            template_request._static_file_token.cache_clear()
+            original_dir = jinja._STATIC_DIR
+            jinja._STATIC_DIR = static_dir
+            jinja._static_file_token.cache_clear()
             try:
                 client = self.TestClient(app)
                 response = client.get("/context")
             finally:
-                template_request._STATIC_DIR = original_dir
-                template_request._static_file_token.cache_clear()
+                jinja._STATIC_DIR = original_dir
+                jinja._static_file_token.cache_clear()
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
@@ -173,13 +172,13 @@ class TestHttpBoundary(unittest.TestCase):
 
     def test_session_remember_commit_cookie(self):
         from fishtest.http.boundary import commit_session_response, remember
-        from fishtest.http.cookie_session import REMEMBER_MAX_AGE_SECONDS, CookieSession
+        from fishtest.http.cookie_session import load_session
 
         app = self._build_app()
 
         @app.get("/remember")
         async def _remember_probe(request: Request):
-            session = CookieSession(data={})
+            session = load_session(request)
             shim = SimpleNamespace(session=session, _remember=False, _forget=False)
             remember(shim, "Tester", max_age=60)
             response = Response("ok")
@@ -191,17 +190,18 @@ class TestHttpBoundary(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         cookie = response.headers.get("set-cookie", "")
         self.assertIn("fishtest_session=", cookie)
-        self.assertIn(f"Max-Age={REMEMBER_MAX_AGE_SECONDS}", cookie)
+        self.assertIn("Max-Age=60", cookie)
 
     def test_session_forget_commit_cookie(self):
         from fishtest.http.boundary import commit_session_response, forget
-        from fishtest.http.cookie_session import CookieSession
+        from fishtest.http.cookie_session import load_session
 
         app = self._build_app()
 
         @app.get("/forget")
         async def _forget_probe(request: Request):
-            session = CookieSession(data={"user": "Tester"})
+            session = load_session(request)
+            session.data["user"] = "Tester"
             shim = SimpleNamespace(session=session, _remember=False, _forget=False)
             forget(shim)
             response = Response("ok")

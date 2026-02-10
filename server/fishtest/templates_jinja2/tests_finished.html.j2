@@ -1,16 +1,5 @@
 {% extends "base.html.j2" %}
 
-{% set query_params = request.query_params if request is defined else {} %}
-{% set title = "" %}
-{% if "ltc_only" in query_params %}
-  {% set title = title ~ " - LTC" %}
-{% endif %}
-{% if "success_only" in query_params %}
-  {% set title = title ~ " - Greens" %}
-{% endif %}
-{% if "yellow_only" in query_params %}
-  {% set title = title ~ " - Yellows" %}
-{% endif %}
 {% block title %}Finishes Test{{ title }} | Stockfish Testing{% endblock %}
 {% block body %}
 <h2>

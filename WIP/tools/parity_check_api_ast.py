@@ -104,11 +104,29 @@ def _body_dump(fn: ast.AST) -> str:
 
 
 class _BodyNormalizer(ast.NodeTransformer):
+    def visit_If(self, node: ast.If) -> ast.AST | list[ast.stmt]:
+        new_node = self.generic_visit(node)
+        if not isinstance(new_node, ast.If):
+            return new_node
+        node = new_node
+
+        # Normalize "if ...: return ... else: ..." into
+        # "if ...: return ..." followed by the else body.
+        if node.orelse and _ends_with_return(node.body):
+            normalized_if = ast.If(test=node.test, body=node.body, orelse=[])
+            return [normalized_if, *node.orelse]
+
+        return node
+
     def visit_Call(self, node: ast.Call) -> ast.AST:
         visited = self.generic_visit(node)
         if not isinstance(visited, ast.Call):
             return visited
         node = visited
+
+        normalized_format = _format_call_to_joined_str(node)
+        if normalized_format is not None:
+            return normalized_format
 
         # Normalize Pyramid-style handle_error(exception=HTTPNotFound)
         # to http-style handle_error(status_code=404).
@@ -173,6 +191,48 @@ def _normalize_body(body: list[ast.stmt]) -> list[ast.stmt]:
     for stmt in out:
         ast.fix_missing_locations(stmt)
     return out
+
+
+def _ends_with_return(body: list[ast.stmt]) -> bool:
+    if not body:
+        return False
+    last = body[-1]
+    return isinstance(last, ast.Return)
+
+
+def _format_call_to_joined_str(node: ast.Call) -> ast.JoinedStr | None:
+    template: str | None = None
+    if (
+        not node.keywords
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "format"
+    ):
+        func_value = node.func.value
+        if isinstance(func_value, ast.Constant) and isinstance(func_value.value, str):
+            template = func_value.value
+
+    if template is None:
+        return None
+    parts = template.split("{}")
+    if len(parts) != len(node.args) + 1:
+        return None
+
+    values: list[ast.expr] = []
+    for idx, part in enumerate(parts):
+        if part:
+            values.append(ast.Constant(part))
+        if idx < len(node.args):
+            values.append(
+                ast.FormattedValue(
+                    value=node.args[idx],
+                    conversion=-1,
+                    format_spec=None,
+                ),
+            )
+
+    joined = ast.JoinedStr(values=values)
+    ast.fix_missing_locations(joined)
+    return joined
 
 
 def _literal_str(value_node: ast.AST) -> str | None:

@@ -141,7 +141,7 @@
         "games": 200,
         "tests_repo": "https://github.com/official-stockfish/Stockfish",
         "user_url": "/user/alice",
-        "last_updated_label": "6 days ago",
+        "last_updated_label": "7 days ago",
         "last_updated_sort": -1770163200.0,
         "tests_repo_url": "https://github.com/official-stockfish/Stockfish",
         "tests_user_url": "/tests/user/alice"
@@ -201,7 +201,7 @@
         "version_label": "1.0",
         "run_url": "/tests/view/run1?show_task=0",
         "run_label": "branch/0",
-        "last_active_label": "6 days ago",
+        "last_active_label": "7 days ago",
         "last_active_sort": -1770163200.0
       }
     ]
@@ -687,6 +687,8 @@
       "yellow_only": false,
       "ltc_only": false
     },
+    "query_params": {},
+    "title": "",
     "title_suffix": "",
     "title_text": "Finished Tests - page 1 | Stockfish Testing",
     "show_gauge": false,
@@ -766,7 +768,7 @@
         "owner_email": "alice@example.com",
         "subject": "Issue",
         "body": "Body",
-        "last_updated_label": "6 days ago",
+        "last_updated_label": "7 days ago",
         "actions_url": "/actions?text=%22worker-1234%22",
         "mailto_url": "mailto:alice@example.com?subject=Issue&body=Body"
       }
@@ -776,7 +778,7 @@
     "last_updated": {
       "__datetime__": "2026-02-04T00:00:00+00:00"
     },
-    "last_updated_label": "6 days ago",
+    "last_updated_label": "7 days ago",
     "blocked": false
   }
 }

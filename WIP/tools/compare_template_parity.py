@@ -33,7 +33,7 @@ import os
 import re
 import sys
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from difflib import SequenceMatcher, unified_diff
 from html.parser import HTMLParser
 from pathlib import Path
@@ -56,7 +56,36 @@ from WIP.tools._stubs import (
     with_helpers as _with_helpers,
     with_request_stub as _with_request_stub,
 )
+from fishtest import util
 from fishtest.http import jinja as jinja_renderer
+from fishtest.http import template_helpers as helpers
+from fishtest.util import plural
+
+_FIXED_NOW = datetime(2026, 2, 11, tzinfo=UTC)
+
+
+def _format_time_ago_fixed(date: datetime) -> str:
+    if date == datetime.min.replace(tzinfo=UTC):
+        return "Never"
+    elapsed_time = _FIXED_NOW - date
+    time_values = (
+        elapsed_time.days,
+        elapsed_time.seconds // 3600,
+        elapsed_time.seconds // 60,
+    )
+    time_units = "day", "hour", "minute"
+    for value, unit in zip(time_values, time_units, strict=False):
+        if value >= 1:
+            unit_label = plural(value, unit)
+            return f"{value:d} {unit_label} ago"
+    return "seconds ago"
+
+
+def _freeze_time_helpers() -> None:
+    formatter: Any = _format_time_ago_fixed
+    util.format_time_ago = formatter  # type: ignore[assignment]
+    helpers.format_time_ago = formatter  # type: ignore[assignment]
+
 
 DEFAULT_MAKO_DIR = REPO_ROOT / "server" / "fishtest" / "templates"
 DEFAULT_JINJA_DIR = REPO_ROOT / "server" / "fishtest" / "templates_jinja2"
@@ -484,6 +513,8 @@ def _emit_results(
 def main() -> int:
     """Compare rendered HTML between template engines."""
     args = _parse_args()
+
+    _freeze_time_helpers()
 
     if args.jinja_dir is not None:
         os.environ[jinja_renderer.TEMPLATES_DIR_ENV] = str(args.jinja_dir)

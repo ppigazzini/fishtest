@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import base64
 import copy
 import datetime
+import hashlib
 import math
 import urllib.parse
 from dataclasses import dataclass
+from functools import lru_cache
 from os import environ
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
@@ -26,9 +29,10 @@ if TYPE_CHECKING:
 
 REPO_ROOT_DEPTH: Final[int] = 3
 TEMPLATES_DIR_ENV: Final[str] = "FISHTEST_JINJA_TEMPLATES_DIR"
-_MISSING_REQUEST_ERROR: Final[str] = (
-    "context must include TemplateRequest under 'request'"
-)
+_MISSING_REQUEST_ERROR: Final[str] = "context must include Request under 'request'"
+_STATIC_DIR: Final[Path] = Path(__file__).resolve().parents[1] / "static"
+_STATIC_URL_PARAM: Final[str] = "x"
+_STATIC_TOKEN_CACHE_MAX: int = 1024
 
 
 def _repo_root() -> Path:
@@ -42,6 +46,44 @@ def templates_dir() -> Path:
     if raw:
         return Path(raw)
     return _repo_root() / "server" / "fishtest" / "templates_jinja2"
+
+
+@lru_cache(maxsize=_STATIC_TOKEN_CACHE_MAX)
+def _static_file_token(rel_path: str) -> str | None:
+    """Return a cache-buster token for a static file."""
+    rel_path = rel_path.replace("\\", "/")
+    rel_obj = Path(rel_path)
+    if rel_obj.is_absolute() or ".." in rel_obj.parts:
+        return None
+
+    file_path = (_STATIC_DIR / rel_path).resolve()
+    try:
+        file_path.relative_to(_STATIC_DIR)
+    except ValueError:
+        return None
+    try:
+        content = file_path.read_bytes()
+    except OSError:
+        return None
+
+    return (
+        base64.urlsafe_b64encode(hashlib.sha384(content).digest())
+        .decode("utf-8")
+        .rstrip("=")
+    )
+
+
+def static_url(spec: str) -> str:
+    """Map a legacy asset spec to the FastAPI static mount."""
+    prefix = "fishtest:static/"
+    rel_path = spec.removeprefix(prefix)
+    rel_path = rel_path.lstrip("/")
+
+    url = "/static/" + rel_path
+    token = _static_file_token(rel_path)
+    if token is None:
+        return url
+    return f"{url}?{_STATIC_URL_PARAM}={token}"
 
 
 class MakoUndefined(Undefined):
@@ -98,6 +140,7 @@ def default_environment() -> Environment:
             "tests_repo": helpers.tests_repo,
             "urllib": urllib.parse,
             "worker_name": helpers.worker_name,
+            "static_url": static_url,
         },
     )
     return env

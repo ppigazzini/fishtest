@@ -29,12 +29,18 @@ def build_test_app(*, rundb: Any, include_api: bool, include_views: bool):
     FastAPI, _TestClient = require_fastapi()
 
     try:
+        from fishtest.http.cookie_session import (
+            DEFAULT_SAMESITE,
+            SESSION_COOKIE_NAME,
+            session_secret_key,
+        )
         from fishtest.http.errors import install_error_handlers
         from fishtest.http.middleware import (
             AttachRequestStateMiddleware,
             RedirectBlockedUiUsersMiddleware,
             ShutdownGuardMiddleware,
         )
+        from fishtest.http.session_middleware import FishtestSessionMiddleware
     except ModuleNotFoundError as exc:  # pragma: no cover
         raise unittest.SkipTest(
             f"Server dependencies missing ({exc.name}); skipping FastAPI HTTP tests",
@@ -53,6 +59,14 @@ def build_test_app(*, rundb: Any, include_api: bool, include_views: bool):
     app.add_middleware(ShutdownGuardMiddleware)
     app.add_middleware(AttachRequestStateMiddleware)
     app.add_middleware(RedirectBlockedUiUsersMiddleware)
+    app.add_middleware(
+        FishtestSessionMiddleware,
+        secret_key=session_secret_key,
+        session_cookie=SESSION_COOKIE_NAME,
+        max_age=None,
+        same_site=DEFAULT_SAMESITE,
+        https_only=False,
+    )
 
     if include_api:
         try:

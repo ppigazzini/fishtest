@@ -2,7 +2,6 @@ import copy
 import gzip
 import hashlib
 import html
-import json
 import os
 import re
 from datetime import UTC, datetime
@@ -20,7 +19,6 @@ from fastapi import (
 )
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fishtest.http.boundary import (
-    apply_response_headers,
     build_template_context,
     commit_session_response,
     csrf_or_403,
@@ -86,145 +84,37 @@ FORM_MAX_FIELDS = 200
 FORM_MAX_PART_SIZE = 200 * 1024 * 1024
 
 router = APIRouter(tags=["ui"], include_in_schema=False)
-_ROUTE_PATHS = {
-    "home": "/",
-    "login": "/login",
-    "nn_upload": "/upload",
-    "logout": "/logout",
-    "signup": "/signup",
-    "user": "/user/{username}",
-    "profile": "/user",
-    "user_management": "/user_management",
-    "contributors": "/contributors",
-    "contributors_monthly": "/contributors/monthly",
-    "actions": "/actions",
-    "nns": "/nns",
-    "sprt_calc": "/sprt_calc",
-    "rate_limits": "/rate_limits",
-    "workers": "/workers/{worker_name}",
-    "tests": "/tests",
-    "tests_machines": "/tests/machines",
-    "tests_finished": "/tests/finished",
-    "tests_run": "/tests/run",
-    "tests_view": "/tests/view/{id}",
-    "tests_tasks": "/tests/tasks/{id}",
-    "tests_user": "/tests/user/{username}",
-    "tests_stats": "/tests/stats/{id}",
-    "tests_live_elo": "/tests/live_elo/{id}",
-    "tests_modify": "/tests/modify",
-    "tests_delete": "/tests/delete",
-    "tests_stop": "/tests/stop",
-    "tests_approve": "/tests/approve",
-    "tests_purge": "/tests/purge",
-}
 
 
-class HTTPFound(Exception):
-    def __init__(self, location="", headers=None):
-        super().__init__(location)
-        self.location = location
-        self.headers = headers or []
-
-
-class HTTPNotFound(Exception):
-    pass
-
-
-def view_config(**kw):
-    def deco(fn):
-        configs = getattr(fn, "__view_configs__", None)
-        if configs is None:
-            configs = []
-            setattr(fn, "__view_configs__", configs)
-        configs.append(dict(kw))
-        return fn
-
-    return deco
-
-
-def notfound_view_config(**kw):
-    def deco(fn):
-        setattr(fn, "__notfound_view_config__", dict(kw))
-        return fn
-
-    return deco
-
-
-def forbidden_view_config(**kw):
-    def deco(fn):
-        setattr(fn, "__forbidden_view_config__", dict(kw))
-        return fn
-
-    return deco
-
-
-class _ResponseShim:
-    def __init__(self):
-        self.status = 200
-        self.content_type = "text/html"
-        self.body = b""
-        self.headers = {}
-        self.headerlist = []
-
-
-class _CombinedParams:
-    def __init__(self, query_params, post_params):
-        self._q = query_params
-        self._p = post_params
-
-    def _merged(self):
-        merged = dict(self._q)
-        if self._p is not None:
-            merged.update(dict(self._p))
-        return merged
-
-    def get(self, key, default=None):
-        if self._p is not None and key in self._p:
-            return self._p.get(key)
-        return self._q.get(key, default)
-
-    def keys(self):
-        return self._merged().keys()
-
-    def items(self):
-        return self._merged().items()
-
-    def __iter__(self):
-        return iter(self.keys())
-
-    def __len__(self):
-        return len(self._merged())
-
-    def __contains__(self, key):
-        return (self._p is not None and key in self._p) or key in self._q
-
-    def __getitem__(self, key):
-        if self._p is not None and key in self._p:
-            return self._p[key]
-        return self._q[key]
-
-
-class _RequestShim:
+class _ViewContext:
     def __init__(self, request, session, post, matchdict, context=None):
         self._request = request
+        self.raw_request = request
         self.session = session
         self.POST = post or {}
-        self.params = _CombinedParams(request.query_params, post)
+        self.params = request.query_params
+        self.query_params = request.query_params
         self.cookies = request.cookies
         self.headers = request.headers
         self.method = request.method
         self.matchdict = matchdict or {}
-        self.response = _ResponseShim()
         self.remember = False
         self.forget = False
+        self.remember_max_age = None
+        self.response_headers = {}
+        self.response_headerlist = []
+        self.response_status = 200
 
         self.url = str(request.url)
         self.path = request.url.path
-        qs = request.url.query
-        self.path_qs = self.path if not qs else f"{self.path}?{qs}"
         self.scheme = request.url.scheme
         self.host = request.headers.get("host") or request.url.netloc
+        self.base_url = request.base_url
         self.host_url = str(request.base_url).rstrip("/")
+        self.path_qs = request.url.path
+        if request.url.query:
+            self.path_qs = f"{self.path_qs}?{request.url.query}"
+        self.path_url = str(request.url).split("?", 1)[0]
         self.remote_addr = request.client.host if request.client else None
 
         if context is None:
@@ -239,10 +129,6 @@ class _RequestShim:
             self.workerdb = context["workerdb"]
 
     @property
-    def path_url(self):
-        return f"{self.host_url}{self.path}"
-
-    @property
     def authenticated_userid(self):
         return authenticated_user(self.session)
 
@@ -255,19 +141,16 @@ class _RequestShim:
         groups = self.userdb.get_user_groups(username)
         return "group:approvers" in (groups or [])
 
-    def route_url(self, route_name, _query=None, **kw):
-        path = _ROUTE_PATHS.get(route_name)
-        if not path:
-            return ""
-        for k, v in kw.items():
-            path = path.replace("{" + k + "}", str(v))
-        if _query:
-            q = urlencode(_query, doseq=True)
-            if q:
-                path = path + "?" + q
-        if path.startswith("/"):
-            return f"{self.host_url}{path}"
-        return f"{self.host_url}/{path}"
+
+_RequestShim = _ViewContext
+
+
+def _apply_response_headers(shim, response):
+    for key, value in getattr(shim, "response_headers", {}).items():
+        response.headers[key] = value
+    for key, value in getattr(shim, "response_headerlist", []):
+        response.headers[key] = value
+    return response
 
 
 async def _dispatch_view(fn, cfg, request, path_params):
@@ -287,7 +170,7 @@ async def _dispatch_view(fn, cfg, request, path_params):
                 form_token=csrf_token_from_form(post),
             )
 
-    shim = _RequestShim(request, session, post, path_params, context=context)
+    shim = _ViewContext(request, session, post, path_params, context=context)
 
     if (
         request.method == "POST"
@@ -300,30 +183,18 @@ async def _dispatch_view(fn, cfg, request, path_params):
         )
         response.headers.setdefault("Cache-Control", "no-store")
         commit_session_response(request, session, shim, response)
-        return apply_response_headers(shim, response)
+        return _apply_response_headers(shim, response)
 
-    try:
-        result = await run_in_threadpool(fn, shim)
-    except HTTPFound as e:
-        response = RedirectResponse(url=e.location, status_code=302)
-        for k, v in getattr(e, "headers", []) or []:
-            response.headers[k] = v
-        commit_session_response(request, session, shim, response)
-        return apply_response_headers(shim, response)
-    except HTTPNotFound:
-        raise StarletteHTTPException(status_code=404)
+    result = await run_in_threadpool(fn, shim)
 
-    if isinstance(result, HTTPFound):
-        response = RedirectResponse(url=result.location, status_code=302)
-        for k, v in getattr(result, "headers", []) or []:
-            response.headers[k] = v
-        commit_session_response(request, session, shim, response)
-        return apply_response_headers(shim, response)
+    if isinstance(result, RedirectResponse):
+        commit_session_response(request, session, shim, result)
+        return _apply_response_headers(shim, result)
 
     renderer = cfg.get("renderer")
     if isinstance(renderer, str):
         context = result if isinstance(result, dict) else {}
-        status_code = getattr(shim.response, "status", 200) or 200
+        status_code = getattr(shim, "response_status", 200) or 200
         response = await run_in_threadpool(
             render_template_to_response,
             request=request,
@@ -337,7 +208,7 @@ async def _dispatch_view(fn, cfg, request, path_params):
 
     commit_session_response(request, session, shim, response)
     apply_http_cache(response, cfg)
-    return apply_response_headers(shim, response)
+    return _apply_response_headers(shim, response)
 
 
 def pagination(page_idx, num, page_size, query_params):
@@ -425,31 +296,48 @@ def parse_show_task(show_task_param, num_tasks: int) -> int:
 
 
 def should_include_unfinished_runs(page_param: str) -> bool:
-    # Pyramid-era behavior: page 2+ shows only finished runs.
+    # Legacy behavior: page 2+ shows only finished runs.
     return not page_param.isdigit() or int(page_param) <= 1
 
 
-# === Error handling views ===
-@notfound_view_config(renderer="notfound.html.j2")
-def notfound_view(request):
-    request.response.status = 404
-    if request.exception:
-        try:
-            json_body = str(request.exception).replace("'", '"')
-            # Check if json_body is a valid JSON
-            parsed_json = json.loads(json_body)
-            request.response.content_type = "application/json"
-            request.response.body = json.dumps(parsed_json).encode("utf-8")
-            return request.response
-        except json.JSONDecodeError:
-            pass
-    return {}
+def _host_url(request) -> str:
+    host_url = getattr(request, "host_url", None)
+    if host_url:
+        return host_url.rstrip("/")
+    return str(request.base_url).rstrip("/")
+
+
+def _path_qs(request) -> str:
+    path_qs = getattr(request, "path_qs", None)
+    if path_qs:
+        return path_qs
+    url = getattr(request, "url", None)
+    if url is None:
+        path = getattr(request, "path", "")
+        query_params = getattr(request, "params", {})
+        query = urlencode(query_params) if query_params else ""
+        return path if not query else f"{path}?{query}"
+    query = url.query if hasattr(url, "query") else ""
+    path = url.path if hasattr(url, "path") else str(url).split("?", 1)[0]
+    return path if not query else f"{path}?{query}"
+
+
+def _path_url(request) -> str:
+    path_url = getattr(request, "path_url", None)
+    if path_url:
+        return path_url
+    url = getattr(request, "url", None)
+    if url is None:
+        host_url = _host_url(request)
+        path = getattr(request, "path", "")
+        return f"{host_url}{path}"
+    return str(url).split("?", 1)[0]
 
 
 # === Home redirect ===
-@view_config(route_name="home")
-def home(request):
-    return HTTPFound(location=request.route_url("tests"))
+def home(request=None):
+    """Redirect / to /tests. Registered directly on the router (no _dispatch_view)."""
+    return RedirectResponse(url="/tests", status_code=302)
 
 
 # === Authentication views ===
@@ -457,24 +345,18 @@ def ensure_logged_in(request):
     userid = request.authenticated_userid
     if not userid:
         request.session.flash("Please login")
-        raise HTTPFound(
-            location=request.route_url("login", _query={"next": request.path_qs})
+        return RedirectResponse(
+            url=f"/login?{urlencode({'next': _path_qs(request)})}",
+            status_code=302,
         )
     return userid
 
 
-@view_config(
-    route_name="login",
-    renderer="login.html.j2",
-    require_csrf=True,
-    request_method=("GET", "POST"),
-)
-@forbidden_view_config(renderer="login.html.j2")
 def login(request):
     userid = request.authenticated_userid
     if userid:
         return home(request)
-    login_url = request.route_url("login")
+    login_url = f"{_host_url(request)}/login"
     referrer = request.url
     if referrer == login_url:
         referrer = "/"  # never use the login form itself as came_from
@@ -487,12 +369,12 @@ def login(request):
         if "error" not in token:
             if request.POST.get("stay_logged_in"):
                 # Session persists for a year after login
-                headers = remember(request, username, max_age=60 * 60 * 24 * 365)
+                remember(request, username, max_age=60 * 60 * 24 * 365)
             else:
                 # Session ends when the browser is closed
-                headers = remember(request, username)
+                remember(request, username)
             next_page = request.params.get("next") or came_from
-            return HTTPFound(location=next_page, headers=headers)
+            return RedirectResponse(url=next_page, status_code=302)
         message = token["error"]
         if "Account pending for user:" in message:
             message += (
@@ -564,7 +446,6 @@ def _blocked_worker_rows(blocked_workers, *, show_email):
     return rows
 
 
-@view_config(route_name="workers", renderer="workers.html.j2", require_csrf=True)
 def workers(request):
     is_approver = request.has_permission("approve_run")
 
@@ -581,7 +462,7 @@ def workers(request):
                 w["worker_name"],
                 blocker_name,
                 w["message"],
-                request.host_url,
+                _host_url(request),
                 w["blocked"],
             )
             w["subject"] = f"Issue(s) with worker {w['worker_name']}"
@@ -608,7 +489,9 @@ def workers(request):
                 show_email=is_approver,
             ),
         }
-    ensure_logged_in(request)
+    result = ensure_logged_in(request)
+    if isinstance(result, RedirectResponse):
+        return result
     owner_name = worker_name.split("-")[0]
     if not is_approver and blocker_name != owner_name:
         request.session.flash("Only owners and approvers can block/unblock", "error")
@@ -647,7 +530,7 @@ def workers(request):
                     worker=worker_name,
                     message="blocked" if blocked else "unblocked",
                 )
-        return HTTPFound(location=request.route_url("workers", worker_name="show"))
+        return RedirectResponse(url="/workers/show", status_code=302)
 
     w = request.rundb.workerdb.get_worker(worker_name)
     return {
@@ -667,13 +550,10 @@ def workers(request):
 
 
 # === Neural network uploads + tools ===
-@view_config(
-    route_name="nn_upload",
-    renderer="nn_upload.html.j2",
-    require_csrf=True,
-)
 def upload(request):
-    ensure_logged_in(request)
+    result = ensure_logged_in(request)
+    if isinstance(result, RedirectResponse):
+        return result
     base_context = {
         "upload_url": str(request.url),
         "testing_guidelines_url": "https://github.com/official-stockfish/fishtest/wiki/Creating-my-first-test",
@@ -749,23 +629,16 @@ def upload(request):
         nn=filename,
     )
 
-    return HTTPFound(location=request.route_url("nns"))
+    return RedirectResponse(url="/nns", status_code=302)
 
 
-@view_config(route_name="logout", require_csrf=True, request_method="POST")
 def logout(request):
     session = request.session
-    headers = forget(request)
+    forget(request)
     session.invalidate()
-    return HTTPFound(location=request.route_url("tests"), headers=headers)
+    return RedirectResponse(url="/tests", status_code=302)
 
 
-@view_config(
-    route_name="signup",
-    renderer="signup.html.j2",
-    require_csrf=True,
-    request_method=("GET", "POST"),
-)
 def signup(request):
     if request.authenticated_userid:
         return home(request)
@@ -842,11 +715,10 @@ def signup(request):
             "This is usually quick but sometimes takes a few hours. "
             "Thank you for contributing!"
         )
-        return HTTPFound(location=request.route_url("login"))
+        return RedirectResponse(url="/login", status_code=302)
     return {}
 
 
-@view_config(route_name="nns", renderer="nns.html.j2")
 def nns(request):
     user = request.params.get("user", "")
     network_name = request.params.get("network_name", "")
@@ -922,12 +794,10 @@ def nns(request):
     }
 
 
-@view_config(route_name="sprt_calc", renderer="sprt_calc.html.j2")
 def sprt_calc(request):
     return {}
 
 
-@view_config(route_name="rate_limits", renderer="rate_limits.html.j2")
 def rate_limits(request):
     return {}
 
@@ -961,7 +831,6 @@ def sanitize_quotation_marks(text):
 
 
 # === Actions log ===
-@view_config(route_name="actions", renderer="actions.html.j2")
 def actions(request):
     DEFAULT_MAX_ACTIONS_AUTH = 50000
     HARD_MAX_ACTIONS_ANON = 5000
@@ -1089,8 +958,9 @@ def actions(request):
             redirect_query["page"] = str(last_page)
             if max_actions is not None:
                 redirect_query["max_actions"] = str(max_actions)
-            return HTTPFound(
-                location=request.path_url + "?" + urlencode(redirect_query)
+            return RedirectResponse(
+                url=_path_url(request) + "?" + urlencode(redirect_query),
+                status_code=302,
             )
 
     query_params = ""
@@ -1157,7 +1027,6 @@ def _user_management_rows(users):
     return rows
 
 
-@view_config(route_name="user_management", renderer="user_management.html.j2")
 def user_management(request):
     if not request.has_permission("approve_run"):
         request.session.flash("You cannot view user management", "error")
@@ -1181,10 +1050,10 @@ def user_management(request):
     }
 
 
-@view_config(route_name="user", renderer="user.html.j2")
-@view_config(route_name="profile", renderer="user.html.j2")
 def user(request):
     userid = ensure_logged_in(request)
+    if isinstance(userid, RedirectResponse):
+        return userid
 
     user_name = request.matchdict.get("username", userid)
     profile = user_name == userid
@@ -1194,14 +1063,14 @@ def user(request):
 
     user_data = request.userdb.get_user(user_name)
     if user_data is None:
-        raise HTTPNotFound()
+        raise StarletteHTTPException(status_code=404)
     if "user" in request.POST:
         if profile:
-            old_password = request.params.get("old_password").strip()
-            new_password = request.params.get("password").strip()
-            new_password_verify = request.params.get("password2", "").strip()
-            new_email = request.params.get("email").strip()
-            tests_repo = request.params.get("tests_repo").strip()
+            old_password = request.POST.get("old_password", "").strip()
+            new_password = request.POST.get("password", "").strip()
+            new_password_verify = request.POST.get("password2", "").strip()
+            new_email = request.POST.get("email", "").strip()
+            tests_repo = request.POST.get("tests_repo", "").strip()
 
             # Temporary comparison until passwords are hashed.
             if old_password != user_data["password"].strip():
@@ -1304,7 +1173,6 @@ def user(request):
 
 
 # === Contributors views ===
-@view_config(route_name="contributors", renderer="contributors.html.j2")
 def contributors(request):
     users_list = list(request.userdb.user_cache.find())
     users_list.sort(key=lambda k: k["cpu_hours"], reverse=True)
@@ -1318,7 +1186,6 @@ def contributors(request):
     }
 
 
-@view_config(route_name="contributors_monthly", renderer="contributors.html.j2")
 def contributors_monthly(request):
     users_list = list(request.userdb.top_month.find())
     users_list.sort(key=lambda k: k["cpu_hours"], reverse=True)
@@ -1443,14 +1310,15 @@ def parse_spsa_params(spsa):
 
 
 def validate_modify(request, run):
+    """Return None on success, or a RedirectResponse on validation failure."""
     now = datetime.now(UTC)
     if "start_time" not in run or (now - run["start_time"]).days > 30:
         request.session.flash("Run too old to be modified", "error")
-        raise home(request)
+        return home(request)
 
     if "num-games" not in request.POST:
         request.session.flash("Unable to modify with no number of games!", "error")
-        raise home(request)
+        return home(request)
 
     bad_values = not all(
         value is not None and value.replace("-", "").isdigit()
@@ -1463,7 +1331,7 @@ def validate_modify(request, run):
 
     if bad_values:
         request.session.flash("Bad values!", "error")
-        raise home(request)
+        return home(request)
 
     num_games = int(request.POST["num-games"])
     if (
@@ -1474,19 +1342,21 @@ def validate_modify(request, run):
         request.session.flash(
             "Unable to modify number of games in a fixed game test!", "error"
         )
-        raise home(request)
+        return home(request)
 
     if "spsa" in run["args"] and num_games != run["args"]["num_games"]:
         request.session.flash(
             "Unable to modify number of games for SPSA tests, SPSA hyperparams are based off the initial number of games",
             "error",
         )
-        raise home(request)
+        return home(request)
 
     max_games = 3200000
     if num_games > max_games:
         request.session.flash("Number of games must be <= " + str(max_games), "error")
-        raise home(request)
+        return home(request)
+
+    return None
 
 
 def sanitize_options(options):
@@ -1710,7 +1580,7 @@ def validate_form(request):
     if missing_nets:
         raise Exception(
             "Missing net(s). Please upload to: {} the following net(s): {}".format(
-                request.host_url,
+                _host_url(request),
                 ", ".join(missing_nets),
             )
         )
@@ -1797,7 +1667,7 @@ def update_nets(request, run):
     if missing_nets:
         raise Exception(
             "Missing net(s). Please upload to {} the following net(s): {}".format(
-                request.host_url,
+                _host_url(request),
                 ", ".join(missing_nets),
             )
         )
@@ -1848,14 +1718,10 @@ def new_run_message(request, run):
 
 
 # === Run creation ===
-@view_config(
-    route_name="tests_run",
-    renderer="tests_run.html.j2",
-    require_csrf=True,
-    require_primary=True,
-)
 def tests_run(request):
     user_id = ensure_logged_in(request)
+    if isinstance(user_id, RedirectResponse):
+        return user_id
 
     if request.method == "POST":
         try:
@@ -1872,7 +1738,9 @@ def tests_run(request):
             request.session.flash(
                 "The test was submitted to the queue. Please wait for approval."
             )
-            return HTTPFound(location="/tests/view/" + str(run_id) + "?follow=1")
+            return RedirectResponse(
+                url="/tests/view/" + str(run_id) + "?follow=1", status_code=302
+            )
         except Exception as e:
             request.session.flash(str(e), "error")
 
@@ -1880,7 +1748,7 @@ def tests_run(request):
     if "id" in request.params:
         run = request.rundb.get_run(request.params["id"])
         if run is None:
-            raise HTTPNotFound()
+            raise StarletteHTTPException(status_code=404)
         run_args = copy.deepcopy(run["args"])
         if "spsa" in run_args:
             # needs deepcopy
@@ -1939,21 +1807,19 @@ def can_modify_run(request, run):
 
 
 # === Run admin actions ===
-@view_config(
-    route_name="tests_modify",
-    require_csrf=True,
-    request_method="POST",
-    require_primary=True,
-)
 def tests_modify(request):
     userid = ensure_logged_in(request)
+    if isinstance(userid, RedirectResponse):
+        return userid
 
     run = request.rundb.get_run(request.POST["run"])
     if run is None:
         request.session.flash("No run with this id", "error")
         return home(request)
 
-    validate_modify(request, run)
+    validation_error = validate_modify(request, run)
+    if validation_error is not None:
+        return validation_error
 
     if not can_modify_run(request, run):
         request.session.flash("Unable to modify another user's run!", "error")
@@ -2029,16 +1895,10 @@ def tests_modify(request):
     return home(request)
 
 
-@view_config(
-    route_name="tests_stop",
-    require_csrf=True,
-    request_method="POST",
-    require_primary=True,
-)
 def tests_stop(request):
     if not request.authenticated_userid:
         request.session.flash("Please login")
-        return HTTPFound(location=request.route_url("login"))
+        return RedirectResponse(url="/login", status_code=302)
     if "run-id" in request.POST:
         run = request.rundb.get_run(request.POST["run-id"])
         if not can_modify_run(request, run):
@@ -2055,18 +1915,12 @@ def tests_stop(request):
     return home(request)
 
 
-@view_config(
-    route_name="tests_approve",
-    require_csrf=True,
-    request_method="POST",
-    require_primary=True,
-)
 def tests_approve(request):
     if not request.authenticated_userid:
-        return HTTPFound(location=request.route_url("login"))
+        return RedirectResponse(url="/login", status_code=302)
     if not request.has_permission("approve_run"):
         request.session.flash("Please login as approver")
-        return HTTPFound(location=request.route_url("login"))
+        return RedirectResponse(url="/login", status_code=302)
     username = request.authenticated_userid
     run_id = request.POST["run-id"]
     run, message = request.rundb.approve_run(run_id, username)
@@ -2082,19 +1936,13 @@ def tests_approve(request):
     return home(request)
 
 
-@view_config(
-    route_name="tests_purge",
-    require_csrf=True,
-    request_method="POST",
-    require_primary=True,
-)
 def tests_purge(request):
     run = request.rundb.get_run(request.POST["run-id"])
     if not request.has_permission("approve_run") and not is_same_user(request, run):
         request.session.flash(
             "Only approvers or the submitting user can purge the run."
         )
-        return HTTPFound(location=request.route_url("login"))
+        return RedirectResponse(url="/login", status_code=302)
 
     # More relaxed conditions than with auto purge.
     message = request.rundb.purge_run(run, p=0.01, res=4.5)
@@ -2115,16 +1963,10 @@ def tests_purge(request):
     return home(request)
 
 
-@view_config(
-    route_name="tests_delete",
-    require_csrf=True,
-    request_method="POST",
-    require_primary=True,
-)
 def tests_delete(request):
     if not request.authenticated_userid:
         request.session.flash("Please login")
-        return HTTPFound(location=request.route_url("login"))
+        return RedirectResponse(url="/login", status_code=302)
     if "run-id" in request.POST:
         run = request.rundb.get_run(request.POST["run-id"])
         if not can_modify_run(request, run):
@@ -2170,19 +2012,17 @@ def get_page_title(run):
     return page_title
 
 
-@view_config(route_name="tests_live_elo", renderer="tests_live_elo.html.j2")
 def tests_live_elo(request):
     run = request.rundb.get_run(request.matchdict["id"])
     if run is None or "sprt" not in run["args"]:
-        raise HTTPNotFound()
+        raise StarletteHTTPException(status_code=404)
     return {"run": run, "page_title": get_page_title(run)}
 
 
-@view_config(route_name="tests_stats", renderer="tests_stats.html.j2")
 def tests_stats(request):
     run = request.rundb.get_run(request.matchdict["id"])
     if run is None:
-        raise HTTPNotFound()
+        raise StarletteHTTPException(status_code=404)
     return {
         "run": run,
         "page_title": get_page_title(run),
@@ -2190,11 +2030,10 @@ def tests_stats(request):
     }
 
 
-@view_config(route_name="tests_tasks", renderer="tasks.html.j2")
 def tests_tasks(request):
     run = request.rundb.get_run(request.matchdict["id"])
     if run is None:
-        raise HTTPNotFound()
+        raise StarletteHTTPException(status_code=404)
     chi2 = get_chi2(run["tasks"])
 
     try:
@@ -2223,7 +2062,6 @@ def tests_tasks(request):
     }
 
 
-@view_config(route_name="tests_machines", http_cache=10, renderer="machines.html.j2")
 def tests_machines(request):
     def _clip_long(text: str, max_length: int = 20) -> str:
         if len(text) > max_length:
@@ -2269,11 +2107,10 @@ def tests_machines(request):
     return {"machines_list": machines_list, "machines": machines}
 
 
-@view_config(route_name="tests_view", renderer="tests_view.html.j2")
 def tests_view(request):
     run = request.rundb.get_run(request.matchdict["id"])
     if run is None:
-        raise HTTPNotFound()
+        raise StarletteHTTPException(status_code=404)
     run_id = str(run["_id"])
     follow = 1 if "follow" in request.params else 0
     run_args = [("id", str(run["_id"]), "")]
@@ -2685,7 +2522,6 @@ def _build_run_tables_context(
 
 
 # === Run lists + homepage ===
-@view_config(route_name="tests_finished", renderer="tests_finished.html.j2")
 def tests_finished(request):
     context = get_paginated_finished_runs(request)
     page_idx = context.get("page_idx", 0)
@@ -2695,6 +2531,7 @@ def tests_finished(request):
     )
     return {
         **context,
+        "query_params": request.query_params,
         "finished_runs": build_run_table_rows(
             context.get("finished_runs", []),
             allow_github_api_calls=False,
@@ -2703,14 +2540,14 @@ def tests_finished(request):
             context.get("failed_runs", []),
             allow_github_api_calls=False,
         ),
+        "title": title_suffix,
         "title_text": title_text,
         "show_gauge": False,
     }
 
 
-@view_config(route_name="tests_user", renderer="tests_user.html.j2")
 def tests_user(request):
-    request.response.headerlist.extend(
+    request.response_headerlist.extend(
         (
             ("Cache-Control", "no-store"),
             ("Expires", "0"),
@@ -2719,7 +2556,7 @@ def tests_user(request):
     username = request.matchdict.get("username", "")
     user_data = request.userdb.get_user(username)
     if user_data is None:
-        raise HTTPNotFound()
+        raise StarletteHTTPException(status_code=404)
     is_approver = request.has_permission("approve_run")
     finished_context = get_paginated_finished_runs(request)
     response = {
@@ -2792,9 +2629,8 @@ def homepage_results(request):
     }
 
 
-@view_config(route_name="tests", renderer="tests.html.j2")
 def tests(request):
-    request.response.headerlist.extend(
+    request.response_headerlist.extend(
         (
             ("Cache-Control", "no-store"),
             ("Expires", "0"),
@@ -2826,48 +2662,132 @@ def tests(request):
 
 
 # === Router registration ===
-def _register_view_configs():
-    for name, obj in list(globals().items()):
-        configs = getattr(obj, "__view_configs__", None)
-        if not configs:
-            continue
 
-        for cfg in configs:
-            route_name = cfg.get("route_name")
-            if not route_name:
-                continue
-            path = _ROUTE_PATHS.get(route_name)
-            if not path:
-                continue
+# Each entry: (view_function, path, config_dict)
+# Config keys: renderer, require_csrf, require_primary, request_method, http_cache
+# Special: direct=True bypasses _dispatch_view (for pure redirects, no DB/session needed)
+_VIEW_ROUTES = [
+    (home, "/", {"direct": True}),
+    (
+        login,
+        "/login",
+        {
+            "renderer": "login.html.j2",
+            "require_csrf": True,
+            "request_method": ("GET", "POST"),
+        },
+    ),
+    (
+        workers,
+        "/workers/{worker_name}",
+        {"renderer": "workers.html.j2", "require_csrf": True},
+    ),
+    (upload, "/upload", {"renderer": "nn_upload.html.j2", "require_csrf": True}),
+    (logout, "/logout", {"require_csrf": True, "request_method": "POST"}),
+    (
+        signup,
+        "/signup",
+        {
+            "renderer": "signup.html.j2",
+            "require_csrf": True,
+            "request_method": ("GET", "POST"),
+        },
+    ),
+    (nns, "/nns", {"renderer": "nns.html.j2"}),
+    (sprt_calc, "/sprt_calc", {"renderer": "sprt_calc.html.j2"}),
+    (rate_limits, "/rate_limits", {"renderer": "rate_limits.html.j2"}),
+    (actions, "/actions", {"renderer": "actions.html.j2"}),
+    (user_management, "/user_management", {"renderer": "user_management.html.j2"}),
+    (user, "/user/{username}", {"renderer": "user.html.j2"}),
+    (user, "/user", {"renderer": "user.html.j2"}),
+    (contributors, "/contributors", {"renderer": "contributors.html.j2"}),
+    (
+        contributors_monthly,
+        "/contributors/monthly",
+        {"renderer": "contributors.html.j2"},
+    ),
+    (
+        tests_run,
+        "/tests/run",
+        {
+            "renderer": "tests_run.html.j2",
+            "require_csrf": True,
+            "require_primary": True,
+        },
+    ),
+    (
+        tests_modify,
+        "/tests/modify",
+        {"require_csrf": True, "request_method": "POST", "require_primary": True},
+    ),
+    (
+        tests_stop,
+        "/tests/stop",
+        {"require_csrf": True, "request_method": "POST", "require_primary": True},
+    ),
+    (
+        tests_approve,
+        "/tests/approve",
+        {"require_csrf": True, "request_method": "POST", "require_primary": True},
+    ),
+    (
+        tests_purge,
+        "/tests/purge",
+        {"require_csrf": True, "request_method": "POST", "require_primary": True},
+    ),
+    (
+        tests_delete,
+        "/tests/delete",
+        {"require_csrf": True, "request_method": "POST", "require_primary": True},
+    ),
+    (tests_live_elo, "/tests/live_elo/{id}", {"renderer": "tests_live_elo.html.j2"}),
+    (tests_stats, "/tests/stats/{id}", {"renderer": "tests_stats.html.j2"}),
+    (tests_tasks, "/tests/tasks/{id}", {"renderer": "tasks.html.j2"}),
+    (
+        tests_machines,
+        "/tests/machines",
+        {"renderer": "machines.html.j2", "http_cache": 10},
+    ),
+    (tests_view, "/tests/view/{id}", {"renderer": "tests_view.html.j2"}),
+    (tests_finished, "/tests/finished", {"renderer": "tests_finished.html.j2"}),
+    (tests_user, "/tests/user/{username}", {"renderer": "tests_user.html.j2"}),
+    (tests, "/tests", {"renderer": "tests.html.j2"}),
+]
 
-            methods = cfg.get("request_method")
-            if methods is None:
-                methods = ["GET", "POST"]
-            elif isinstance(methods, str):
-                methods = [methods]
-            else:
-                methods = list(methods)
 
-            def _make_endpoint(fn, cfg_local):
-                async def endpoint(request: Request):
-                    return await _dispatch_view(
-                        fn,
-                        cfg_local,
-                        request,
-                        dict(getattr(request, "path_params", {}) or {}),
-                    )
+def _make_endpoint(fn, cfg_local):
+    async def endpoint(request: Request):
+        return await _dispatch_view(
+            fn,
+            cfg_local,
+            request,
+            dict(getattr(request, "path_params", {}) or {}),
+        )
 
-                return endpoint
-
-            router.add_api_route(
-                path,
-                _make_endpoint(obj, cfg),
-                methods=methods,
-                include_in_schema=False,
-            )
+    return endpoint
 
 
-_register_view_configs()
+def _normalize_methods(methods):
+    if methods is None:
+        return ["GET", "POST"]
+    if isinstance(methods, str):
+        return [methods]
+    return list(methods)
+
+
+def _register_view_routes():
+    for fn, path, cfg in _VIEW_ROUTES:
+        methods = _normalize_methods(cfg.get("request_method"))
+        endpoint = fn if cfg.get("direct") else _make_endpoint(fn, cfg)
+        router.add_api_route(
+            path,
+            endpoint,
+            methods=methods,
+            include_in_schema=False,
+        )
+
+
+_register_view_routes()
 
 
 __all__ = ["router"]

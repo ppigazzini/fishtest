@@ -286,6 +286,57 @@ Definition of done:
 - Legacy Mako templates remain available for parity scripts, but are not wired into runtime rendering.
 - Parity helper scripts run from WIP/tools and keep the legacy templates read-only while capturing parity diffs.
 
+## Milestone 11 — Replace Pyramid shims with idiomatic FastAPI/Starlette (rebase-safe)
+
+Goal: eliminate the remaining Pyramid-era request/response shims, decorator stubs, and exception classes from the HTTP layer, replacing them with idiomatic FastAPI/Starlette patterns — while keeping `http/api.py` and `http/views.py` structurally comparable to their legacy twins (`api.py`, `views.py`) for upstream rebase safety.
+
+Status: Not started.
+
+Context:
+
+After Milestone 10, the template layer is fully Jinja2. But the HTTP dispatch layer still carries substantial Pyramid compat surfaces:
+
+- `_RequestShim` (60 lines in `views.py`) wrapping every UI request
+- `ApiRequestShim` (45 lines in `boundary.py`) wrapping every API request
+- `_ResponseShim`, `ResponseShim` for header propagation
+- `HTTPFound` / `HTTPNotFound` exception shims for control flow
+- `view_config` / `notfound_view_config` / `forbidden_view_config` no-op decorator stubs
+- `_ROUTE_PATHS` static dict emulating Pyramid's `route_url()`
+- `TemplateRequest` dataclass for template-side `request.static_url()` / `request.GET`
+- `remember()` / `forget()` Pyramid auth compat helpers
+- `apply_response_headers()` copying shim headers to Starlette responses
+
+The `__fishtest-bloat` branch showed how **not** to do this: it scattered code across 22 files, introduced multi-hop indirection, and added `itsdangerous`-based session middleware that duplicated Starlette's own `SessionMiddleware`. Milestone 11 must avoid that bloat while still adopting idiomatic patterns.
+
+Design constraints:
+
+- All routes remain in `http/api.py` and `http/views.py` (no file-spread).
+- `api.py` and `views.py` must stay structurally comparable to the legacy twins: same endpoint order, same logical flow, similar line structure — to keep upstream rebases cheap.
+- Hop count ≤ 1 per endpoint; helper calls ≤ 2 per endpoint.
+- Adopt Starlette session middleware (`itsdangerous`-backed `SessionMiddleware` or the existing `FishtestSessionMiddleware`) only when it reduces code and preserves cookie/CSRF semantics.
+- Use FastAPI dependency injection (`Depends`, `Annotated` aliases) for DB handles, session, and auth context — replacing the shim constructors.
+- Replace Pyramid exception shims with `RedirectResponse` / `raise HTTPException` or Starlette equivalents.
+- Replace `TemplateRequest` surface with direct template globals or context keys already provided by `build_template_context()`.
+- Keep legacy Pyramid test stubs in `tests/pyramid/` for upstream rebase safety.
+- Contract tests, parity scripts, and "stop the line" conditions remain the safety net.
+
+Scope exclusions:
+
+- No template changes (Jinja2 migration is complete).
+- No DB adapter or scheduling redesign.
+- No worker protocol shape changes.
+- No `tests/pyramid/` stub deletion (kept for rebase).
+
+Definition of done:
+
+- `http/views.py` no longer defines `_RequestShim`, `_ResponseShim`, `_CombinedParams`, `HTTPFound`, `HTTPNotFound`, `view_config`, `notfound_view_config`, `forbidden_view_config`, or `_ROUTE_PATHS`.
+- `http/boundary.py` no longer defines `ApiRequestShim`, `ResponseShim`, `apply_response_headers()`, or the `RequestShim*` protocol classes.
+- `http/template_request.py` is removed or reduced to a minimal `static_url` helper.
+- `http/api.py` and `http/views.py` use FastAPI/Starlette idioms directly (dependencies, `RedirectResponse`, `request.state`, `request.session`).
+- `api.py` and `views.py` remain structurally comparable to legacy twins (parity AST checks stay green or show only expected drifts).
+- All contract tests and parity scripts pass.
+- No new file-spread; no new multi-hop helper chains.
+
 ## Milestone N-1 — Optional: Pydantic (only when it buys real safety)
 
 Goal: allow Pydantic only where it materially reduces bugs/duplication, without duplicating vtjson validation across the whole codebase or changing externally-visible error semantics.

@@ -1,7 +1,7 @@
 """CSRF helpers for UI routes.
 
 We keep CSRF validation logic centralized so UI POST routes behave consistently
-(and in a Pyramid-compatible way) across the FastAPI migration.
+across the FastAPI migration.
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 # FastAPI references (for this project)
 
-Date: 2026-01-29
+Date: 2026-02-11
 
 Curated **web-only** references and a short project-focused synthesis for the fishtest FastAPI refactor.
 
@@ -103,9 +103,120 @@ app = FastAPI(lifespan=lifespan)
 - `TemplateResponse` is called with keyword args: `request=`, `name=`, `context=`.
 - `request` must be in the template context for `url_for` to work.
 
-## Quick “use this when…” cheatsheet
+## Dependency injection internals (M11-critical)
 
-- Split/organize routes: `APIRouter` + `include_router` → Bigger Applications.
+### How `Depends()` works
+
+**The `Depends` dataclass** (from `fastapi/params.py`):
+```python
+@dataclass(frozen=True)
+class Depends:
+    dependency: Optional[Callable[..., Any]] = None
+    use_cache: bool = True
+    scope: Union[Literal["function", "request"], None] = None
+```
+
+**Resolution pipeline**:
+1. `get_dependant()` introspects endpoint signature via `inspect.Signature`
+2. For each parameter: if `Annotated[Type, Depends(fn)]` or `= Depends(fn)` → recursively builds a dependency tree
+3. `solve_dependencies()` walks the tree depth-first, resolving sub-deps before parents
+4. **Caching**: per-request cache keyed by `(callable, scopes)`. Same dep used twice = called once. Set `use_cache=False` for fresh computation each time.
+5. **Sync callables**: auto-run via `run_in_threadpool()` — no `async` needed.
+
+**Magic injectables** (no `Depends` needed):
+- `Request`, `WebSocket`, `HTTPConnection`, `Response`, `BackgroundTasks`, `SecurityScopes`
+- Declaring `request: Request` in any function (endpoint or dependency) gets the live request injected.
+
+### `Annotated` type aliases — the key pattern for M11
+
+```python
+# Define once in a deps/types module
+from typing import Annotated
+from fastapi import Depends
+
+CurrentUser = Annotated[User, Depends(get_current_active_user)]
+DBSession = Annotated[Session, Depends(get_session)]
+
+# Use everywhere — clean signatures
+@app.get("/items/")
+async def read_items(user: CurrentUser, db: DBSession):
+    ...
+```
+
+When `Depends(dependency=None)` → the type annotation itself becomes the callable:
+`Annotated[SomeClass, Depends()]` uses `SomeClass` as both type and factory.
+
+### Session access in dependencies
+
+```python
+from starlette.requests import Request
+
+def get_session(request: Request) -> dict:
+    return request.session  # dict from SessionMiddleware
+
+def get_current_user(request: Request) -> Optional[User]:
+    username = request.session.get("username")
+    if not username:
+        raise HTTPException(status_code=401)
+    return lookup_user(username)
+
+CurrentUser = Annotated[User, Depends(get_current_user)]
+```
+
+### Guard-only dependencies (no return value)
+
+```python
+# On a single route
+@app.post("/actions/", dependencies=[Depends(verify_csrf)])
+
+# On all routes in the app
+app = FastAPI(dependencies=[Depends(verify_token)])
+
+# On a router group
+admin = APIRouter(dependencies=[Depends(require_admin)])
+```
+
+### Generator dependencies for cleanup
+
+Replace Pyramid's `request.add_finished_callback()`:
+```python
+def get_db():
+    db = create_session()
+    try:
+        yield db     # injected into endpoint
+    finally:
+        db.close()   # runs after response
+```
+
+### Dependency overrides for testing
+
+```python
+app.dependency_overrides[get_db] = lambda: mock_db
+```
+
+### What FastAPI adds beyond Starlette
+
+- **Request/Response**: Nothing — re-exports Starlette's classes unchanged.
+- **Extra response classes**: `UJSONResponse`, `ORJSONResponse`.
+- **Middleware**: All re-exported from Starlette. One FastAPI-original: `AsyncExitStackMiddleware` for generator dep cleanup.
+- **`@app.middleware("http")`**: Syntactic sugar for `BaseHTTPMiddleware`.
+
+### Key transformations for M11 (Pyramid → FastAPI)
+
+| Pyramid Pattern | FastAPI Replacement |
+|---|---|
+| `self.request` in view class | `request: Request` parameter |
+| `self.request.session["user"]` | `user: CurrentUser` via `Depends()` reading `request.session` |
+| `self.request.rundb` (tween-attached) | `rundb: RunDbDep` via `Depends()` reading `request.state` |
+| `self.request.route_url(...)` | `request.url_for(...)` (Starlette builtin) |
+| `self.request.params` (GET+POST) | Explicit `Query()` / `Form()` / `Body()` params |
+| `self.request.matchdict["id"]` | `id: str` path parameter |
+| `self.request.json_body` | `data: dict = Body()` or Pydantic model |
+| View class `__init__(self, request)` | Free function with typed params |
+| Pyramid tweens | `app.add_middleware()` or `@app.middleware("http")` |
+| `config.add_request_method(fn)` | `Depends(fn)` replaces the request method entirely |
+
+## Quick "use this when…" cheatsheet
 - Replace request shim plumbing: `Depends(...)` + `Annotated` → Dependencies.
 - Side-effect checks without unused params: decorator deps → Dependencies in Decorators.
 - Keep cross-cutting concerns centralized: `app.add_middleware(...)` → Middleware.

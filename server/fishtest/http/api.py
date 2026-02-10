@@ -296,7 +296,7 @@ class WorkerApi(GenericApi):
         except Exception as e:
             self.handle_error(str(e))
         result = self.request.rundb.upload_pgn(
-            run_id="{}-{}".format(self.run_id(), self.task_id()),
+            run_id=f"{self.run_id()}-{self.task_id()}",
             pgn_zip=pgn_zip,
         )
         return self.add_time(result)
@@ -305,9 +305,7 @@ class WorkerApi(GenericApi):
         self.validate_request()
         error = ""
         if self.cpu_hours() < 1000:
-            error = "User {} has too few games to stop a run".format(
-                self.get_username()
-            )
+            error = f"User {self.get_username()} has too few games to stop a run"
         with self.request.rundb.active_run_lock(self.run_id()):
             run = self.run()
             if not run["finished"]:
@@ -560,44 +558,42 @@ class UserApi(GenericApi):
                 elo5_l = elo5 - elo95_5
                 elo5_u = elo5 + elo95_5
                 return {"elo": elo5, "ci": [elo5_l, elo5_u], "LOS": LOS5}
-            else:
-                WLD = [results["wins"], results["losses"], results["draws"]]
-                elo3, elo95_3, LOS3 = get_elo([WLD[1], WLD[2], WLD[0]])
-                elo3_l = elo3 - elo95_3
-                elo3_u = elo3 + elo95_3
-                return {"elo": elo3, "ci": [elo3_l, elo3_u], "LOS": LOS3}
-        else:
-            badEloValues = (
-                not all(
-                    value.replace(".", "").replace("-", "").isdigit()
-                    for value in (elo0, elo1)
-                )
-                or float(elo1) < float(elo0) + 0.5
-                or abs(float(elo0)) > 10
-                or abs(float(elo1)) > 10
+            WLD = [results["wins"], results["losses"], results["draws"]]
+            elo3, elo95_3, LOS3 = get_elo([WLD[1], WLD[2], WLD[0]])
+            elo3_l = elo3 - elo95_3
+            elo3_u = elo3 + elo95_3
+            return {"elo": elo3, "ci": [elo3_l, elo3_u], "LOS": LOS3}
+        badEloValues = (
+            not all(
+                value.replace(".", "").replace("-", "").isdigit()
+                for value in (elo0, elo1)
             )
-            if badEloValues:
-                self.handle_error("Bad elo0, and elo1 values.")
+            or float(elo1) < float(elo0) + 0.5
+            or abs(float(elo0)) > 10
+            or abs(float(elo1)) > 10
+        )
+        if badEloValues:
+            self.handle_error("Bad elo0, and elo1 values.")
 
-            elo_model = self.request.params.get("elo_model", "normalized")
+        elo_model = self.request.params.get("elo_model", "normalized")
 
-            if elo_model not in ["BayesElo", "logistic", "normalized"]:
-                self.handle_error(
-                    "Valid Elo models are: BayesElo, logistic, and normalized."
-                )
-
-            elo0 = float(elo0)
-            elo1 = float(elo1)
-            alpha = 0.05
-            beta = 0.05
-            return SPRT_elo(
-                results,
-                alpha=alpha,
-                beta=beta,
-                elo0=elo0,
-                elo1=elo1,
-                elo_model=elo_model,
+        if elo_model not in ["BayesElo", "logistic", "normalized"]:
+            self.handle_error(
+                "Valid Elo models are: BayesElo, logistic, and normalized."
             )
+
+        elo0 = float(elo0)
+        elo1 = float(elo1)
+        alpha = 0.05
+        beta = 0.05
+        return SPRT_elo(
+            results,
+            alpha=alpha,
+            beta=beta,
+            elo0=elo0,
+            elo1=elo1,
+            elo_model=elo_model,
+        )
 
     def download_pgn(self):
         zip_name = self.request.matchdict["id"]

@@ -1,6 +1,6 @@
 import unittest
 
-from fishtest.http.views import HTTPFound
+from fastapi.responses import RedirectResponse
 from fishtest.http.views import actions as actions_view
 
 
@@ -106,9 +106,10 @@ class ActionsViewMaxActionsHttpTest(unittest.TestCase):
             return_count=50000,
         )
         response = actions_view(request)
-        self.assertIsInstance(response, HTTPFound)
-        self.assertIn("page=2000", response.location)
-        self.assertIn("max_actions=50000", response.location)
+        self.assertIsInstance(response, RedirectResponse)
+        location = response.headers.get("location", "")
+        self.assertIn("page=2000", location)
+        self.assertIn("max_actions=50000", location)
 
     def test_out_of_range_page_redirects_to_last_page_anonymous_clamped(self):
         request = _GlueRequestStub(
@@ -117,9 +118,10 @@ class ActionsViewMaxActionsHttpTest(unittest.TestCase):
             return_count=5000,
         )
         response = actions_view(request)
-        self.assertIsInstance(response, HTTPFound)
-        self.assertIn("page=200", response.location)
-        self.assertIn("max_actions=5000", response.location)
+        self.assertIsInstance(response, RedirectResponse)
+        location = response.headers.get("location", "")
+        self.assertIn("page=200", location)
+        self.assertIn("max_actions=5000", location)
 
     def test_anon_default_hard_cap(self):
         request = _GlueRequestStub(params={})

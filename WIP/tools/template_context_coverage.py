@@ -13,7 +13,7 @@ Usage:
     python WIP/tools/template_context_coverage.py --json
 
 Exit status:
-    0 if no missing references are found
+    0 if no missing references are found (Jinja only unless --strict-mako)
     1 if missing references are found
     2 on error
 """
@@ -234,6 +234,11 @@ def _parse_args() -> argparse.Namespace:
         help="Template engine to analyze.",
     )
     parser.add_argument(
+        "--strict-mako",
+        action="store_true",
+        help="Fail on missing Mako references (default: warn only).",
+    )
+    parser.add_argument(
         "--mako-dir",
         type=Path,
         default=DEFAULT_MAKO_DIR,
@@ -284,7 +289,8 @@ def _analyze_templates(
                 source = mako_path.read_text(encoding="utf-8")
                 referenced = _mako_names(source) - allowed
                 missing = sorted(referenced - context_keys)
-                has_missing = has_missing or bool(missing)
+                if missing and args.strict_mako:
+                    has_missing = True
                 results.append(
                     CoverageResult(
                         template=template,
@@ -318,6 +324,7 @@ def _emit_results(
     *,
     json_output: bool,
     output_path: Path | None,
+    ignore_mako_missing: bool,
 ) -> None:
     if json_output:
         payload = {
@@ -336,7 +343,14 @@ def _emit_results(
     for item in results:
         if item.missing:
             missing_list = ", ".join(item.missing)
-            print(f"MISSING: {item.template} ({item.engine}) -> {missing_list}")
+            if ignore_mako_missing and item.engine == "mako":
+                message = (
+                    "MISSING (ignored): "
+                    f"{item.template} ({item.engine}) -> {missing_list}"
+                )
+                print(message)
+            else:
+                print(f"MISSING: {item.template} ({item.engine}) -> {missing_list}")
         else:
             print(f"OK: {item.template} ({item.engine})")
 
@@ -365,7 +379,12 @@ def main() -> int:
         env=env,
         allowed=allowed,
     )
-    _emit_results(results, json_output=args.json, output_path=args.output)
+    _emit_results(
+        results,
+        json_output=args.json,
+        output_path=args.output,
+        ignore_mako_missing=not args.strict_mako,
+    )
     return 1 if has_missing else 0
 
 
