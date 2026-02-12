@@ -32,7 +32,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC_VIEWS = REPO_ROOT / "server" / "fishtest" / "views.py"
-GLUE_VIEWS = REPO_ROOT / "server" / "fishtest" / "http" / "views.py"
+HTTP_VIEWS = REPO_ROOT / "server" / "fishtest" / "http" / "views.py"
 WEB_ROOT = REPO_ROOT / "server" / "fishtest" / "web"
 _MIN_ROUTE_TUPLE_LEN = 3
 
@@ -71,7 +71,7 @@ _PATH_TO_ROUTE_NAME = {
 }
 
 
-def _assert_glue_first_layout() -> bool:
+def _assert_http_first_layout() -> bool:
     """Fail if route logic is split into web/ modules (http-first rule)."""
     if not WEB_ROOT.exists():
         return True
@@ -136,13 +136,13 @@ def _parse_view_configs(path: Path) -> list[tuple[str, str, dict[str, object]]]:
     return out
 
 
-def _parse_view_routes(glue_path: Path) -> list[tuple[str, str, dict[str, object]]]:
+def _parse_view_routes(http_path: Path) -> list[tuple[str, str, dict[str, object]]]:
     """Parse _VIEW_ROUTES list from http/views.py (post M11-Phase1 format).
 
     Returns list of (dec_type, fn_name, kw_dict) matching _parse_view_configs format.
     The kw_dict includes route_name (reverse-mapped from path).
     """
-    tree = ast.parse(glue_path.read_text())
+    tree = ast.parse(http_path.read_text())
     value = _get_assignment_value(tree, "_VIEW_ROUTES")
     if not isinstance(value, (ast.List, ast.Tuple)):
         return []
@@ -168,16 +168,16 @@ def _parse_view_routes(glue_path: Path) -> list[tuple[str, str, dict[str, object
     return out
 
 
-def _parse_route_paths(glue_path: Path) -> dict[str, str]:
+def _parse_route_paths(http_path: Path) -> dict[str, str]:
     """Parse _ROUTE_PATHS or derive from _VIEW_ROUTES."""
-    tree = ast.parse(glue_path.read_text())
+    tree = ast.parse(http_path.read_text())
     route_paths = _get_assignment_value(tree, "_ROUTE_PATHS")
     if isinstance(route_paths, ast.Dict):
         value = _literal_eval(route_paths)
         if isinstance(value, dict):
             return {str(key): str(val) for key, val in value.items()}
     # Fall back: derive from _VIEW_ROUTES
-    routes = _parse_view_routes(glue_path)
+    routes = _parse_view_routes(http_path)
     return {
         str(kw["route_name"]): str(kw.get("route_name", ""))
         for _, _, kw in routes
@@ -187,13 +187,13 @@ def _parse_route_paths(glue_path: Path) -> dict[str, str]:
 
 def main() -> int:  # noqa: C901, PLR0912, PLR0915
     """Run the UI route parity check and return process exit code."""
-    if not _assert_glue_first_layout():
+    if not _assert_http_first_layout():
         return 1
 
     a = _parse_view_configs(SPEC_VIEWS)
     # Post M11-Phase1: HTTP side uses _VIEW_ROUTES instead of @view_config decorators
-    b_decorators = _parse_view_configs(GLUE_VIEWS)
-    b_routes = _parse_view_routes(GLUE_VIEWS)
+    b_decorators = _parse_view_configs(HTTP_VIEWS)
+    b_routes = _parse_view_routes(HTTP_VIEWS)
     b = b_decorators or b_routes
 
     def _as_route_name(value: object) -> str | None:
@@ -209,7 +209,7 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
         for dec, name, kw in a
         if dec == "view_config"
     ]
-    glue_routes = [
+    http_routes = [
         (
             name,
             _as_route_name(kw.get("route_name")),
@@ -232,16 +232,16 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
         return m
 
     spec_idx = index(spec_routes)
-    glue_idx = index(glue_routes)
+    http_idx = index(http_routes)
 
     spec_set = set(spec_idx)
-    glue_set = set(glue_idx)
+    http_set = set(http_idx)
 
     print("spec route_name count", len(spec_set))
-    print("http route_name count", len(glue_set))
+    print("http route_name count", len(http_set))
 
-    missing = sorted(spec_set - glue_set)
-    extra = sorted(glue_set - spec_set)
+    missing = sorted(spec_set - http_set)
+    extra = sorted(http_set - spec_set)
 
     ok = True
 
@@ -255,18 +255,18 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
         ok = False
         print("extra in http", len(extra))
         for rn in extra:
-            print("  ", rn, glue_idx[rn])
+            print("  ", rn, http_idx[rn])
 
     mismatch = []
-    for rn in sorted(spec_set & glue_set):
+    for rn in sorted(spec_set & http_set):
         spec_methods = sorted(
             {m if m is not None else "GET?" for _, m, _ in spec_idx[rn]},
         )
-        glue_methods = sorted(
-            {m if m is not None else "GET?" for _, m, _ in glue_idx[rn]},
+        http_methods = sorted(
+            {m if m is not None else "GET?" for _, m, _ in http_idx[rn]},
         )
-        if spec_methods != glue_methods:
-            mismatch.append((rn, spec_methods, glue_methods))
+        if spec_methods != http_methods:
+            mismatch.append((rn, spec_methods, http_methods))
 
     print("method mismatches", len(mismatch))
     if mismatch:
@@ -274,7 +274,7 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
         for rn, sm, gm in mismatch:
             print(" ", rn, "spec", sm, "http", gm)
 
-    route_paths = _parse_route_paths(GLUE_VIEWS)
+    route_paths = _parse_route_paths(HTTP_VIEWS)
     missing_paths = sorted(spec_set - set(route_paths))
     extra_paths = sorted(set(route_paths) - spec_set)
 
@@ -293,23 +293,23 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
     spec_fb = [
         (n, kw.get("renderer")) for dec, n, kw in a if dec == "forbidden_view_config"
     ]
-    glue_nf = [
+    http_nf = [
         (n, kw.get("renderer")) for dec, n, kw in b if dec == "notfound_view_config"
     ]
-    glue_fb = [
+    http_fb = [
         (n, kw.get("renderer")) for dec, n, kw in b if dec == "forbidden_view_config"
     ]
 
     print("spec notfound", spec_nf)
-    print("http notfound", glue_nf, "(handled by errors.py)" if not glue_nf else "")
+    print("http notfound", http_nf, "(handled by errors.py)" if not http_nf else "")
     print("spec forbidden", spec_fb)
-    print("http forbidden", glue_fb, "(handled by errors.py)" if not glue_fb else "")
+    print("http forbidden", http_fb, "(handled by errors.py)" if not http_fb else "")
 
     # Post M11-Phase1: notfound/forbidden are handled by errors.py, not decorators.
-    # Empty glue_nf/glue_fb is expected and not a failure.
-    if glue_nf and spec_nf != glue_nf:
+    # Empty http_nf/http_fb is expected and not a failure.
+    if http_nf and spec_nf != http_nf:
         ok = False
-    if glue_fb and spec_fb != glue_fb:
+    if http_fb and spec_fb != http_fb:
         ok = False
 
     # Renderer parity check (per route_name/request_method).
@@ -325,27 +325,27 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
         return s
 
     renderer_mismatches = []
-    for rn in sorted(spec_set & glue_set):
+    for rn in sorted(spec_set & http_set):
         spec_by_method = defaultdict(set)
-        glue_by_method = defaultdict(set)
+        http_by_method = defaultdict(set)
         for _, method, renderer in spec_idx[rn]:
             spec_by_method[method].add(_normalize_renderer(renderer))
-        for _, method, renderer in glue_idx[rn]:
-            glue_by_method[method].add(_normalize_renderer(renderer))
+        for _, method, renderer in http_idx[rn]:
+            http_by_method[method].add(_normalize_renderer(renderer))
 
         methods = sorted(
-            set(spec_by_method) | set(glue_by_method),
+            set(spec_by_method) | set(http_by_method),
             key=lambda x: (x is None, x),
         )
         for method in methods:
-            if spec_by_method.get(method, set()) != glue_by_method.get(method, set()):
+            if spec_by_method.get(method, set()) != http_by_method.get(method, set()):
                 renderer_mismatches.extend(
                     [
                         (
                             rn,
                             method,
                             sorted(spec_by_method.get(method, set())),
-                            sorted(glue_by_method.get(method, set())),
+                            sorted(http_by_method.get(method, set())),
                         ),
                     ],
                 )
@@ -355,7 +355,7 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
         ok = False
         for rn, method, sr, gr in renderer_mismatches[:200]:
             m = method if method is not None else "GET?"
-            print(" ", rn, "method", m, "spec", sr, "glue", gr)
+            print(" ", rn, "method", m, "spec", sr, "http", gr)
 
     if ok:
         print("OK: route/method/path parity looks good.")

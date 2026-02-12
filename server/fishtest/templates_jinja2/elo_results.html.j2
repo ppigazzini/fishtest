@@ -1,4 +1,5 @@
 {% set run_id = run["_id"] %}
+{% set show_gauge = show_gauge if show_gauge is defined else false %}
 {% set results_info = format_results(run) %}
 {% set info = results_info["info"] %}
 {% set elo_ptnml_run = is_elo_pentanomial_run(run) %}

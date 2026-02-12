@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Callable, cast
 
 from fastapi import Depends, Request
 from starlette.responses import Response
@@ -139,11 +140,24 @@ class TestHttpBoundary(unittest.TestCase):
             session.flash("hello")
             context = build_template_context(request, session)
             self.assertTrue(hasattr(context["request"], "scope"))
+            current_user = context.get("current_user")
+            self.assertIsInstance(current_user, dict)
+            typed_current_user = cast("dict[str, object]", current_user)
+            username = typed_current_user.get("username")
+            self.assertIsInstance(username, str)
+
+            static_url = context.get("static_url")
+            self.assertTrue(callable(static_url))
+            typed_static_url = cast("Callable[[str], str]", static_url)
+
+            flash = context.get("flash")
+            self.assertIsInstance(flash, dict)
+            typed_flash = cast("dict[str, object]", flash)
             return {
                 "csrf": context["csrf_token"],
-                "user": context["current_user"]["username"],
-                "flash": context["flash"],
-                "static_url": context["static_url"]("fishtest:static/css/site.css"),
+                "user": username,
+                "flash": typed_flash,
+                "static_url": typed_static_url("fishtest:static/css/site.css"),
             }
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -191,6 +205,7 @@ class TestHttpBoundary(unittest.TestCase):
         cookie = response.headers.get("set-cookie", "")
         self.assertIn("fishtest_session=", cookie)
         self.assertIn("Max-Age=60", cookie)
+        self.assertIn("Expires=", cookie)
 
     def test_session_forget_commit_cookie(self):
         from fishtest.http.boundary import commit_session_response, forget
@@ -214,7 +229,63 @@ class TestHttpBoundary(unittest.TestCase):
         cookie = response.headers.get("set-cookie", "")
         self.assertIn("fishtest_session=", cookie)
         cookie_lower = cookie.lower()
-        self.assertTrue("max-age=0" in cookie_lower or "expires=" in cookie_lower)
+        self.assertIn("max-age=0", cookie_lower)
+        self.assertIn("expires=", cookie_lower)
+
+    def test_session_forget_flags_force_cookie_clear(self):
+        from fishtest.http.boundary import SessionCommitFlags, commit_session_flags
+        from fishtest.http.cookie_session import load_session
+
+        app = self._build_app()
+
+        @app.get("/forget-flags")
+        async def _forget_flags_probe(request: Request):
+            session = load_session(request)
+            session.data["user"] = "Tester"
+            response = Response("ok")
+            commit_session_flags(
+                request,
+                session,
+                response,
+                flags=SessionCommitFlags(remember=False, forget=True),
+            )
+            return response
+
+        client = self.TestClient(app)
+        response = client.get("/forget-flags")
+        self.assertEqual(response.status_code, 200)
+        cookie = response.headers.get("set-cookie", "").lower()
+        self.assertIn("fishtest_session=null", cookie)
+
+    def test_template_context_pending_users_count(self):
+        from fishtest.http.boundary import build_template_context
+        from fishtest.http.cookie_session import CookieSession
+
+        username = "httpboundarypending"
+        self.rundb.userdb.users.delete_many({"username": username})
+        self.rundb.userdb.clear_cache()
+        self.rundb.userdb.create_user(
+            username,
+            "pwd",
+            f"{username}@example.com",
+            "",
+        )
+
+        app = self._build_app()
+
+        @app.get("/pending-count")
+        async def _pending_count_probe(request: Request):
+            context = build_template_context(request, CookieSession(data={}))
+            return {"pending_users_count": context["pending_users_count"]}
+
+        try:
+            client = self.TestClient(app)
+            response = client.get("/pending-count")
+            self.assertEqual(response.status_code, 200)
+            self.assertGreaterEqual(response.json()["pending_users_count"], 1)
+        finally:
+            self.rundb.userdb.users.delete_many({"username": username})
+            self.rundb.userdb.clear_cache()
 
     def test_ui_home_redirect_status(self):
         app = self._build_app(include_views=True)

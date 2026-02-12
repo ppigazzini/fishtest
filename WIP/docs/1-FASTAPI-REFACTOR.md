@@ -1,6 +1,6 @@
 # Restart refactor plan: Pyramid master → FastAPI (minimal-diff)
 
-Date: 2026-01-29
+Date: 2026-02-12
 
 This is the authoritative migration plan for the FastAPI cutover.
 
@@ -10,7 +10,7 @@ Notes:
 	- **Docs**: `WIP/docs/` (this plan is `WIP/docs/1-FASTAPI-REFACTOR.md`).
 	- **Tools**: `WIP/tools/` (parity checks and other helper scripts).
 
-**2026-01-29 update:** the `glue/` package was renamed to `http/`; current runtime modules live under `server/fishtest/http/`.
+**2026-02-12 implementation baseline:** runtime modules live under `server/fishtest/http/`; this document is maintained as the authoritative migration/cutover contract for the active codebase.
 
 ## Strategy (the “mechanical port” approach)
 
@@ -154,6 +154,7 @@ Completed:
 - Parity tools live under [../tools/](../tools/): route coverage, AST parity, HTML parity, response parity, and context coverage.
 - Milestone 3 async/blocking boundaries are complete; see 2.1-ASYNC-INVENTORY.md for the inventory and invariants.
 - Lifespan startup/shutdown work and blocked-user lookup are offloaded to the threadpool.
+- Milestone 12 Phase 6 parity remediation is complete: dead API helpers/assertions removed, `InternalApi` parity stub restored, `ensure_logged_in()` contract documented, SIGUSR1 thread dump support installed, and parity tooling now checks required API class presence.
 
 Reference/spec only (do not mount/run):
 
@@ -240,7 +241,7 @@ Local dev (still flexible):
 - `SIGINT`/`SIGTERM`: handled by Uvicorn; Fishtest cleanup runs from FastAPI lifespan shutdown in [server/fishtest/app.py](../../server/fishtest/app.py) via `_shutdown_rundb()` (mirrors Pyramid-era shutdown semantics).
 - Shutdown guard: once `rundb._shutdown` is set, [server/fishtest/http/middleware.py](../../server/fishtest/http/middleware.py) `ShutdownGuardMiddleware` rejects new requests with HTTP `503`.
 - Single-worker primary: [server/fishtest/app.py](../../server/fishtest/app.py) `_require_single_worker_on_primary()` raises `RuntimeError` if `UVICORN_WORKERS`/`WEB_CONCURRENCY` indicates workers != `1` on the primary instance.
-- `SIGUSR1` thread-dump: not currently installed in the active server (it existed in the read-only draft); if desired, add `faulthandler.register(SIGUSR1, all_threads=True)` as a debug aid.
+- `SIGUSR1` thread-dump: installed in the active server via `faulthandler.register(signal.SIGUSR1, all_threads=True)` with safe fallback logging when unavailable/already registered.
 
 ## Acceptance criteria (definition of “done”)
 
@@ -252,4 +253,8 @@ Local dev (still flexible):
 ## Ongoing practice
 
 - Keep parity checks green for routes, AST, HTML output, and response metadata.
+- Preferred one-command parity gate (default informational mode for known template response diffs):
+	- `WIP/tools/run_parity_all.sh`
+- Strict mode (fail on any normalized response-template mismatch):
+	- `WIP/tools/run_parity_all.sh --strict`
 - Prefer changes in the HTTP hotspots over adding new endpoint modules.

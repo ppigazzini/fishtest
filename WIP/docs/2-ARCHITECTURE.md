@@ -1,20 +1,20 @@
 > [!IMPORTANT]
-> **Disclaimer (snapshot, not a plan):** This document is an implementation snapshot.
-> The **only source of truth** for the restart plan is [1-FASTAPI-REFACTOR.md](1-FASTAPI-REFACTOR.md).
+> **Authoritative architecture baseline:** This document defines the current implemented architecture.
+> The **authoritative migration/cutover contract** is [1-FASTAPI-REFACTOR.md](1-FASTAPI-REFACTOR.md).
 
-# Fishtest architecture (repo snapshot)
+# Fishtest architecture (authoritative baseline)
 
-Date: **2026-02-11**
+Date: **2026-02-12**
 
-(Last updated: **2026-02-11** — M11 complete; Pyramid shims removed; session via `itsdangerous`; pure ASGI middleware)
+(Last updated: **2026-02-12** — M12 Phase 6 parity remediation completed; SIGUSR1 support and parity tooling updates recorded)
 
 This document describes the **current architecture of this repository**: what the major components are, how the server and worker interact, where the data lives, and what has changed (and *has not changed*) after the Pyramid → FastAPI replacement.
 
 Scope:
 
-- This is a **“what exists today”** snapshot.
+- This is the **authoritative description of the implemented runtime architecture**.
 - It is intentionally **implementation-oriented** (it names key modules and responsibilities).
-- It does **not** attempt to be a migration plan (see [1-FASTAPI-REFACTOR.md](1-FASTAPI-REFACTOR.md) for that).
+- It does **not** duplicate migration planning (see [1-FASTAPI-REFACTOR.md](1-FASTAPI-REFACTOR.md) for cutover contract details).
 
 Note on sources: this doc paraphrases common FastAPI concepts (routers, lifespan, ASGI) in the repository’s own words; it does not reproduce any third‑party documentation verbatim.
 
@@ -225,8 +225,7 @@ UI error flow:
 
 Signals and shutdown:
 
-- `SIGUSR1` thread-dump is not currently installed in the active server (it existed in the first FastAPI draft).
-  If desired, it can be added via `faulthandler.register(..., all_threads=True)`.
+- `SIGUSR1` thread-dump is installed in the active server via `faulthandler.register(signal.SIGUSR1, all_threads=True)` with safe fallback logging when unavailable/already registered.
 - `SIGINT`/`SIGTERM` are handled by Uvicorn. Fishtest's Pyramid-era cleanup steps are executed
   from FastAPI's lifespan shutdown and offloaded to a threadpool (stop scheduler, flush/save on primary, log a stop event).
 - Once shutdown begins, the app rejects new requests with HTTP `503` (matching Pyramid's
@@ -263,9 +262,10 @@ In worker endpoints (`server/fishtest/http/api.py`):
 
 - Several worker endpoints and UI mutation endpoints rely on `RunDb.buffer(...)`, which is only
   wired on the primary instance (see `RunDb.__init__`).
-- In the FastAPI HTTP layer, primary-only behavior is currently achieved by **routing** (e.g. nginx
-  sends those paths to the primary port). If misrouted to a secondary instance, these endpoints
-  generally fail (they are not guaranteed to return a clean HTTP `503` today).
+- In the FastAPI HTTP layer, primary-only worker endpoints are guarded in-process by
+  `RejectNonPrimaryWorkerApiMiddleware`, which returns a stable HTTP `503` JSON error on
+  misrouting. UI mutation routes marked `require_primary` are rejected with HTTP `503` by the
+  shared UI dispatch pipeline.
 
 Why this exists:
 
@@ -439,6 +439,22 @@ Mechanics:
 
 This is why UI routes behave like Pyramid pages (HTML 404/login pages, redirects, flashes) instead of FastAPI’s default JSON validation errors.
 
+### 7.4 M12 architectural decisions (explicit)
+
+- **Route registration model**: keep `_VIEW_ROUTES` + `_dispatch_view()` for UI endpoints in `http/views.py`.
+  - Rationale: it centralizes 11 cross-cutting concerns (session, CSRF, template rendering, cache, response headers, etc.) and avoids repeating boilerplate across 28+ routes.
+  - This is intentionally asymmetric with `http/api.py`, where endpoints are decorator-registered and do not require the same UI dispatch concerns.
+
+- **Validation model**: keep vtjson as the protocol-validation source of truth.
+  - Rationale: worker-protocol schemas rely on complex conditional/intersection validators, and broad Pydantic adoption would create dual-validation complexity without clear safety gain.
+  - Pydantic remains optional for narrowly scoped future cases (Milestone N-1) only when it provides measurable net benefit.
+
+### 7.5 Deployment note: session cutover impact
+
+- M11 switched runtime session persistence to `itsdangerous.TimestampSigner` cookie format.
+- Operational impact: pre-M11 session cookies are invalid after deployment, so users are logged out once and must re-authenticate.
+- This is an accepted one-time cutover; no dual-read migration layer is required.
+
 #### `server/fishtest/http/cookie_session.py`
 
 Purpose: provide a minimal session implementation that satisfies template expectations without depending on Pyramid.
@@ -580,5 +596,6 @@ When making refactors in the FastAPI server code (especially routers/middleware/
 
 - `cd server && uv run ruff check .`
 - `cd server && uv run ty check fishtest/app.py` (and any touched modules)
+- `WIP/tools/run_parity_all.sh` (or `WIP/tools/run_parity_all.sh --strict` for strict response-template parity)
 
 ---

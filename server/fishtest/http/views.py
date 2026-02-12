@@ -82,6 +82,7 @@ HTTP_TIMEOUT = 15.0
 FORM_MAX_FILES = 2
 FORM_MAX_FIELDS = 200
 FORM_MAX_PART_SIZE = 200 * 1024 * 1024
+DEFAULT_RECAPTCHA_SITE_KEY = "6LePs8YUAAAAABMmqHZVyVjxat95Z1c_uHrkugZM"
 
 router = APIRouter(tags=["ui"], include_in_schema=False)
 
@@ -290,7 +291,7 @@ def parse_page_idx(page_param: str) -> int:
 def parse_show_task(show_task_param, num_tasks: int) -> int:
     try:
         show_task = int(show_task_param)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return -1
     return show_task if -1 <= show_task < num_tasks else -1
 
@@ -342,6 +343,11 @@ def home(request=None):
 
 # === Authentication views ===
 def ensure_logged_in(request):
+    """Return authenticated user id or a login RedirectResponse.
+
+    Pyramid used exception-based redirect control flow. In the FastAPI port,
+    callers must check `isinstance(result, RedirectResponse)`.
+    """
     userid = request.authenticated_userid
     if not userid:
         request.session.flash("Please login")
@@ -640,10 +646,16 @@ def logout(request):
 
 
 def signup(request):
+    recaptcha_site_key = os.environ.get(
+        "FISHTEST_CAPTCHA_SITE_KEY",
+        DEFAULT_RECAPTCHA_SITE_KEY,
+    ).strip()
+    signup_context = {"recaptcha_site_key": recaptcha_site_key}
+
     if request.authenticated_userid:
         return home(request)
     if request.method != "POST":
-        return {}
+        return signup_context
     errors = []
 
     signup_username = request.POST.get("username", "").strip()
@@ -675,27 +687,39 @@ def signup(request):
     if errors:
         for error in errors:
             request.session.flash(error, "error")
-        return {}
+        return signup_context
 
-    secret = os.environ.get("FISHTEST_CAPTCHA_SECRET")
+    secret = os.environ.get("FISHTEST_CAPTCHA_SECRET", "").strip()
+    captcha_response = request.POST.get("g-recaptcha-response", "").strip()
+
     if not secret:
-        print("FISHTEST_CAPTCHA_SECRET is missing.", flush=True)
-    else:
-        payload = {
-            "secret": secret,
-            "response": request.POST.get("g-recaptcha-response", ""),
-            "remoteip": request.remote_addr,
-        }
+        request.session.flash("Captcha configuration is missing", "error")
+        return signup_context
+
+    if not captcha_response:
+        request.session.flash("Captcha required", "error")
+        return signup_context
+
+    payload = {
+        "secret": secret,
+        "response": captcha_response,
+        "remoteip": request.remote_addr,
+    }
+    try:
         response = requests.post(
             "https://www.google.com/recaptcha/api/siteverify",
             data=payload,
             timeout=HTTP_TIMEOUT,
         ).json()
-        if "success" not in response or not response["success"]:
-            if "error-codes" in response:
-                print(response["error-codes"])
-            request.session.flash("Captcha failed", "error")
-            return {}
+    except requests.RequestException, ValueError:
+        request.session.flash("Captcha verification failed", "error")
+        return signup_context
+
+    if "success" not in response or not response["success"]:
+        if "error-codes" in response:
+            print(response["error-codes"])
+        request.session.flash("Captcha failed", "error")
+        return signup_context
 
     result = request.userdb.create_user(
         username=signup_username,
@@ -716,7 +740,7 @@ def signup(request):
             "Thank you for contributing!"
         )
         return RedirectResponse(url="/login", status_code=302)
-    return {}
+    return signup_context
 
 
 def nns(request):
@@ -885,7 +909,7 @@ def actions(request):
         if time_value is None:
             time_label = ""
         else:
-            time_label = datetime.utcfromtimestamp(float(time_value)).strftime(
+            time_label = datetime.fromtimestamp(float(time_value), UTC).strftime(
                 "%y-%m-%d %H:%M:%S"
             )
             time_label = time_label.replace("-", "\u2011", 2)

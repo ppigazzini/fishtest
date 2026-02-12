@@ -57,6 +57,8 @@ def _run_parity(args: argparse.Namespace) -> int:
         argv.append("--json")
     if args.show_diff:
         argv.append("--show-diff")
+    if args.strict:
+        argv.append("--strict")
 
     original_argv = sys.argv
     try:
@@ -100,6 +102,11 @@ def main() -> int:
         "--show-diff",
         action="store_true",
         help="Show unified diffs for mismatches.",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Fail on any normalized HTML mismatch.",
     )
     args = parser.parse_args()
 

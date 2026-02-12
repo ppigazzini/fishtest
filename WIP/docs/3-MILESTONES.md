@@ -6,7 +6,7 @@
 
 # Pyramid → FastAPI roadmap (milestones)
 
-Date: 2026-01-29
+Date: 2026-02-12
 
 This document describes *how we switch* from Pyramid (WSGI) to FastAPI/Starlette (ASGI), and (optionally) from Mako to Jinja2.
 It stays intentionally high-level to avoid duplicating (and drifting from) the details in:
@@ -290,7 +290,7 @@ Definition of done:
 
 Goal: eliminate the remaining Pyramid-era request/response shims, decorator stubs, and exception classes from the HTTP layer, replacing them with idiomatic FastAPI/Starlette patterns — while keeping `http/api.py` and `http/views.py` structurally comparable to their legacy twins (`api.py`, `views.py`) for upstream rebase safety.
 
-Status: Not started.
+Status: Complete (2026-02-11); see [3.11-ITERATION.md](3.11-ITERATION.md) and [93-CLAUDE-M11-REPORT.md](93-CLAUDE-M11-REPORT.md).
 
 Context:
 
@@ -337,30 +337,177 @@ Definition of done:
 - All contract tests and parity scripts pass.
 - No new file-spread; no new multi-hop helper chains.
 
-## Milestone N-1 — Optional: Pydantic (only when it buys real safety)
+## Milestone 12 — Hardening, route idiom evaluation, and Pydantic assessment
 
-Goal: allow Pydantic only where it materially reduces bugs/duplication, without duplicating vtjson validation across the whole codebase or changing externally-visible error semantics.
+Goal: fix open issues from M11, evaluate whether `_VIEW_ROUTES` data-driven registration can be replaced by idiomatic `@router.get/post` decorators, and assess Pydantic feasibility vs the existing vtjson validation model.
 
-Scope guidance:
+Status: Complete (2026-02-12); see [3.12-ITERATION.md](3.12-ITERATION.md).
 
-- Prefer vtjson as the protocol-validation source of truth unless we deliberately migrate a specific surface.
-- If Pydantic is used for request parsing, ensure validation failures are routed through existing error shaping (avoid leaking FastAPI default `422` behavior on worker/UI paths).
-- Any Pydantic introduction must be paired with contract tests that lock response shape + error strings + worker `duration` behavior.
+Context:
 
-Non-goals:
+M11 is complete with 7 Pyramid shim classes removed, 2 thin adapters retained (`_ViewContext`, `ApiRequestShim`), a pure ASGI `FishtestSessionMiddleware` adopted, and 143 net lines removed. Several quality and hardening items remain from the M11 report (93-CLAUDE-M11-REPORT.md Section 9).
 
-- No broad conversion of existing endpoints “for style”.
-- No replacement of vtjson across the codebase.
+Additionally, the route registration model and the Pydantic question have been deferred from earlier milestones and now warrant explicit analysis.
+
+Scope:
+
+**Phase A — M11 open issues (hardening):**
+- Replace `MakoUndefined` with `StrictUndefined` in the Jinja2 environment (template context coverage is clean).
+- Convert `RedirectBlockedUiUsersMiddleware` from `BaseHTTPMiddleware` to pure ASGI (now feasible via `scope["session"]`).
+- Add session middleware integration tests (mock user lookup; verify cookie setting/clearing, "remember me" max-age, CSRF persistence).
+- Add deployment note: M11 invalidates all existing sessions (atomic cookie format cutover).
+- Document expected parity similarity ranges per milestone in this file.
+
+**Phase B — Route registration evaluation:**
+- Assess whether `_VIEW_ROUTES` data-driven registration + `_dispatch_view()` + `_make_endpoint()` can be replaced by `@router.get/post` decorators on each view function.
+- Key blocker: `_dispatch_view()` centralizes 11 cross-cutting concerns (session extraction, POST parsing, CSRF enforcement, `_ViewContext` construction, primary-instance guard, threadpool dispatch, redirect handling, template rendering, session commit, HTTP cache, response headers). Replacing it with decorators requires decomposing these concerns into FastAPI dependencies or middleware.
+- `api.py` already uses `@router.get/post` decorators (20 endpoints) — no shared dispatch pattern.
+- Recommendation is captured in the iteration plan with pros/cons analysis.
+
+**Phase C — Pydantic assessment:**
+- Assess whether introducing Pydantic for API request body parsing would reduce bugs, improve type safety, or generate useful OpenAPI schemas.
+- Key factors: vtjson deeply embedded (19 schemas, 37 imported functions, cross-field validators using `ifthen`/`cond`/`intersect`/`lax`), only 3 `validate()` call sites in `api.py`, worker error format (`{"error": "...", "duration": N}` at status 400) conflicts with FastAPI default 422 validation.
+- Recommendation is captured in the iteration plan with pros/cons analysis.
+
+Design constraints:
+- All existing constraints carry forward: no file-spread, hop count ≤ 1, helper calls ≤ 2, structural comparability with legacy twins.
+- Contract tests, parity scripts, and "stop the line" conditions remain the safety net.
+- No worker protocol shape changes.
+
+Scope exclusions:
+- No template changes.
+- No DB adapter or scheduling redesign.
+- No `tests/pyramid/` stub deletion.
+
+Definition of done:
+- All M11 high/medium-priority action items resolved.
+- Route registration evaluation documented with explicit pros/cons/recommendation.
+- Pydantic assessment documented with explicit pros/cons/recommendation.
+- All contract tests and parity scripts pass.
+- Iteration plan written at [3.12-ITERATION.md](3.12-ITERATION.md).
+
+Completion outcomes summary:
+- `MakoUndefined` was replaced with `StrictUndefined`; middleware stack is now pure ASGI (`BaseHTTPMiddleware` users: 0).
+- Session/boundary integration tests were added; full local suite passed (187/187).
+- Route registration decision recorded: keep `_VIEW_ROUTES` + `_dispatch_view()` (no decorator migration).
+- Pydantic assessment recorded: vtjson and Pydantic solve different problems (object validation vs data parsing); vtjson remains sole validation layer; no Pydantic adoption planned. See M N-1 for closure.
+- Phase 6 parity remediation completed: dead API helpers/assertions removed, `InternalApi` parity stub restored, and `ensure_logged_in()` return-contract documented.
+- Operational parity gaps closed: `_base_url_set` first-request fallback confirmed in middleware and optional SIGUSR1 thread-dump support installed.
+- Parity tooling strengthened: API AST parity now checks required class-presence parity (`InternalApi`) in addition to endpoint method-body parity.
+- Phase 4 low-priority items closed explicitly:
+  - **Won't do** in M12: split `template_helpers.py`, generate template `urls` from `router.routes`, migrate to Starlette `context_processors`.
+  - **Done**: parity similarity trend tracking in `3.12-ITERATION.md` Appendix D.
+
+Parity similarity expected ranges after M12:
+- views: 0.70–0.72 (stable; M12 changes are infrastructure, not view logic)
+- api: 0.74–0.76 (stable; no API body changes)
+
+## Milestone N-1 — Pydantic assessment outcome (no adoption planned)
+
+Status: assessed in M12; conclusion: vtjson stays, Pydantic not adopted.
+
+### vtjson vs Pydantic — different tools, different jobs
+
+**vtjson** validates existing Python objects against declarative schemas. It answers: "does this dict conform to these constraints?" It does not create objects, coerce types, or generate API schemas. Fishtest uses 19 vtjson schemas in `schemas.py` (37 imported functions) with ~15+ `validate()` call sites across both the domain layer (`rundb`, `actiondb`, `userdb`, `kvstore`, `workerdb`, `github_api`) and the HTTP layer (`http/api.py`, `http/views.py`).
+
+vtjson features actually used: `ifthen`/`cond` (cross-field conditional validation), `intersect` (composable multi-constraint validators), `lax` (match shape ignoring extra keys), `union`/`complement` (Boolean algebra), callable predicates (`valid_results()`, `final_results_must_match()`). The most complex schema (`runs_schema`, ~100 lines) validates 50+ fields with 6 cross-field validators, conditional task/state invariants, and aggregated-data consistency — all declarative.
+
+**Pydantic** deserializes raw data into typed model instances (`BaseModel`). It answers: "parse this JSON into a typed Python object." Pydantic is bundled with FastAPI but Fishtest does not use it for request parsing. The only Pydantic appearance in the codebase is a test fixture in `test_http_errors.py`.
+
+They are **not interchangeable**:
+
+| Concern | vtjson | Pydantic |
+|---|---|---|
+| Cross-field logic | `ifthen`, `cond`, `intersect` — declarative | `@model_validator` — imperative Python |
+| Schema algebra | `union`, `intersect`, `complement`, `lax` — complete | `Union` only; no intersection or complement |
+| Model classes needed | No — validates plain dicts directly | Yes — requires a `BaseModel` class per shape |
+| Data source | Any Python object (MongoDB docs, in-memory dicts) | Typically JSON at an API boundary |
+| Coercion | No (validates, never transforms) | Yes (auto-coerces types) |
+
+### Why Pydantic is not adopted
+
+1. **Scope mismatch.** Most validation happens in the domain layer (MongoDB documents), not at the HTTP boundary. Pydantic only helps at the API boundary — 3 call sites out of ~15+.
+2. **Cross-field schemas don't translate.** `runs_schema` (~100 lines declarative vtjson) would need ~200+ lines of `@model_validator` chains. `action_schema` (16-branch `cond`) would need 16 model classes + a discriminated union.
+3. **Error format conflict.** Workers expect HTTP 400 + `{"error": "...", "duration": N}`. Pydantic defaults to 422 with a different error shape. Custom exception handlers would be needed — added complexity, not reduced.
+4. **Dual validation is worse than one system.** Pydantic for simple schemas + vtjson for complex ones = two validation systems to maintain.
+5. **No OpenAPI need.** The API serves internal workers, not external consumers.
+
+This milestone is effectively closed. Reassess only if a concrete use case appears where Pydantic provides safety or maintenance value that vtjson cannot — no such case exists today.
 
 ## Milestone N — Delete legacy Pyramid code
 
 Goal: the repo no longer carries Pyramid-specific runtime codepaths.
 
+Target end-state for upstream at Milestone N:
+
+- FastAPI + Starlette + Jinja2 + Uvicorn are the only active server stack.
+- Pyramid and Mako are fully removed from runtime and repository surfaces used by the active server.
+- No milestone task depends on `WIP/` paths (the `WIP/` tree is removed).
+
+Expanded TODO seed list (to be detailed in Iteration N planning):
+
+- Delete legacy test modules that still validate Pyramid-era surfaces:
+  - `server/tests/test_actions_view.py`
+  - `server/tests/test_api.py`
+  - `server/tests/test_users.py`
+  - `server/tests/test_rundb.py`
+  - `server/tests/test_github_api.py`
+- Delete Pyramid test stubs no longer needed once legacy tests are gone:
+  - `server/tests/pyramid/__init__.py`
+  - `server/tests/pyramid/security.py`
+  - `server/tests/pyramid/httpexceptions.py`
+  - `server/tests/pyramid/view.py`
+  - `server/tests/pyramid/response.py`
+  - `server/tests/pyramid/testing.py`
+
+- Move active HTTP route modules up one level:
+  - source move: `server/fishtest/http/api.py` → `server/fishtest/api.py`
+  - source move: `server/fishtest/http/views.py` → `server/fishtest/views.py`
+  - remove old legacy Pyramid modules currently at `server/fishtest/api.py` and `server/fishtest/views.py` as part of this replacement (no dual copies).
+  - files touched by this move (code/tests/tools/docs):
+    - runtime wiring/imports:
+      - `server/fishtest/app.py`
+      - `server/fishtest/http/errors.py`
+      - `server/fishtest/http/middleware.py`
+    - tests/helpers importing old module paths:
+      - `server/tests/fastapi_util.py`
+      - `server/tests/test_http_actions_view.py`
+      - `server/tests/test_http_api.py`
+      - `server/tests/test_http_boundary.py`
+      - `server/tests/test_http_helpers.py`
+      - `server/tests/test_http_users.py`
+    - parity tooling:
+      - `WIP/tools/parity_check_api_ast.py`
+      - `WIP/tools/parity_check_api_routes.py`
+      - `WIP/tools/parity_check_urls_dict.py`
+    - authoritative docs:
+      - `WIP/docs/1-FASTAPI-REFACTOR.md`
+      - `WIP/docs/2-ARCHITECTURE.md`
+
+- Drop Mako from runtime packaging metadata (`server/pyproject.toml`):
+  - remove classifier `Framework :: Mako`
+  - remove dependency `mako>=...`
+  - remove package-data globs `*.mak` and `*.mako` from runtime wheel metadata
+  - delete legacy Mako template tree at `server/fishtest/templates/`
+  - remove/replace any scripts, tests, or docs that still assume Mako template parity.
+
+- Remove `WIP/` dependencies from Milestone N execution:
+  - migrate any still-needed tools/docs out of `WIP/` into permanent repo locations before deletion
+  - update references currently pointing to `WIP/tools/*` and `WIP/docs/*` to their non-WIP destinations
+  - delete `WIP/` tree once migrations are complete
+
+- Additional required work:
+  - remove any remaining runtime imports from `pyramid.*` across `server/fishtest/**`
+  - update route/parity scripts and docs so FastAPI/Starlette/Jinja2/Uvicorn are the only active server references
+  - run full contract/parity suite after each deletion/move batch before continuing
+
 Definition of done:
 
 - Pyramid packages/configs are removed from the runtime deployable.
+- Mako packages/templates are removed from the active repository/runtime path.
 - Tests no longer depend on Pyramid stubs for coverage of the active server behavior.
-- Docs point to FastAPI/Starlette as the only server.
+- Docs/config/scripts no longer depend on `WIP/` paths.
+- Docs point to FastAPI/Starlette/Jinja2/Uvicorn as the only server stack.
 
 ## What does NOT belong here
 

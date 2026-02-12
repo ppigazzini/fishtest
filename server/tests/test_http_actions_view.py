@@ -61,6 +61,11 @@ class _FakeUserDb:
 
 
 class ActionsViewMaxActionsHttpTest(unittest.TestCase):
+    def _last_kwargs(self, request):
+        self.assertIsNotNone(request.actiondb.last_kwargs)
+        assert request.actiondb.last_kwargs is not None
+        return request.actiondb.last_kwargs
+
     def test_prev_link_preserves_max_actions_authenticated(self):
         request = _GlueRequestStub(
             params={"page": "20000", "max_actions": "500000"},
@@ -126,17 +131,20 @@ class ActionsViewMaxActionsHttpTest(unittest.TestCase):
     def test_anon_default_hard_cap(self):
         request = _GlueRequestStub(params={})
         actions_view(request)
-        self.assertEqual(request.actiondb.last_kwargs["max_actions"], 5000)
+        last_kwargs = self._last_kwargs(request)
+        self.assertEqual(last_kwargs["max_actions"], 5000)
 
     def test_anon_clamps_user_max_actions(self):
         request = _GlueRequestStub(params={"max_actions": "999999"})
         actions_view(request)
-        self.assertEqual(request.actiondb.last_kwargs["max_actions"], 5000)
+        last_kwargs = self._last_kwargs(request)
+        self.assertEqual(last_kwargs["max_actions"], 5000)
 
     def test_authenticated_default_soft_cap_unfiltered(self):
         request = _GlueRequestStub(params={}, authenticated_userid="JoeUser")
         actions_view(request)
-        self.assertEqual(request.actiondb.last_kwargs["max_actions"], 50000)
+        last_kwargs = self._last_kwargs(request)
+        self.assertEqual(last_kwargs["max_actions"], 50000)
 
     def test_authenticated_allows_override_upward(self):
         request = _GlueRequestStub(
@@ -144,7 +152,8 @@ class ActionsViewMaxActionsHttpTest(unittest.TestCase):
             authenticated_userid="JoeUser",
         )
         actions_view(request)
-        self.assertEqual(request.actiondb.last_kwargs["max_actions"], 200000)
+        last_kwargs = self._last_kwargs(request)
+        self.assertEqual(last_kwargs["max_actions"], 200000)
 
     def test_authenticated_filtered_no_default_cap(self):
         request = _GlueRequestStub(
@@ -152,7 +161,8 @@ class ActionsViewMaxActionsHttpTest(unittest.TestCase):
             authenticated_userid="JoeUser",
         )
         actions_view(request)
-        self.assertIsNone(request.actiondb.last_kwargs["max_actions"])
+        last_kwargs = self._last_kwargs(request)
+        self.assertIsNone(last_kwargs["max_actions"])
 
 
 if __name__ == "__main__":

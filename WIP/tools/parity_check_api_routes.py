@@ -32,12 +32,12 @@ API_PATH_STEM_INDEX = 2
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC_API = REPO_ROOT / "server" / "fishtest" / "api.py"
-GLUE_API = REPO_ROOT / "server" / "fishtest" / "http" / "api.py"
+HTTP_API = REPO_ROOT / "server" / "fishtest" / "http" / "api.py"
 WEB_ROOT = REPO_ROOT / "server" / "fishtest" / "web"
 
 
-_SPEC_TO_GLUE_STEM_OVERRIDES: dict[str, str] = {
-    # Historical naming differences between route_name suffixes and glue paths.
+_SPEC_TO_HTTP_STEM_OVERRIDES: dict[str, str] = {
+    # Historical naming differences between route_name suffixes and http paths.
     "download_nn": "nn",
     "download_pgn": "pgn",
     "download_run_pgns": "run_pgns",
@@ -151,7 +151,7 @@ def _iter_fastapi_api_paths(path: Path) -> list[tuple[str, str]]:
     return out
 
 
-def _glue_stem_from_path(path: str) -> str:
+def _http_stem_from_path(path: str) -> str:
     # /api/get_run/{id} -> get_run
     parts = path.split("/")
     if len(parts) < API_PATH_MIN_PARTS:
@@ -162,7 +162,7 @@ def _glue_stem_from_path(path: str) -> str:
 def _spec_stem_from_route_name(route_name: str) -> str:
     # api_get_run -> get_run
     suffix = route_name[len("api_") :]
-    return _SPEC_TO_GLUE_STEM_OVERRIDES.get(suffix, suffix)
+    return _SPEC_TO_HTTP_STEM_OVERRIDES.get(suffix, suffix)
 
 
 def main() -> int:  # noqa: C901, PLR0912, PLR0915
@@ -179,18 +179,18 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
     if not SPEC_API.exists():
         print(f"Missing spec file: {SPEC_API}")
         return 1
-    if not GLUE_API.exists():
-        print(f"Missing http file: {GLUE_API}")
+    if not HTTP_API.exists():
+        print(f"Missing http file: {HTTP_API}")
         return 1
 
     pyramid_routes = _iter_pyramid_api_routes(SPEC_API)
-    glue_routes = _iter_fastapi_api_paths(GLUE_API)
-    glue_routes_no_options = [(m, p) for m, p in glue_routes if m.lower() != "options"]
+    http_routes = _iter_fastapi_api_paths(HTTP_API)
+    http_routes_no_options = [(m, p) for m, p in http_routes if m.lower() != "options"]
 
-    glue_pairs: set[tuple[str, str]] = {
-        (m.upper(), _glue_stem_from_path(p)) for m, p in glue_routes_no_options
+    http_pairs: set[tuple[str, str]] = {
+        (m.upper(), _http_stem_from_path(p)) for m, p in http_routes_no_options
     }
-    glue_stems: set[str] = {stem for _, stem in glue_pairs}
+    http_stems: set[str] = {stem for _, stem in http_pairs}
 
     spec_pairs: set[tuple[str, str]] = {
         (m.upper(), _spec_stem_from_route_name(rn)) for m, rn in pyramid_routes
@@ -198,7 +198,7 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
     spec_stems: set[str] = {stem for _, stem in spec_pairs}
 
     print("Pyramid api.py route_name count:", len({rn for _, rn in pyramid_routes}))
-    print("FastAPI http/api.py /api paths count:", len([p for _, p in glue_routes]))
+    print("FastAPI http/api.py /api paths count:", len([p for _, p in http_routes]))
 
     if pyramid_routes:
         print("\nPyramid route_names:")
@@ -206,23 +206,23 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
             print("  ", rn)
 
     print("\nFastAPI /api paths:")
-    for method, path in sorted(glue_routes, key=lambda x: (x[1], x[0])):
+    for method, path in sorted(http_routes, key=lambda x: (x[1], x[0])):
         print(f"  {method.upper():7s} {path}")
 
-    missing_stems = sorted(spec_stems - glue_stems)
+    missing_stems = sorted(spec_stems - http_stems)
 
     # Method mismatches: only for method-specified routes (not '*').
     method_required = {(m, stem) for (m, stem) in spec_pairs if m != "*"}
-    missing_methods = sorted(method_required - glue_pairs)
+    missing_methods = sorted(method_required - http_pairs)
 
     # Purely informational extras.
-    extra = sorted(glue_pairs - method_required)
+    extra = sorted(http_pairs - method_required)
 
     ok = True
 
     print("\n(spec→http) normalized endpoint pairs:")
     print("  spec pairs", len(spec_pairs))
-    print("  http pairs", len(glue_pairs), "(OPTIONS ignored)")
+    print("  http pairs", len(http_pairs), "(OPTIONS ignored)")
     print("  missing stems", len(missing_stems))
     print("  missing methods", len(missing_methods))
     print("  extra (informational)", len(extra))

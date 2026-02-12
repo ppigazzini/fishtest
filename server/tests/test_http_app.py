@@ -75,7 +75,9 @@ class TestHttpApp(unittest.TestCase):
             ):
                 app = app_module.create_app()
 
-            middleware_names = {mw.cls.__name__ for mw in app.user_middleware}
+            middleware_names = {
+                getattr(mw.cls, "__name__", str(mw.cls)) for mw in app.user_middleware
+            }
             self.assertIn("ShutdownGuardMiddleware", middleware_names)
             self.assertIn("AttachRequestStateMiddleware", middleware_names)
             self.assertIn("RejectNonPrimaryWorkerApiMiddleware", middleware_names)

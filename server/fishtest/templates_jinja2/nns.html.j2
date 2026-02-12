@@ -83,10 +83,11 @@
     </thead>
     <tbody>
       {% for nn in nns %}
-        {% if not master_only or nn.is_master %}
+        {% set nn_is_master = nn.get('is_master', false) if nn is mapping else (nn.is_master if nn.is_master is defined else false) %}
+        {% if not master_only or nn_is_master %}
           <tr>
             <td>{{ nn.time_label }}</td>
-            {% if nn.is_master %}
+            {% if nn_is_master %}
               <td class="default-net">
             {% else %}
               <td>

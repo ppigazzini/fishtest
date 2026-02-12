@@ -140,5 +140,103 @@ class TestHttpMiddleware(unittest.TestCase):
         self.assertIn(f"{SESSION_COOKIE_NAME}=", set_cookie)
 
 
+class TestHttpMiddlewareMongo(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.FastAPI, cls.TestClient = fastapi_util.require_fastapi()
+
+        try:
+            import util as test_util
+        except ModuleNotFoundError:  # pragma: no cover
+            from tests import util as test_util
+
+        cls.rundb = test_util.get_rundb()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.rundb.userdb.clear_cache()
+        cls.rundb.userdb.users.delete_many({"username": {"$regex": "^httpmw"}})
+        cls.rundb.conn.close()
+
+    def _session_cookie(self, username: str) -> str:
+        import json
+        from base64 import b64encode
+
+        from fishtest.http.cookie_session import session_secret_key
+        from itsdangerous import TimestampSigner
+
+        signer = TimestampSigner(session_secret_key())
+        data = b64encode(json.dumps({"user": username}).encode("utf-8"))
+        return signer.sign(data).decode("utf-8")
+
+    def test_redirect_blocked_ui_users_with_real_userdb(self):
+        from fishtest.http.cookie_session import SESSION_COOKIE_NAME
+        from fishtest.http.middleware import _blocked_cache
+
+        username = "httpmwblocked"
+        self.rundb.userdb.users.delete_many({"username": username})
+        self.rundb.userdb.clear_cache()
+        _blocked_cache.timestamp = None
+        _blocked_cache.value = None
+
+        self.rundb.userdb.create_user(username, "pwd", f"{username}@example.com", "")
+        user = self.rundb.userdb.get_user(username)
+        user["pending"] = False
+        user["blocked"] = True
+        self.rundb.userdb.save_user(user)
+
+        app = fastapi_util.build_test_app(
+            rundb=self.rundb,
+            include_api=False,
+            include_views=False,
+        )
+
+        @app.get("/tests")
+        async def _tests():
+            return {"ok": True}
+
+        client = self.TestClient(app)
+        client.cookies.set(SESSION_COOKIE_NAME, self._session_cookie(username))
+        response = client.get("/tests", follow_redirects=False)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers.get("location", "").endswith("/tests"))
+        set_cookie = response.headers.get("set-cookie", "").lower()
+        self.assertIn(f"{SESSION_COOKIE_NAME}=null", set_cookie)
+
+    def test_allows_non_blocked_ui_user_with_real_userdb(self):
+        from fishtest.http.cookie_session import SESSION_COOKIE_NAME
+        from fishtest.http.middleware import _blocked_cache
+
+        username = "httpmwallowed"
+        self.rundb.userdb.users.delete_many({"username": username})
+        self.rundb.userdb.clear_cache()
+        _blocked_cache.timestamp = None
+        _blocked_cache.value = None
+
+        self.rundb.userdb.create_user(username, "pwd", f"{username}@example.com", "")
+        user = self.rundb.userdb.get_user(username)
+        user["pending"] = False
+        user["blocked"] = False
+        self.rundb.userdb.save_user(user)
+
+        app = fastapi_util.build_test_app(
+            rundb=self.rundb,
+            include_api=False,
+            include_views=False,
+        )
+
+        @app.get("/tests")
+        async def _tests():
+            return {"ok": True}
+
+        client = self.TestClient(app)
+        client.cookies.set(SESSION_COOKIE_NAME, self._session_cookie(username))
+        response = client.get("/tests")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"ok": True})
+
+
 if __name__ == "__main__":
     unittest.main()

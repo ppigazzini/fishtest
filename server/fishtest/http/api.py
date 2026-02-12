@@ -81,22 +81,9 @@ class GenericApi:
             error = f"{api}: {error}"
             print(error, flush=True)
             raise HTTPException(
-                status_code=status_code, detail=self.add_time({"error": error})
+                status_code=status_code,
+                detail=self.add_time({"error": error}),
             )
-
-    def parse_page_param(self, page_param: str) -> int:
-        if page_param == "":
-            self.handle_error("Please provide a Page number.")
-        if not page_param.isdigit() or int(page_param) < 1:
-            self.handle_error("Please provide a valid Page number.")
-        return int(page_param) - 1
-
-    def parse_unix_timestamp(self, timestamp: str):
-        if timestamp == "":
-            return None
-        if re.match(r"^\d{10}(\.\d+)?$", timestamp):
-            return datetime.fromtimestamp(float(timestamp))
-        self.handle_error("Please provide a valid UNIX timestamp.")
 
 
 class WorkerApi(GenericApi):
@@ -126,8 +113,7 @@ class WorkerApi(GenericApi):
             self.handle_error(token["error"], status_code=401)
 
     def validate_request(self):
-        """
-        This function will load the run from the cache or the db,
+        """This function will load the run from the cache or the db,
         depending on the type of instance it runs on (primary or
         secondary). If the request refers to a particular
         task then one needs to make sure that it has been saved
@@ -150,7 +136,7 @@ class WorkerApi(GenericApi):
             run_id = self.request_body["run_id"]
             run = self.request.rundb.get_run(run_id)
             if run is None:
-                self.handle_error("Invalid run_id: {}".format(run_id))
+                self.handle_error(f"Invalid run_id: {run_id}")
             self.__run = run
 
         # if a task_id is present then the unique_key and username
@@ -160,7 +146,7 @@ class WorkerApi(GenericApi):
 
             if task_id < 0 or task_id >= len(run["tasks"]):
                 self.handle_error(
-                    "Invalid task_id {} for run_id {}".format(task_id, run_id)
+                    f"Invalid task_id {task_id} for run_id {run_id}",
                 )
 
             task = run["tasks"][task_id]
@@ -171,7 +157,7 @@ class WorkerApi(GenericApi):
                 if value_request != value_task:
                     self.handle_error(
                         f"Invalid {key} for task {run_id}/{task_id}. From task: "
-                        f"{value_task}. From request: {value_request}."
+                        f"{value_task}. From request: {value_request}.",
                     )
 
             self.__task = task
@@ -275,7 +261,9 @@ class WorkerApi(GenericApi):
     def failed_task(self):
         self.validate_request()
         result = self.request.rundb.failed_task(
-            self.run_id(), self.task_id(), self.message()
+            self.run_id(),
+            self.task_id(),
+            self.message(),
         )
         return self.add_time(result)
 
@@ -348,7 +336,8 @@ class WorkerApi(GenericApi):
     def request_spsa(self):
         self.validate_request()
         result = self.request.rundb.spsa_handler.request_spsa_data(
-            self.run_id(), self.task_id()
+            self.run_id(),
+            self.task_id(),
         )
         return self.add_time(result)
 
@@ -445,7 +434,8 @@ class UserApi(GenericApi):
                 task = copy.deepcopy(run["tasks"][task_id])
         except Exception:
             self.handle_error(
-                f"The task {run_id}/{task_id} does not exist", status_code=404
+                f"The task {run_id}/{task_id} does not exist",
+                status_code=404,
             )
         if "worker_info" in task:
             worker_info = task["worker_info"]
@@ -487,7 +477,12 @@ class UserApi(GenericApi):
         elo1 = sprt["elo1"]
         sprt["elo_model"] = elo_model
         a = SPRT_elo(
-            results, alpha=alpha, beta=beta, elo0=elo0, elo1=elo1, elo_model=elo_model
+            results,
+            alpha=alpha,
+            beta=beta,
+            elo0=elo0,
+            elo1=elo1,
+            elo_model=elo_model,
         )
         run["elo"] = a
         return run
@@ -520,7 +515,7 @@ class UserApi(GenericApi):
 
         if not is_ptnml and not is_wdl:
             self.handle_error(
-                "Invalid or missing parameters. Please provide all values as valid numbers."
+                "Invalid or missing parameters. Please provide all values as valid numbers.",
             )
 
         if is_ptnml:
@@ -579,7 +574,7 @@ class UserApi(GenericApi):
 
         if elo_model not in ["BayesElo", "logistic", "normalized"]:
             self.handle_error(
-                "Valid Elo models are: BayesElo, logistic, and normalized."
+                "Valid Elo models are: BayesElo, logistic, and normalized.",
             )
 
         elo0 = float(elo0)
@@ -640,9 +635,14 @@ class UserApi(GenericApi):
 
         self.request.rundb.increment_nn_downloads(nn_id)
         nn_base_url = os.environ.get(
-            "FISHTEST_NN_URL", f"{self.request.scheme}://{self.request.host}"
+            "FISHTEST_NN_URL",
+            f"{self.request.scheme}://{self.request.host}",
         ).rstrip("/")
         return RedirectResponse(f"{nn_base_url}/nn/{nn_id}", status_code=302)
+
+
+class InternalApi(GenericApi):
+    pass
 
 
 @router.post("/api/request_task")
@@ -726,6 +726,8 @@ async def api_actions(request: Request):
 
 @router.options("/api/actions")
 async def api_actions_options(request: Request):
+    # Explicit preflight route retained for browser clients using cross-origin
+    # POST requests against this endpoint.
     return JSONResponse([], headers=_cors_headers(["POST", "OPTIONS"]))
 
 
@@ -738,6 +740,8 @@ async def api_get_run(id, request: Request):
 
 @router.options("/api/get_run/{id}")
 async def api_get_run_options(id, request: Request):
+    # Explicit preflight route retained for browser clients using cross-origin
+    # GET requests with custom headers against this endpoint.
     return JSONResponse([], headers=_cors_headers(["GET", "OPTIONS"]))
 
 
@@ -777,4 +781,4 @@ async def api_download_nn(id, request: Request):
     return await run_in_threadpool(api.download_nn)
 
 
-__all__ = ["router", "WORKER_VERSION"]
+__all__ = ["WORKER_VERSION", "router"]

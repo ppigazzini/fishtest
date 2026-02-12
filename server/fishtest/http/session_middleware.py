@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 from base64 import b64decode, b64encode
+from datetime import UTC, datetime, timedelta
+from email.utils import format_datetime
 from typing import TYPE_CHECKING, Literal, cast
 
 import itsdangerous
@@ -74,7 +76,7 @@ class FishtestSessionMiddleware:
                     unsigned = signer.unsign(raw, max_age=self.max_age)
                 session = json.loads(b64decode(unsigned))
                 initial_session_was_empty = False
-            except (BadSignature, ValueError, TypeError, json.JSONDecodeError):
+            except BadSignature, ValueError, TypeError, json.JSONDecodeError:
                 session = {}
 
         if not isinstance(session, dict):
@@ -169,8 +171,14 @@ def _build_cookie_header(  # noqa: PLR0913
         flags.append("secure")
     if domain:
         flags.append(f"domain={domain}")
-    max_age_part = f"Max-Age={max_age}; " if max_age is not None else ""
-    return f"{name}={value}; path={path}; {max_age_part}{'; '.join(flags)}"
+    age_parts: list[str] = []
+    if max_age is not None:
+        expires_at = datetime.now(UTC) + timedelta(seconds=max_age)
+        expires = format_datetime(expires_at, usegmt=True)
+        age_parts.append(f"Max-Age={max_age}")
+        age_parts.append(f"Expires={expires}")
+    attrs = [f"{name}={value}", f"path={path}", *age_parts, *flags]
+    return "; ".join(attrs)
 
 
 def _delete_cookie_header(
@@ -186,10 +194,14 @@ def _delete_cookie_header(
         flags.append("secure")
     if domain:
         flags.append(f"domain={domain}")
-    return (
-        f"{name}=null; path={path}; expires=Thu, 01 Jan 1970 00:00:00 GMT; "
-        + "; ".join(flags)
-    )
+    attrs = [
+        f"{name}=null",
+        f"path={path}",
+        "Max-Age=0",
+        "Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+        *flags,
+    ]
+    return "; ".join(attrs)
 
 
 def _cookie_size_ok(value: str) -> bool:

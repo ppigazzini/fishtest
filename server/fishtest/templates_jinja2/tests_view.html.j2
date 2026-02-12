@@ -24,7 +24,7 @@
   </script>
 {% endif %}
 
-{% if follow == 1 and run["args"]["username"] == request.authenticated_userid %}
+{% if follow == 1 and current_user and run["args"]["username"] == current_user["username"] %}
   <script>
     (async () => {
       await DOMContentLoaded();

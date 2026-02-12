@@ -41,7 +41,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC_API = REPO_ROOT / "server" / "fishtest" / "api.py"
-GLUE_API = REPO_ROOT / "server" / "fishtest" / "http" / "api.py"
+HTTP_API = REPO_ROOT / "server" / "fishtest" / "http" / "api.py"
 
 # Endpoints that are intentionally expected to differ due to framework response
 # primitives (Pyramid Response/FileIter vs Starlette StreamingResponse).
@@ -49,6 +49,8 @@ EXPECTED_BODY_DRIFT: set[str] = {
     "api_download_pgn",
     "api_download_run_pgns",
 }
+
+REQUIRED_SPEC_CLASSES: set[str] = {"InternalApi"}
 
 _PYRAMID_EXCEPTION_STATUS: dict[str, int] = {
     "HTTPBadRequest": 400,
@@ -238,7 +240,7 @@ def _format_call_to_joined_str(node: ast.Call) -> ast.JoinedStr | None:
 def _literal_str(value_node: ast.AST) -> str | None:
     try:
         value = ast.literal_eval(value_node)
-    except (ValueError, SyntaxError):
+    except ValueError, SyntaxError:
         return None
     return value if isinstance(value, str) else None
 
@@ -314,6 +316,31 @@ def _class_method_names(tree: ast.Module) -> dict[str, set[str]]:
     return out
 
 
+def _class_presence(tree: ast.Module) -> set[str]:
+    """Return top-level class names present in the module."""
+    return {node.name for node in tree.body if isinstance(node, ast.ClassDef)}
+
+
+def _missing_required_classes(
+    *,
+    spec_classes: set[str],
+    http_classes: set[str],
+) -> list[str]:
+    return sorted(
+        class_name
+        for class_name in REQUIRED_SPEC_CLASSES
+        if class_name in spec_classes and class_name not in http_classes
+    )
+
+
+def _print_missing_classes(missing_classes: list[str]) -> None:
+    if not missing_classes:
+        return
+    print("\nMissing required classes:")
+    for class_name in missing_classes:
+        print(" ", class_name)
+
+
 def _parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser()
     ap.add_argument(
@@ -370,33 +397,39 @@ def main() -> int:
     if not SPEC_API.exists():
         print(f"Missing spec file: {SPEC_API}")
         return 1
-    if not GLUE_API.exists():
-        print(f"Missing http file: {GLUE_API}")
+    if not HTTP_API.exists():
+        print(f"Missing http file: {HTTP_API}")
         return 1
 
     spec_tree = ast.parse(SPEC_API.read_text())
-    glue_tree = ast.parse(GLUE_API.read_text())
+    http_tree = ast.parse(HTTP_API.read_text())
 
     endpoints = _extract_spec_endpoints(spec_tree)
     spec_methods = _index_class_methods(spec_tree)
-    glue_methods = _index_class_methods(glue_tree)
+    http_methods = _index_class_methods(http_tree)
     spec_names = _class_method_names(spec_tree)
-    glue_names = _class_method_names(glue_tree)
+    http_names = _class_method_names(http_tree)
+    spec_classes = _class_presence(spec_tree)
+    http_classes = _class_presence(http_tree)
 
     missing: list[ApiEndpoint] = []
     changed: list[ApiEndpoint] = []
     allowed_changed: list[ApiEndpoint] = []
     extra_methods: list[tuple[str, str]] = []
+    missing_classes = _missing_required_classes(
+        spec_classes=spec_classes,
+        http_classes=http_classes,
+    )
 
     for ep in endpoints:
         key = (ep.class_name, ep.method_name)
         spec_fn = spec_methods.get(key)
-        glue_fn = glue_methods.get(key)
-        if spec_fn is None or glue_fn is None:
+        http_fn = http_methods.get(key)
+        if spec_fn is None or http_fn is None:
             missing.append(ep)
             continue
 
-        if _body_dump(spec_fn) != _body_dump(glue_fn):
+        if _body_dump(spec_fn) != _body_dump(http_fn):
             if not args.strict and ep.route_name in EXPECTED_BODY_DRIFT:
                 allowed_changed.append(ep)
             else:
@@ -404,8 +437,8 @@ def main() -> int:
 
     for class_name in ("WorkerApi", "UserApi"):
         spec_set = spec_names.get(class_name, set())
-        glue_set = glue_names.get(class_name, set())
-        extra_methods.extend((class_name, name) for name in sorted(glue_set - spec_set))
+        http_set = http_names.get(class_name, set())
+        extra_methods.extend((class_name, name) for name in sorted(http_set - spec_set))
 
     _report_main_counts(
         endpoints=endpoints,
@@ -414,13 +447,20 @@ def main() -> int:
         allowed_changed=allowed_changed,
         extra_methods=extra_methods,
     )
+    print("missing required classes", len(missing_classes))
 
     _print_endpoints("Missing in http:", missing)
     _print_endpoints("Body drift:", changed)
     _print_endpoints("Expected drift (informational):", allowed_changed)
     _print_extra_methods(extra_methods)
+    _print_missing_classes(missing_classes)
 
-    if missing or changed or (args.strict and (extra_methods or allowed_changed)):
+    if (
+        missing
+        or changed
+        or missing_classes
+        or (args.strict and (extra_methods or allowed_changed))
+    ):
         return 1
 
     print("OK: no API endpoint method-body drift detected.")

@@ -2,6 +2,7 @@
 
 import unittest
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 from fishtest.run_cache import Prio
 from fishtest.util import PASSWORD_MAX_LENGTH
@@ -174,18 +175,34 @@ class TestHttpUsers(unittest.TestCase):
         response = self.client.get("/signup")
         self.assertEqual(response.status_code, 200)
         csrf = self.fastapi_util.extract_csrf_token(response.text)
-        response = self.client.post(
-            "/signup",
-            data={
-                "username": self.signup_username,
-                "password": self.signup_password,
-                "password2": self.signup_password,
-                "email": "joe@user.net",
-                "tests_repo": "https://github.com/official-stockfish/Stockfish",
-                "csrf_token": csrf,
-            },
-            follow_redirects=False,
-        )
+        with (
+            patch.dict(
+                "os.environ",
+                {"FISHTEST_CAPTCHA_SECRET": "test-secret"},
+                clear=False,
+            ),
+            patch(
+                "fishtest.http.views.requests.post",
+                return_value=type(
+                    "_CaptchaResponse",
+                    (),
+                    {"json": staticmethod(lambda: {"success": True})},
+                )(),
+            ),
+        ):
+            response = self.client.post(
+                "/signup",
+                data={
+                    "username": self.signup_username,
+                    "password": self.signup_password,
+                    "password2": self.signup_password,
+                    "email": "joe@user.net",
+                    "tests_repo": "https://github.com/official-stockfish/Stockfish",
+                    "g-recaptcha-response": "captcha-ok",
+                    "csrf_token": csrf,
+                },
+                follow_redirects=False,
+            )
         self.assertEqual(response.status_code, 302)
         self.assertTrue(response.headers.get("location", "").endswith("/login"))
 

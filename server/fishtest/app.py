@@ -1,18 +1,26 @@
-"""FastAPI application entrypoint.
+"""FastAPI ASGI application factory and runtime wiring.
 
-This module is the single stable ASGI entrypoint: `uvicorn fishtest.app:app`.
+This module provides the production entrypoint ``uvicorn fishtest.app:app`` and
+owns application-level orchestration:
 
-The implementation depends on the small FastAPI HTTP layer under `fishtest.http`
-(middleware, error handling, settings parsing, template/session shims).
+- lifespan startup/shutdown around ``RunDb``,
+- primary-instance safety checks,
+- middleware and error-handler installation,
+- static mount and router registration.
+
+The HTTP behavior itself lives in ``fishtest.http`` (API/UI routers, middleware,
+session handling, and error shaping).
 """
 
 from __future__ import annotations
 
 import asyncio
+import faulthandler
 import logging
 import os
+import signal
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Protocol, cast
 
 import fishtest.github_api as gh
 from fastapi import FastAPI
@@ -40,8 +48,26 @@ from starlette.concurrency import run_in_threadpool
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from starlette.types import ASGIApp
+
 
 logger = logging.getLogger(__name__)
+
+
+class MiddlewareFactory(Protocol):
+    def __call__(self, app: ASGIApp, /, *args: object, **kwargs: object) -> ASGIApp: ...
+
+
+def _install_sigusr1_thread_dump_handler() -> None:
+    if not hasattr(signal, "SIGUSR1"):
+        return
+
+    try:
+        faulthandler.register(signal.SIGUSR1, all_threads=True)
+    except RuntimeError:
+        logger.debug("SIGUSR1 thread-dump handler not installed")
+    except ValueError:
+        logger.debug("SIGUSR1 thread-dump handler already installed")
 
 
 async def _shutdown_rundb(rundb: RunDb) -> None:
@@ -121,6 +147,8 @@ def create_app() -> FastAPI:
         app.state.actiondb = rundb.actiondb
         app.state.workerdb = rundb.workerdb
 
+        _install_sigusr1_thread_dump_handler()
+
         # All instances should use the same user schema.
         schemas.legacy_usernames = set(rundb.kvstore.get("legacy_usernames", []))
 
@@ -138,12 +166,14 @@ def create_app() -> FastAPI:
 
     install_error_handlers(app)
 
-    app.add_middleware(cast("Any", ShutdownGuardMiddleware))
-    app.add_middleware(cast("Any", AttachRequestStateMiddleware))
-    app.add_middleware(cast("Any", RejectNonPrimaryWorkerApiMiddleware))
-    app.add_middleware(cast("Any", RedirectBlockedUiUsersMiddleware))
+    app.add_middleware(cast("MiddlewareFactory", ShutdownGuardMiddleware))
+    app.add_middleware(cast("MiddlewareFactory", AttachRequestStateMiddleware))
     app.add_middleware(
-        cast("Any", FishtestSessionMiddleware),
+        cast("MiddlewareFactory", RejectNonPrimaryWorkerApiMiddleware),
+    )
+    app.add_middleware(cast("MiddlewareFactory", RedirectBlockedUiUsersMiddleware))
+    app.add_middleware(
+        cast("MiddlewareFactory", FishtestSessionMiddleware),
         secret_key=session_secret_key,
         session_cookie=SESSION_COOKIE_NAME,
         max_age=None,

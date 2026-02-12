@@ -31,7 +31,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC_VIEWS = REPO_ROOT / "server" / "fishtest" / "views.py"
-GLUE_VIEWS = REPO_ROOT / "server" / "fishtest" / "http" / "views.py"
+HTTP_VIEWS = REPO_ROOT / "server" / "fishtest" / "http" / "views.py"
 
 # Functions that are expected to diverge due to framework wiring or refactors.
 # Keep this list small and documented.
@@ -145,35 +145,35 @@ def main() -> int:
     args = ap.parse_args()
 
     spec = _func_body_dumps(SPEC_VIEWS)
-    glue = _func_body_dumps(GLUE_VIEWS)
+    http = _func_body_dumps(HTTP_VIEWS)
 
-    spec_only = sorted(set(spec) - set(glue))
+    spec_only = sorted(set(spec) - set(http))
     spec_only_unexpected, spec_only_expected = _split_missing(set(spec_only))
-    glue_only = sorted(set(glue) - set(spec))
-    common = sorted(set(spec) & set(glue))
+    http_only = sorted(set(http) - set(spec))
+    common = sorted(set(spec) & set(http))
 
-    changed_all = [name for name in common if spec[name] != glue[name]]
+    changed_all = [name for name in common if spec[name] != http[name]]
     allowed_changed = [name for name in changed_all if name in EXPECTED_BODY_DRIFT]
     changed = [name for name in changed_all if name not in EXPECTED_BODY_DRIFT]
 
     coverage = (len(common) / len(spec)) if spec else 1.0
     print("spec functions", len(spec))
-    print("http functions", len(glue))
+    print("http functions", len(http))
     print("common functions", len(common))
     print("coverage ratio", f"{coverage:.3f}")
     print("missing in http", len(spec_only_unexpected))
     print("expected missing", len(spec_only_expected))
-    print("extra in http", len(glue_only))
+    print("extra in http", len(http_only))
     print("changed ast bodies", len(changed))
     print("expected drift bodies", len(allowed_changed))
 
     _print_names("Missing in http", spec_only_unexpected)
     _print_names("Expected missing (informational)", spec_only_expected)
-    _print_names("Extra in http", glue_only)
+    _print_names("Extra in http", http_only)
     _print_names("Body drift", changed)
     _print_names("Expected drift (informational)", allowed_changed)
 
-    strict_failures = args.strict and (glue_only or allowed_changed)
+    strict_failures = args.strict and (http_only or allowed_changed)
     if spec_only_unexpected or changed or strict_failures:
         return 1
 

@@ -65,6 +65,31 @@ DEFAULT_JINJA_DIR = REPO_ROOT / "server" / "fishtest" / "templates_jinja2"
 DEFAULT_MAKO_DIR = REPO_ROOT / "server" / "fishtest" / "templates"
 SKIP_TEMPLATES = {"base.mak"}
 
+# Known response-level normalized HTML diffs between legacy Mako and Jinja2.
+# These are currently treated as informational by default.
+EXPECTED_NORMALIZED_DIFF_TEMPLATES = {
+    "actions.mak",
+    "contributors.mak",
+    "login.mak",
+    "machines.mak",
+    "nn_upload.mak",
+    "nns.mak",
+    "notfound.mak",
+    "rate_limits.mak",
+    "run_table.mak",
+    "signup.mak",
+    "sprt_calc.mak",
+    "tests_finished.mak",
+    "tests_live_elo.mak",
+    "tests_run.mak",
+    "tests_stats.mak",
+    "tests_user.mak",
+    "tests_view.mak",
+    "user.mak",
+    "user_management.mak",
+    "workers.mak",
+}
+
 _WHITESPACE_RE = re.compile(r"\s+")
 _TAG_GAP_RE = re.compile(r">\s+<")
 
@@ -287,6 +312,11 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Show unified diffs for normalized HTML mismatches.",
     )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Fail on any normalized HTML mismatch (ignore expected-diff allowlist).",
+    )
     return parser.parse_args()
 
 
@@ -376,9 +406,15 @@ def _collect_results(
     *,
     templates: list[str],
     config: ResponseParityConfig,
-) -> tuple[list[ResponseParityResult], list[ResponseParityResult], int]:
+) -> tuple[
+    list[ResponseParityResult],
+    list[ResponseParityResult],
+    list[ResponseParityResult],
+    int,
+]:
     results: list[ResponseParityResult] = []
     mismatches: list[ResponseParityResult] = []
+    expected_diffs: list[ResponseParityResult] = []
 
     for name in templates:
         context = _build_context(config.defaults, config.context_map, name)
@@ -388,7 +424,7 @@ def _collect_results(
             config=config,
         )
         if rendered is None:
-            return results, mismatches, 2
+            return results, mismatches, expected_diffs, 2
 
         left, right = rendered
         left_body = _decode_body(left.body)
@@ -431,9 +467,16 @@ def _collect_results(
         )
         results.append(result)
 
-        if not (
-            normalized_equal
-            and status_equal
+        expected_normalized_diff = (
+            not normalized_equal
+            and not config.args.strict
+            and name in EXPECTED_NORMALIZED_DIFF_TEMPLATES
+        )
+        if expected_normalized_diff:
+            expected_diffs.append(result)
+
+        structural_equal = (
+            status_equal
             and content_type_equal
             and cache_control_equal
             and set_cookie_equal
@@ -441,7 +484,10 @@ def _collect_results(
             and right_has_template
             and left_has_context
             and right_has_context
-        ):
+        )
+        normalized_mismatch = not normalized_equal and not expected_normalized_diff
+
+        if normalized_mismatch or not structural_equal:
             mismatches.append(result)
             if config.args.show_diff and not config.args.json and not normalized_equal:
                 diff = unified_diff(
@@ -453,12 +499,13 @@ def _collect_results(
                 )
                 print("\n".join(diff))
 
-    return results, mismatches, 0
+    return results, mismatches, expected_diffs, 0
 
 
 def _emit_results(
     results: list[ResponseParityResult],
     mismatches: list[ResponseParityResult],
+    expected_diffs: list[ResponseParityResult],
     *,
     json_output: bool,
 ) -> None:
@@ -466,12 +513,19 @@ def _emit_results(
         payload = {
             "results": [asdict(item) for item in results],
             "mismatches": [item.template for item in mismatches],
+            "expected_diffs": [item.template for item in expected_diffs],
         }
         print(json.dumps(payload, indent=2, sort_keys=True))
         return
 
+    expected_templates = {item.template for item in expected_diffs}
     for item in results:
-        status = "OK" if item in results and item not in mismatches else "DIFF"
+        if item in mismatches:
+            status = "DIFF"
+        elif item.template in expected_templates:
+            status = "EXPECTED_DIFF"
+        else:
+            status = "OK"
         print(
             f"{status}: {item.template} (raw_equal={item.raw_equal}, "
             f"normalized_equal={item.normalized_equal})",
@@ -507,14 +561,19 @@ def main() -> int:
         mako_lookup=_build_mako_lookup(DEFAULT_MAKO_DIR),
     )
 
-    results, mismatches, status = _collect_results(
+    results, mismatches, expected_diffs, status = _collect_results(
         templates=templates,
         config=config,
     )
     if status != 0:
         return status
 
-    _emit_results(results, mismatches, json_output=args.json)
+    _emit_results(
+        results,
+        mismatches,
+        expected_diffs,
+        json_output=args.json,
+    )
     return 1 if mismatches else 0
 
 

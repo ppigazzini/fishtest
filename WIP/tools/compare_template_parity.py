@@ -220,7 +220,7 @@ def _normalize_data_options(html_text: str) -> str:
         try:
             decoded = html.unescape(raw_value)
             payload = json.loads(decoded)
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             return match.group(0)
         normalized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         escaped = html.escape(normalized, quote=True)

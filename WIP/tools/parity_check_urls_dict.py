@@ -64,7 +64,7 @@ def _literal_urls_dict(source: str) -> dict[str, str]:
                 ):
                     try:
                         self.urls = ast.literal_eval(value)
-                    except (ValueError, SyntaxError):
+                    except ValueError, SyntaxError:
                         return
                     else:
                         return

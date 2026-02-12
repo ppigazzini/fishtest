@@ -68,9 +68,13 @@ class TemplateRequestStaticUrlTests(unittest.TestCase):
                 jinja._static_file_token("a.txt")
                 jinja._static_file_token("b.txt")
                 cache_info = jinja._static_file_token.cache_info()
+                currsize = cache_info.currsize
+                maxsize = cache_info.maxsize
+                self.assertIsNotNone(maxsize)
+                assert maxsize is not None
                 self.assertLessEqual(
-                    cache_info.currsize,
-                    cache_info.maxsize,
+                    currsize,
+                    maxsize,
                 )
             finally:
                 jinja._STATIC_DIR = original_dir

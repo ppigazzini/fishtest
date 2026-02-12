@@ -1,5 +1,13 @@
+{% set toggle = toggle if toggle is defined else None %}
+{% set runs = runs if runs is defined else [] %}
+{% set show_delete = show_delete if show_delete is defined else false %}
+{% set show_gauge = show_gauge if show_gauge is defined else false %}
+{% set header = header if header is defined else none %}
+{% set count = count if count is defined else none %}
+{% set alt = alt if alt is defined else "" %}
 {% set cookie_name = cookie_name if cookie_name is defined else (toggle ~ '_state' if toggle else '') %}
 {% set toggle_state = toggle_state if toggle_state is defined else "Show" %}
+{% set pages = pages if pages is defined else [] %}
 {% if toggle %}
   <script>
     function toggle{{ toggle | capitalize }}() {

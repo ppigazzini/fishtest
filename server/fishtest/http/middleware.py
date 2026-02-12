@@ -12,18 +12,13 @@ from typing import TYPE_CHECKING, Protocol
 
 from fishtest.http.api import PRIMARY_ONLY_WORKER_API_PATHS
 from fishtest.http.cookie_session import (
-    authenticated_user,
-    load_session,
-    mark_session_force_clear,
+    authenticated_user_from_data,
 )
 from starlette.concurrency import run_in_threadpool
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse, RedirectResponse
 
 if TYPE_CHECKING:
-    from starlette.middleware.base import RequestResponseEndpoint
-    from starlette.responses import Response
     from starlette.types import ASGIApp, Receive, Scope, Send
 
 
@@ -127,7 +122,7 @@ class RejectNonPrimaryWorkerApiMiddleware:
 
         try:
             is_primary = bool(rundb.is_primary_instance())
-        except (AttributeError, RuntimeError, TypeError):
+        except AttributeError, RuntimeError, TypeError:
             is_primary = True
 
         if is_primary:
@@ -176,27 +171,39 @@ class AttachRequestStateMiddleware:
         await self.app(scope, receive, send)
 
 
-class RedirectBlockedUiUsersMiddleware(BaseHTTPMiddleware):
+class RedirectBlockedUiUsersMiddleware:
     """If an authenticated UI user becomes blocked, invalidate and redirect."""
 
-    async def dispatch(
-        self,
-        request: Request,
-        call_next: RequestResponseEndpoint,
-    ) -> Response:
+    def __init__(self, app: ASGIApp) -> None:
+        """Store the downstream ASGI app."""
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Invalidate session and redirect if an authenticated user is blocked."""
-        path = request.url.path
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = str(scope.get("path") or "")
         if path.startswith(("/api", "/static")):
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
-        userdb = getattr(request.app.state, "userdb", None)
+        app = scope.get("app")
+        userdb = getattr(getattr(app, "state", None), "userdb", None)
         if userdb is None:
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
-        session = load_session(request)
-        username = authenticated_user(session)
+        session_data = scope.get("session")
+        if not isinstance(session_data, dict):
+            await self.app(scope, receive, send)
+            return
+
+        username = authenticated_user_from_data(session_data)
         if not username:
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
         blocked_users = await _get_blocked_cached_async(userdb)
         is_blocked = any(
@@ -206,8 +213,10 @@ class RedirectBlockedUiUsersMiddleware(BaseHTTPMiddleware):
             for user in blocked_users
         )
         if is_blocked:
-            session.invalidate()
-            mark_session_force_clear(request)
-            return RedirectResponse(url="/tests", status_code=302)
+            session_data.clear()
+            scope["session_force_clear"] = True
+            response = RedirectResponse(url="/tests", status_code=302)
+            await response(scope, receive, send)
+            return
 
-        return await call_next(request)
+        await self.app(scope, receive, send)

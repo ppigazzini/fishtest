@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Final
 import fishtest
 import fishtest.github_api as gh
 from fishtest.http import template_helpers as helpers
-from jinja2 import Environment, FileSystemLoader, Undefined, select_autoescape
+from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 from starlette.templating import Jinja2Templates
 
 if TYPE_CHECKING:
@@ -86,24 +86,12 @@ def static_url(spec: str) -> str:
     return f"{url}?{_STATIC_URL_PARAM}={token}"
 
 
-class MakoUndefined(Undefined):
-    """Match Mako's UNDEFINED rendering behavior."""
-
-    def __str__(self) -> str:
-        """Return the UNDEFINED sentinel string."""
-        return "UNDEFINED"
-
-    def __repr__(self) -> str:
-        """Return the UNDEFINED sentinel representation."""
-        return "UNDEFINED"
-
-
 def default_environment() -> Environment:
     """Return a Jinja2 environment bound to the Jinja2 templates directory."""
     env = Environment(
         loader=FileSystemLoader(str(templates_dir())),
         autoescape=select_autoescape(["html", "xml", "j2"]),
-        undefined=MakoUndefined,
+        undefined=StrictUndefined,
         extensions=["jinja2.ext.do"],
     )
     env.filters["urlencode"] = helpers.urlencode
