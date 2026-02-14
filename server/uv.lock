@@ -34,7 +34,7 @@ wheels = [
 
 [[package]]
 name = "awscli"
-version = "1.44.39"
+version = "1.44.42"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "botocore" },
@@ -44,23 +44,23 @@ dependencies = [
     { name = "rsa" },
     { name = "s3transfer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8d/0f/3e315c9a625451fa016c26eb03b67f8e6dd387409957087d80f4a62939d2/awscli-1.44.39.tar.gz", hash = "sha256:3554b69426942132c2b738b77507d3c2b07a2e8b09db62f5bddf6b956b989bdf", size = 1890248, upload-time = "2026-02-13T20:29:53.39Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e2/2f/5511aad462c50ffd8c7358d8015a012d04ead139f804cdc6dc17e39b2aae/awscli-1.44.42.tar.gz", hash = "sha256:f3da6cecd9d5dbe7e89fe8d22342e320f6034c92bd5296f8f86cc98fb534f455", size = 1883829, upload-time = "2026-02-18T21:54:54.426Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a0/a2/48aeb46849ae8e641b4f8f0cb12926077a2a8389339d01962c6477efb80a/awscli-1.44.39-py3-none-any.whl", hash = "sha256:e3669ad52708be30caaa9d42d7405873f47569dfb47f27af9b5afea0e94022cb", size = 4642703, upload-time = "2026-02-13T20:29:50.838Z" },
+    { url = "https://files.pythonhosted.org/packages/95/19/88394e109c7c669f04242bbe0c4d8c96e5527b786cb445c5b4621bf1d5f1/awscli-1.44.42-py3-none-any.whl", hash = "sha256:4f922d67d84b2fbda5b35ab25913e4ae18b4de94459413a3d82c7b751d0f2cee", size = 4621972, upload-time = "2026-02-18T21:54:51.967Z" },
 ]
 
 [[package]]
 name = "botocore"
-version = "1.42.49"
+version = "1.42.52"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jmespath" },
     { name = "python-dateutil" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c5/95/c3a3765ab65073695161e7180d631428cb6e67c18d97e8897871dfe51fcc/botocore-1.42.49.tar.gz", hash = "sha256:333115a64a507697b0c450ade7e2d82bc8b4e21c0051542514532b455712bdcc", size = 14958380, upload-time = "2026-02-13T20:29:47.218Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c2/37/7044e09d416ff746d23c7456e8c30ddade1154ecd08814b17ab7e2c20fb0/botocore-1.42.52.tar.gz", hash = "sha256:3bdef10aee4cee13ff019b6a1423a2ce3ca17352328d9918157a1829e5cc9be1", size = 14917923, upload-time = "2026-02-18T21:54:48.06Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d6/cd/7e7ceeff26889d1fd923f069381e3b2b85ff6d46c6fd1409ed8f486cc06f/botocore-1.42.49-py3-none-any.whl", hash = "sha256:1c33544f72101eed4ccf903ebb667a803e14e25b2af4e0836e4b871da1c0af37", size = 14630510, upload-time = "2026-02-13T20:29:43.086Z" },
+    { url = "https://files.pythonhosted.org/packages/94/67/bbd723d489b25ff9f94a734e734986bb8343263dd024a3846291028c26d0/botocore-1.42.52-py3-none-any.whl", hash = "sha256:c3a0b7138a4c5a534da0eb2444c19763b4d03ba2190c0602c49315e54efd7252", size = 14588731, upload-time = "2026-02-18T21:54:45.532Z" },
 ]
 
 [[package]]
@@ -189,7 +189,6 @@ dependencies = [
 [package.dev-dependencies]
 test = [
     { name = "httpx" },
-    { name = "mako" },
 ]
 
 [package.metadata]
@@ -211,10 +210,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-test = [
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "mako", specifier = ">=1.3.10" },
-]
+test = [{ name = "httpx", specifier = ">=0.28.1" }]
 
 [[package]]
 name = "h11"
@@ -290,18 +286,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d3/59/322338183ecda247fb5d1763a6cbe46eff7222eaeebafd9fa65d4bf5cb11/jmespath-1.1.0.tar.gz", hash = "sha256:472c87d80f36026ae83c6ddd0f1d05d4e510134ed462851fd5f754c8c3cbb88d", size = 27377, upload-time = "2026-01-22T16:35:26.279Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/14/2f/967ba146e6d58cf6a652da73885f52fc68001525b4197effc174321d70b4/jmespath-1.1.0-py3-none-any.whl", hash = "sha256:a5663118de4908c91729bea0acadca56526eb2698e83de10cd116ae0f4e97c64", size = 20419, upload-time = "2026-01-22T16:35:24.919Z" },
-]
-
-[[package]]
-name = "mako"
-version = "1.3.10"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "markupsafe" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/9e/38/bd5b78a920a64d708fe6bc8e0a2c075e1389d53bef8413725c63ba041535/mako-1.3.10.tar.gz", hash = "sha256:99579a6f39583fa7e5630a28c3c1f440e4e97a414b80372649c0ce338da2ea28", size = 392474, upload-time = "2025-04-10T12:44:31.16Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/87/fb/99f81ac72ae23375f22b7afdb7642aba97c00a713c217124420147681a2f/mako-1.3.10-py3-none-any.whl", hash = "sha256:baef24a52fc4fc514a0887ac600f9f1cff3d82c61d4d700a1fa84d597b88db59", size = 78509, upload-time = "2025-04-10T12:50:53.297Z" },
 ]
 
 [[package]]
@@ -676,15 +660,15 @@ wheels = [
 
 [[package]]
 name = "uvicorn"
-version = "0.40.0"
+version = "0.41.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
     { name = "h11" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c3/d1/8f3c683c9561a4e6689dd3b1d345c815f10f86acd044ee1fb9a4dcd0b8c5/uvicorn-0.40.0.tar.gz", hash = "sha256:839676675e87e73694518b5574fd0f24c9d97b46bea16df7b8c05ea1a51071ea", size = 81761, upload-time = "2025-12-21T14:16:22.45Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/32/ce/eeb58ae4ac36fe09e3842eb02e0eb676bf2c53ae062b98f1b2531673efdd/uvicorn-0.41.0.tar.gz", hash = "sha256:09d11cf7008da33113824ee5a1c6422d89fbc2ff476540d69a34c87fab8b571a", size = 82633, upload-time = "2026-02-16T23:07:24.1Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3d/d8/2083a1daa7439a66f3a48589a57d576aa117726762618f6bb09fe3798796/uvicorn-0.40.0-py3-none-any.whl", hash = "sha256:c6c8f55bc8bf13eb6fa9ff87ad62308bbbc33d0b67f84293151efe87e0d5f2ee", size = 68502, upload-time = "2025-12-21T14:16:21.041Z" },
+    { url = "https://files.pythonhosted.org/packages/83/e4/d04a086285c20886c0daad0e026f250869201013d18f81d9ff5eada73a88/uvicorn-0.41.0-py3-none-any.whl", hash = "sha256:29e35b1d2c36a04b9e180d4007ede3bcb32a85fbdfd6c6aeb3f26839de088187", size = 68783, upload-time = "2026-02-16T23:07:22.357Z" },
 ]
 
 [[package]]

@@ -53,7 +53,7 @@ def main():
     count = pgndb.count()
     print(f"Database:{count:6d} PGN files (~ {250 * count:8d} games)")
     count = runs.count()
-    print("Database:{:6d} runs".formt(count))
+    print("Database:{:6d} runs".format(count))
 
 
 if __name__ == "__main__":

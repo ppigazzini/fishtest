@@ -1,16 +1,22 @@
+from __future__ import division
+
 import math
 
 import scipy.stats
+
 from fishtest.stats import LLRcalc, sprt
 
 
 def Phi(q):
-    """Cumulative distribution function for the standard Gaussian law: quantile -> probability"""
+    """
+    Cumulative distribution function for the standard Gaussian law: quantile -> probability
+    """
     return scipy.stats.norm.cdf(q)
 
 
 def Phi_inv(p):
-    """Quantile function for the standard Gaussian law: probability -> quantile"""
+    """
+    Quantile function for the standard Gaussian law: probability -> quantile"""
     return scipy.stats.norm.ppf(p)
 
 
@@ -26,27 +32,27 @@ def L(x):
 
 
 def stats(results):
-    """ "results" is an array of length 2*n+1 with aggregated frequencies
-    for n games.
     """
+    "results" is an array of length 2*n+1 with aggregated frequencies
+    for n games."""
     count = len(results)
     N = sum(results)
     games = N * (count - 1) / 2.0
 
     # empirical expected score for a single game
-    mu = sum([results[i] * (i / 2.0) for i in range(count)]) / games
+    mu = sum([results[i] * (i / 2.0) for i in range(0, count)]) / games
 
     # empirical expected variance for a single game
     mu_ = (count - 1) / 2.0 * mu
-    var = sum([results[i] * (i / 2.0 - mu_) ** 2.0 for i in range(count)]) / games
+    var = sum([results[i] * (i / 2.0 - mu_) ** 2.0 for i in range(0, count)]) / games
 
     return games, mu, var
 
 
 def get_elo(results):
-    """ "results" is an array of length 2*n+1 with aggregated frequencies
-    for n games.
     """
+    "results" is an array of length 2*n+1 with aggregated frequencies
+    for n games."""
     results = LLRcalc.regularize(results)
     games, mu, var = stats(results)
     stdev = math.sqrt(var)
@@ -63,9 +69,9 @@ def get_elo(results):
 
 
 def bayeselo_to_proba(elo, drawelo):
-    """Elo is expressed in BayesELO (relative to the choice drawelo).
-    Returns a probability, P[2], P[0], P[1] (win,loss,draw).
     """
+    elo is expressed in BayesELO (relative to the choice drawelo).
+    Returns a probability, P[2], P[0], P[1] (win,loss,draw)."""
     P = 3 * [0]
     P[2] = 1.0 / (1.0 + pow(10.0, (-elo + drawelo) / 400.0))
     P[0] = 1.0 / (1.0 + pow(10.0, (elo + drawelo) / 400.0))
@@ -74,20 +80,20 @@ def bayeselo_to_proba(elo, drawelo):
 
 
 def proba_to_bayeselo(P):
-    """Takes a probability: P[2], P[0]
-    Returns elo, drawelo.
     """
-    assert P[2] > 0 and P[2] < 1 and P[0] > 0 and P[0] < 1
+    Takes a probability: P[2], P[0]
+    Returns elo, drawelo."""
+    assert 0 < P[2] and P[2] < 1 and 0 < P[0] and P[0] < 1
     elo = 200 * math.log10(P[2] / P[0] * (1 - P[0]) / (1 - P[2]))
     drawelo = 200 * math.log10((1 - P[0]) / P[0] * (1 - P[2]) / P[2])
     return elo, drawelo
 
 
 def draw_elo_calc(R):
-    """Takes trinomial frequencies R[0],R[1],R[2]
-    (loss,draw,win) and returns the corresponding
-    drawelo value.
     """
+    Takes trinomial frequencies R[0],R[1],R[2]
+    (loss,draw,win) and returns the corresponding
+    drawelo value."""
     N = sum(R)
     P = [p / N for p in R]
     _, drawelo = proba_to_bayeselo(P)
@@ -112,7 +118,8 @@ def elo_to_bayeselo(elo, draw_ratio):
 
 
 def SPRT_elo(R, alpha=0.05, beta=0.05, p=0.05, elo0=None, elo1=None, elo_model=None):
-    """Calculate an elo estimate from an SPRT test."""
+    """
+    Calculate an elo estimate from an SPRT test."""
     assert elo_model in ["BayesElo", "logistic", "normalized"]
 
     # Estimate drawelo out of sample
@@ -148,23 +155,18 @@ def SPRT_elo(R, alpha=0.05, beta=0.05, p=0.05, elo0=None, elo1=None, elo_model=N
 
 
 def LLRlegacy(belo0, belo1, results):
-    """LLR calculation using the BayesElo model where
-    drawelo is estimated "out of sample".
     """
+    LLR calculation using the BayesElo model where
+    drawelo is estimated "out of sample"."""
     assert len(results) == 3
     drawelo = draw_elo_calc(results)
     P0 = bayeselo_to_proba(belo0, drawelo)
     P1 = bayeselo_to_proba(belo1, drawelo)
-    return sum([results[i] * math.log(P1[i] / P0[i]) for i in range(3)])
+    return sum([results[i] * math.log(P1[i] / P0[i]) for i in range(0, 3)])
 
 
 def SPRT(
-    alpha=0.05,
-    beta=0.05,
-    elo0=None,
-    elo1=None,
-    elo_model="logistic",
-    batch_size=1,
+    alpha=0.05, beta=0.05, elo0=None, elo1=None, elo_model="logistic", batch_size=1
 ):
     """Constructor for the "sprt object" """
     return {
@@ -227,8 +229,8 @@ def update_SPRT(R, sprt):
 
     R['wins'], R['losses'], R['draws'] contains the number of wins, losses and draws
     R['pentanomial'] contains the pentanomial frequencies
-    elo_model can be either 'BayesElo', 'logistic' or 'normalized'
-    """
+    elo_model can be either 'BayesElo', 'logistic' or 'normalized'"""
+
     elo_model = sprt["elo_model"]
     assert elo_model in ["BayesElo", "logistic", "normalized"]
     elo0 = sprt["elo0"]
@@ -273,12 +275,12 @@ def update_SPRT(R, sprt):
             if num_samples == o["last_update"]:  # same data
                 pass
             elif num_samples == o["last_update"] + batch_size:  # the normal case
-                if o["ref0"] > LLR_:
+                if LLR_ < o["ref0"]:
                     delta = LLR_ - o["ref0"]
                     o["m0"] += delta
                     o["sq0"] += delta**2
                     o["ref0"] = LLR_
-                if o["ref1"] < LLR_:
+                if LLR_ > o["ref1"]:
                     delta = LLR_ - o["ref1"]
                     o["m1"] += delta
                     o["sq1"] += delta**2
@@ -322,43 +324,28 @@ if __name__ == "__main__":
     print("elo tests")
     print(
         SPRT_elo(
-            {"wins": 0, "losses": 0, "draws": 0},
-            elo0=0,
-            elo1=5,
-            elo_model="BayesElo",
-        ),
+            {"wins": 0, "losses": 0, "draws": 0}, elo0=0, elo1=5, elo_model="BayesElo"
+        )
     )
     print(
         SPRT_elo(
-            {"wins": 10, "losses": 0, "draws": 0},
-            elo0=0,
-            elo1=5,
-            elo_model="BayesElo",
-        ),
+            {"wins": 10, "losses": 0, "draws": 0}, elo0=0, elo1=5, elo_model="BayesElo"
+        )
     )
     print(
         SPRT_elo(
-            {"wins": 100, "losses": 0, "draws": 0},
-            elo0=0,
-            elo1=5,
-            elo_model="BayesElo",
-        ),
+            {"wins": 100, "losses": 0, "draws": 0}, elo0=0, elo1=5, elo_model="BayesElo"
+        )
     )
     print(
         SPRT_elo(
-            {"wins": 10, "losses": 0, "draws": 20},
-            elo0=0,
-            elo1=5,
-            elo_model="BayesElo",
-        ),
+            {"wins": 10, "losses": 0, "draws": 20}, elo0=0, elo1=5, elo_model="BayesElo"
+        )
     )
     print(
         SPRT_elo(
-            {"wins": 10, "losses": 1, "draws": 20},
-            elo0=0,
-            elo1=5,
-            elo_model="BayesElo",
-        ),
+            {"wins": 10, "losses": 1, "draws": 20}, elo0=0, elo1=5, elo_model="BayesElo"
+        )
     )
     print(
         SPRT_elo(
@@ -366,7 +353,7 @@ if __name__ == "__main__":
             elo0=0,
             elo1=5,
             elo_model="BayesElo",
-        ),
+        )
     )
     print(
         SPRT_elo(
@@ -374,7 +361,7 @@ if __name__ == "__main__":
             elo0=0,
             elo1=6,
             elo_model="BayesElo",
-        ),
+        )
     )
     print(
         SPRT_elo(
@@ -382,7 +369,7 @@ if __name__ == "__main__":
             elo0=0,
             elo1=6,
             elo_model="BayesElo",
-        ),
+        )
     )
     print(
         SPRT_elo(
@@ -390,7 +377,7 @@ if __name__ == "__main__":
             elo0=-3,
             elo1=1,
             elo_model="BayesElo",
-        ),
+        )
     )
     print(
         SPRT_elo(
@@ -403,7 +390,7 @@ if __name__ == "__main__":
             elo0=-3,
             elo1=1,
             elo_model="BayesElo",
-        ),
+        )
     )
     print(
         SPRT_elo(
@@ -411,7 +398,7 @@ if __name__ == "__main__":
             elo0=-3,
             elo1=1,
             elo_model="BayesElo",
-        ),
+        )
     )
     print(
         SPRT_elo(
@@ -424,7 +411,7 @@ if __name__ == "__main__":
             elo0=-3,
             elo1=1,
             elo_model="BayesElo",
-        ),
+        )
     )
     print(
         SPRT_elo(
@@ -437,7 +424,7 @@ if __name__ == "__main__":
             elo0=-3,
             elo1=1,
             elo_model="logistic",
-        ),
+        )
     )
     print(
         SPRT_elo(
@@ -445,7 +432,7 @@ if __name__ == "__main__":
             elo0=0.2,
             elo1=0.9,
             elo_model="logistic",
-        ),
+        )
     )
     print(
         SPRT_elo(
@@ -453,5 +440,5 @@ if __name__ == "__main__":
             elo0=0.764,
             elo1=3.439,
             elo_model="normalized",
-        ),
+        )
     )

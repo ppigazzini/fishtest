@@ -1,7 +1,7 @@
 import unittest
 from datetime import UTC, datetime
 
-from util import get_rundb
+from test_support import get_rundb
 from vtjson import ValidationError
 
 

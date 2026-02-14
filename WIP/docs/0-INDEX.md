@@ -11,8 +11,8 @@ This directory contains *work-in-progress* docs for the Pyramid → FastAPI migr
 
 2. **Current repo snapshot (what exists today):**
    - [2-ARCHITECTURE.md](2-ARCHITECTURE.md)
-   - Template catalog: [2.2-MAKO.md](2.2-MAKO.md)
-   - Jinja2 runtime: [2.3-JINJA2.md](2.3-JINJA2.md)
+   - Jinja2 runtime (authoritative for active templates): [2.3-JINJA2.md](2.3-JINJA2.md)
+   - Legacy Mako catalog (parity-only): [2.2-MAKO.md](2.2-MAKO.md)
 
 3. **Async/blocking boundaries (runtime invariants):**
    - [2.1-ASYNC-INVENTORY.md](2.1-ASYNC-INVENTORY.md)

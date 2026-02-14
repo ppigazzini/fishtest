@@ -22,8 +22,8 @@ def _jinja_templates() -> Jinja2Templates:
 
 
 class _TemplateDebugResponse(Protocol):
-    template: str
-    context: dict[str, object]
+    template_name: str
+    context_data: dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -66,8 +66,9 @@ def render_template_to_response(
         context=context,
         options=jinja_renderer.TemplateResponseOptions(status_code=status_code),
     )
-    # Attach debug-friendly attributes without changing the response body.
+    # Attach debug-friendly attributes without clobbering Starlette's
+    # native TemplateResponse fields (.template and .context).
     debug_response = cast("_TemplateDebugResponse", response)
-    debug_response.template = template_name
-    debug_response.context = dict(context)
+    debug_response.template_name = template_name
+    debug_response.context_data = dict(context)
     return response

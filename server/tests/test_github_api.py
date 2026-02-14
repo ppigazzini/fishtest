@@ -3,18 +3,19 @@ import os
 import re
 import unittest
 
-import fishtest.github_api as gh
 import requests
-import util
+import test_support
+from vtjson import validate
+
+import fishtest.github_api as gh
 from fishtest.schemas import books_schema
 from fishtest.views import get_master_info
-from vtjson import validate
 
 
 class CreateGitHubApiTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.rundb = util.get_rundb()
+        cls.rundb = test_support.get_rundb()
         cls.actiondb = cls.rundb.actiondb
         gh.init(cls.rundb.kvstore, cls.rundb.actiondb)
         gh.clear_api_cache()
@@ -37,9 +38,9 @@ class CreateGitHubApiTest(unittest.TestCase):
                     get_master_info(
                         user="official-stockfish",
                         repo="Stockfish",
-                    )["bench"],
+                    )["bench"]
                 ),
-            ),
+            )
         )
 
     def test_rate_limit(self):
@@ -50,8 +51,7 @@ class CreateGitHubApiTest(unittest.TestCase):
 
     def test_kvstore(self):
         self.assertEqual(
-            gh.official_master_sha,
-            self.rundb.kvstore["official_master_sha"],
+            gh.official_master_sha, self.rundb.kvstore["official_master_sha"]
         )
         self.rundb.update_books()
         self.assertEqual(self.rundb.books, self.rundb.kvstore["books"])
@@ -63,7 +63,7 @@ class CreateGitHubApiTest(unittest.TestCase):
                 "books.json",
                 repo="books",
                 method="api",
-            ).decode(),
+            ).decode()
         )
         # test passes if no exception is raised
         validate(
@@ -76,7 +76,7 @@ class CreateGitHubApiTest(unittest.TestCase):
                 "books.json",
                 repo="books",
                 method="raw",
-            ).decode(),
+            ).decode()
         )
         self.assertEqual(books, books1)
 

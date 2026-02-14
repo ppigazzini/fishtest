@@ -7,16 +7,18 @@ and testable.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from threading import Lock
 from typing import TYPE_CHECKING, Protocol
 
-from fishtest.http.api import PRIMARY_ONLY_WORKER_API_PATHS
-from fishtest.http.cookie_session import (
-    authenticated_user_from_data,
-)
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse, RedirectResponse
+
+from fishtest.api import PRIMARY_ONLY_WORKER_API_PATHS
+from fishtest.http.cookie_session import (
+    authenticated_user_from_data,
+)
 
 if TYPE_CHECKING:
     from starlette.types import ASGIApp, Receive, Scope, Send
@@ -34,6 +36,7 @@ class _BlockedUserDb(Protocol):
 class _BlockedCache:
     timestamp: float | None = None
     value: list[dict[str, object]] | None = None
+    lock: Lock = field(default_factory=Lock)
 
 
 _blocked_cache = _BlockedCache()
@@ -41,16 +44,28 @@ _blocked_cache = _BlockedCache()
 
 def _get_blocked_cached(userdb: _BlockedUserDb) -> list[dict[str, object]]:
     now = time.monotonic()
-    if (
-        _blocked_cache.timestamp is not None
-        and _blocked_cache.value is not None
-        and now - _blocked_cache.timestamp < _BLOCKED_CACHE_TTL_SECONDS
-    ):
-        return _blocked_cache.value
+    with _blocked_cache.lock:
+        if (
+            _blocked_cache.timestamp is not None
+            and _blocked_cache.value is not None
+            and now - _blocked_cache.timestamp < _BLOCKED_CACHE_TTL_SECONDS
+        ):
+            return _blocked_cache.value
 
-    _blocked_cache.value = list(userdb.get_blocked())
-    _blocked_cache.timestamp = now
-    return _blocked_cache.value
+    # Fetch outside the lock to keep lock hold time short.
+    blocked = list(userdb.get_blocked())
+
+    with _blocked_cache.lock:
+        if (
+            _blocked_cache.timestamp is not None
+            and _blocked_cache.value is not None
+            and now - _blocked_cache.timestamp < _BLOCKED_CACHE_TTL_SECONDS
+        ):
+            return _blocked_cache.value
+
+        _blocked_cache.value = blocked
+        _blocked_cache.timestamp = now
+        return _blocked_cache.value
 
 
 async def _get_blocked_cached_async(userdb: _BlockedUserDb) -> list[dict[str, object]]:

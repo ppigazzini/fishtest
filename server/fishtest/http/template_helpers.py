@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import binascii
 import datetime
+import html
 import urllib.parse
 from dataclasses import dataclass
 from urllib.parse import quote_plus
@@ -18,7 +19,6 @@ from fishtest.util import (
     format_group,
     format_results,
     format_time_ago,
-    get_cookie,
     is_active_sprt_ltc,
     tests_repo,
     worker_name,
@@ -1215,7 +1215,7 @@ def build_run_table_rows(
         if not is_finished:
             cores_label = f"cores: {cores} ({workers})"
         info = args.get("info", "")
-        info_html = info.replace("\n", "<br>") if info else ""
+        info_html = html.escape(info).replace("\n", "<br>") if info else ""
 
         rows.append(
             {
@@ -1256,7 +1256,6 @@ __all__ = [
     "format_group",
     "format_results",
     "format_time_ago",
-    "get_cookie",
     "is_active_sprt_ltc",
     "is_elo_pentanomial_run",
     "list_to_string",

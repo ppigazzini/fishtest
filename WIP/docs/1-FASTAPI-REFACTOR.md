@@ -23,8 +23,8 @@ Rules:
 - Prefer cohesive modules for endpoints; avoid extra handler layers that hide the flow.
 - Keep merge hotspots limited to:
 		- [server/fishtest/app.py](../../server/fishtest/app.py) (ASGI wiring)
-		- [server/fishtest/http/api.py](../../server/fishtest/http/api.py) (ALL `/api/...` endpoints, in upstream order)
-		- [server/fishtest/http/views.py](../../server/fishtest/http/views.py) (ALL UI endpoints, in upstream order)
+		- [server/fishtest/api.py](../../server/fishtest/api.py) (ALL `/api/...` endpoints, in upstream order)
+		- [server/fishtest/views.py](../../server/fishtest/views.py) (ALL UI endpoints, in upstream order)
 
 Mechanical port means:
 
@@ -141,31 +141,24 @@ Completed:
 
 - Single ASGI entrypoint at [server/fishtest/app.py](../../server/fishtest/app.py).
 - Mechanical port hotspots are in place and mounted:
-	- [server/fishtest/http/api.py](../../server/fishtest/http/api.py)
-	- [server/fishtest/http/views.py](../../server/fishtest/http/views.py)
+	- [server/fishtest/api.py](../../server/fishtest/api.py)
+	- [server/fishtest/views.py](../../server/fishtest/views.py)
 - UI error rendering parity is centralized in [server/fishtest/http/ui_errors.py](../../server/fishtest/http/ui_errors.py):
 	- `render_notfound_response()`
 	- `render_forbidden_response()`
 - Central error handler delegates UI 404/401/403 rendering via [server/fishtest/http/errors.py](../../server/fishtest/http/errors.py), which now calls into [server/fishtest/http/ui_errors.py](../../server/fishtest/http/ui_errors.py) instead of UI views.
 - UI rendering attaches response metadata (`template`, `context`) for debug/test parity via the unified response adapter.
-- UI rendering now runs Jinja2-only at runtime (TemplateResponse path); legacy Mako templates remain read-only for parity tooling under WIP/tools.
-- No new Mako track exists in the runtime; legacy Mako is parity-only.
+- UI rendering now runs Jinja2-only at runtime (TemplateResponse path). Mako templates and parity tooling have been retired.
 - Production deployment scaffolding exists (systemd + nginx), see [4-VPS.md](4-VPS.md).
-- Parity tools live under [../tools/](../tools/): route coverage, AST parity, HTML parity, response parity, and context coverage.
 - Milestone 3 async/blocking boundaries are complete; see 2.1-ASYNC-INVENTORY.md for the inventory and invariants.
 - Lifespan startup/shutdown work and blocked-user lookup are offloaded to the threadpool.
 - Milestone 12 Phase 6 parity remediation is complete: dead API helpers/assertions removed, `InternalApi` parity stub restored, `ensure_logged_in()` contract documented, SIGUSR1 thread dump support installed, and parity tooling now checks required API class presence.
-
-Reference/spec only (do not mount/run):
-
-- [server/fishtest/api.py](../../server/fishtest/api.py) (Pyramid)
-- [server/fishtest/views.py](../../server/fishtest/views.py) (Pyramid)
+- Milestone 13: Pyramid spec modules (`api.py`, `views.py`, `models.py`) and test stubs (`tests/pyramid/`) deleted. Route modules moved from `http/` to top-level. Mako templates deleted. Parity tooling retired to `WIP/tools/retired`.
 
 CI/testing status:
 
-- Unit tests pass without installing Pyramid by using a tiny test-only stub package under [server/tests/pyramid/](../../server/tests/pyramid).
-	- This exists only to keep the legacy Pyramid-based spec modules importable during unit tests.
-	- There is intentionally no runtime `pyramid` package in the server app.
+- Unit tests run without any Pyramid dependency. The Pyramid-era spec modules and test stubs have been removed.
+- There is intentionally no runtime `pyramid` package in the server app.
 
 ## Goals
 
@@ -189,23 +182,18 @@ Operational goal (what “switch” means):
 
 - Python version target: **Python 3.14+**.
 - `ruff`/`ty` apply only to HTTP support modules (middleware/errors/session/template shims) and any new tests.
-- [server/fishtest/http/api.py](../../server/fishtest/http/api.py) and [server/fishtest/http/views.py](../../server/fishtest/http/views.py) are treated as mechanical ports of upstream HTTP-layer code:
+- [server/fishtest/api.py](../../server/fishtest/api.py) and [server/fishtest/views.py](../../server/fishtest/views.py) are treated as mechanical ports of upstream HTTP-layer code:
 	- Do not add type hints.
 	- Do not run `ruff`/`ty` on them (and do not reformat them) unless explicitly decided later.
 - Prefer `uv run ...` for checks and tests.
 
-Test-only compatibility note:
-
-- The unit tests import Pyramid-facing modules ([server/fishtest/api.py](../../server/fishtest/api.py), [server/fishtest/views.py](../../server/fishtest/views.py)) as behavioral spec.
-- CI provides a minimal `pyramid.*` surface via [server/tests/pyramid/](../../server/tests/pyramid) rather than adding Pyramid as a runtime dependency.
-
-Note: the repo may still contain tooling configs that *can* target the hotspots; the rule is still “don’t run them on the hotspots” until we explicitly decide otherwise.
+Note: Pyramid-era spec modules and test stubs have been removed. The `api.py` and `views.py` at the top level are now the active FastAPI modules.
 
 ## What stays stable (constraints)
 
 - The deployed entrypoint is `uvicorn fishtest.app:app`.
-- All UI routes come from [server/fishtest/http/views.py](../../server/fishtest/http/views.py).
-- All `/api/...` routes come from [server/fishtest/http/api.py](../../server/fishtest/http/api.py).
+- All UI routes come from [server/fishtest/views.py](../../server/fishtest/views.py).
+- All `/api/...` routes come from [server/fishtest/api.py](../../server/fishtest/api.py).
 - `fishtest-fastapi-draft/` and `fishtest-pyramid/` are read-only.
 
 ## Cutover architecture (big picture)
@@ -214,7 +202,7 @@ Target runtime shape:
 
 - Single ASGI app: [server/fishtest/app.py](../../server/fishtest/app.py)
 	- Installs middleware + error handlers.
-	- Mounts UI router ([server/fishtest/http/views.py](../../server/fishtest/http/views.py)) and API router ([server/fishtest/http/api.py](../../server/fishtest/http/api.py)).
+	- Mounts UI router ([server/fishtest/views.py](../../server/fishtest/views.py)) and API router ([server/fishtest/api.py](../../server/fishtest/api.py)).
 	- Serves `/static` from the existing static tree.
 
 Sync/async boundary:

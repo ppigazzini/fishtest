@@ -1,7 +1,10 @@
+from __future__ import division
+
 import argparse
 import math
 
 import scipy.optimize
+
 from fishtest.stats import LLRcalc
 from fishtest.stats.brownian import Brownian
 
@@ -18,16 +21,18 @@ class sprt:
         self.LLR_drift_variance = LLRcalc.LLR_drift_variance_alt2
 
     def elo_to_score(self, elo):
-        """ "elo" is expressed in our current elo_model."""
+        """
+        "elo" is expressed in our current elo_model."""
         if self.elo_model == "normalized":
             nt = elo / LLRcalc.nelo_divided_by_nt
             return nt * self.sigma_pg + 0.5
-        return LLRcalc.L_(elo)
+        else:
+            return LLRcalc.L_(elo)
 
     def lelo_to_elo(self, lelo):
-        """For external use. "elo" is expressed in our current elo_model.
-        "lelo" is logistic.
         """
+        For external use. "elo" is expressed in our current elo_model.
+        "lelo" is logistic."""
         if self.elo_model == "logistic":
             return lelo
         score = LLRcalc.L_(lelo)
@@ -65,21 +70,20 @@ class sprt:
             self.llr = self.b
 
     def outcome_prob(self, elo):
-        """The probability of a test with the given elo with worse outcome
-        (faster fail, slower pass or a pass changed into a fail).
         """
+        The probability of a test with the given elo with worse outcome
+        (faster fail, slower pass or a pass changed into a fail)."""
         s = LLRcalc.L_(elo)
         mu_LLR, var_LLR = self.LLR_drift_variance(self.pdf, self.s0, self.s1, s)
         sigma_LLR = math.sqrt(var_LLR)
         return Brownian(a=self.a, b=self.b, mu=mu_LLR, sigma=sigma_LLR).outcome_cdf(
-            T=self.T,
-            y=self.llr,
+            T=self.T, y=self.llr
         )
 
     def lower_cb(self, p):
-        """Maximal elo value such that the observed outcome of the test has probability
-        less than p.
         """
+        Maximal elo value such that the observed outcome of the test has probability
+        less than p."""
         avg_elo = (self.elo0 + self.elo1) / 2
         delta = self.elo1 - self.elo0
         N = 30
@@ -99,9 +103,11 @@ class sprt:
                 if elo0 > -1000 or elo1 < 1000:
                     N *= 2
                     continue
-                if self.outcome_prob(elo0) - (1 - p) > 0:
-                    return elo1
-                return elo0
+                else:
+                    if self.outcome_prob(elo0) - (1 - p) > 0:
+                        return elo1
+                    else:
+                        return elo0
             assert res.converged
             break
         return sol
@@ -121,28 +127,16 @@ class sprt:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--alpha",
-        help="probability of a false positive",
-        type=float,
-        default=0.05,
+        "--alpha", help="probability of a false positive", type=float, default=0.05
     )
     parser.add_argument(
-        "--beta",
-        help="probability of a false negative",
-        type=float,
-        default=0.05,
+        "--beta", help="probability of a false negative", type=float, default=0.05
     )
     parser.add_argument(
-        "--elo0",
-        help="H0 (expressed in LogisticElo)",
-        type=float,
-        default=0.0,
+        "--elo0", help="H0 (expressed in LogisticElo)", type=float, default=0.0
     )
     parser.add_argument(
-        "--elo1",
-        help="H1 (expressed in LogisticElo)",
-        type=float,
-        default=5.0,
+        "--elo1", help="H1 (expressed in LogisticElo)", type=float, default=5.0
     )
     parser.add_argument("--level", help="confidence level", type=float, default=0.95)
     parser.add_argument(
@@ -173,29 +167,24 @@ if __name__ == "__main__":
     a = s.analytics(p)
     print("Design parameters")
     print("=================")
-    print(f"False positives             :  {alpha:4.2%}")
-    print(f"False negatives             :  {beta:4.2%}")
-    print(f"[Elo0,Elo1]                 :  [{elo0:.2f},{elo1:.2f}]")
-    print(f"Confidence level            :  {1 - p:4.2%}")
-    print(f"Elo model                   :  {elo_model}")
+    print("False positives             :  {:4.2%}".format(alpha))
+    print("False negatives             :  {:4.2%}".format(beta))
+    print("[Elo0,Elo1]                 :  [{:.2f},{:.2f}]".format(elo0, elo1))
+    print("Confidence level            :  {:4.2%}".format(1 - p))
+    print("Elo model                   :  {}".format(elo_model))
     print("Estimates")
     print("=========")
     print("Elo                         :  {:.2f}".format(a["elo"]))
     print(
         "Confidence interval         :  [{:.2f},{:.2f}] ({:4.2%})".format(
-            a["ci"][0],
-            a["ci"][1],
-            1 - p,
-        ),
+            a["ci"][0], a["ci"][1], 1 - p
+        )
     )
     print("LOS                         :  {:4.2%}".format(a["LOS"]))
     print("Context")
     print("=======")
     print(
         "LLR [u,l]                   :  {:.2f} {} [{:.2f},{:.2f}]".format(
-            a["LLR"],
-            "(clamped)" if a["clamped"] else "",
-            a["a"],
-            a["b"],
-        ),
+            a["LLR"], "(clamped)" if a["clamped"] else "", a["a"], a["b"]
+        )
     )

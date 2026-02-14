@@ -4,10 +4,7 @@ import os
 import unittest
 from typing import Any
 
-try:
-    import fastapi_util
-except ModuleNotFoundError:  # pragma: no cover
-    from tests import fastapi_util
+import test_support
 
 
 class _UserDbStub:
@@ -43,11 +40,11 @@ class _RunDbStub:
 class TestHttpMiddleware(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.FastAPI, cls.TestClient = fastapi_util.require_fastapi()
+        cls.FastAPI, cls.TestClient = test_support.require_fastapi()
 
     def test_shutdown_guard_returns_503(self):
         rundb = _RunDbStub(shutdown=True)
-        app = fastapi_util.build_test_app(
+        app = test_support.build_test_app(
             rundb=rundb,
             include_api=False,
             include_views=False,
@@ -66,7 +63,7 @@ class TestHttpMiddleware(unittest.TestCase):
 
         rundb = _RunDbStub()
         rundb._base_url_set = False
-        app = fastapi_util.build_test_app(
+        app = test_support.build_test_app(
             rundb=rundb,
             include_api=False,
             include_views=False,
@@ -110,15 +107,16 @@ class TestHttpMiddleware(unittest.TestCase):
         import json
         from base64 import b64encode
 
-        from fishtest.http.cookie_session import SESSION_COOKIE_NAME, session_secret_key
         from itsdangerous import TimestampSigner
+
+        from fishtest.http.cookie_session import SESSION_COOKIE_NAME, session_secret_key
 
         os.environ.setdefault("FISHTEST_AUTHENTICATION_SECRET", "test-secret")
 
         userdb = _UserDbStub(blocked_username="blocked_user")
         rundb = _RunDbStub(userdb=userdb)
 
-        app = fastapi_util.build_test_app(
+        app = test_support.build_test_app(
             rundb=rundb,
             include_api=False,
             include_views=False,
@@ -143,27 +141,25 @@ class TestHttpMiddleware(unittest.TestCase):
 class TestHttpMiddlewareMongo(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.FastAPI, cls.TestClient = fastapi_util.require_fastapi()
+        cls.FastAPI, cls.TestClient = test_support.require_fastapi()
 
-        try:
-            import util as test_util
-        except ModuleNotFoundError:  # pragma: no cover
-            from tests import util as test_util
-
-        cls.rundb = test_util.get_rundb()
+        cls.rundb = test_support.get_rundb()
 
     @classmethod
     def tearDownClass(cls):
-        cls.rundb.userdb.clear_cache()
-        cls.rundb.userdb.users.delete_many({"username": {"$regex": "^httpmw"}})
-        cls.rundb.conn.close()
+        test_support.cleanup_test_rundb(
+            cls.rundb,
+            clear_users_regex="^httpmw",
+            close_conn=True,
+        )
 
     def _session_cookie(self, username: str) -> str:
         import json
         from base64 import b64encode
 
-        from fishtest.http.cookie_session import session_secret_key
         from itsdangerous import TimestampSigner
+
+        from fishtest.http.cookie_session import session_secret_key
 
         signer = TimestampSigner(session_secret_key())
         data = b64encode(json.dumps({"user": username}).encode("utf-8"))
@@ -185,7 +181,7 @@ class TestHttpMiddlewareMongo(unittest.TestCase):
         user["blocked"] = True
         self.rundb.userdb.save_user(user)
 
-        app = fastapi_util.build_test_app(
+        app = test_support.build_test_app(
             rundb=self.rundb,
             include_api=False,
             include_views=False,
@@ -220,7 +216,7 @@ class TestHttpMiddlewareMongo(unittest.TestCase):
         user["blocked"] = False
         self.rundb.userdb.save_user(user)
 
-        app = fastapi_util.build_test_app(
+        app = test_support.build_test_app(
             rundb=self.rundb,
             include_api=False,
             include_views=False,

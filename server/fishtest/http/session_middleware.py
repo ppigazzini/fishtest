@@ -15,14 +15,15 @@ from email.utils import format_datetime
 from typing import TYPE_CHECKING, Literal, cast
 
 import itsdangerous
+from itsdangerous.exc import BadSignature
+from starlette.datastructures import MutableHeaders
+from starlette.requests import HTTPConnection
+
 from fishtest.http.cookie_session import (
     DEFAULT_SAMESITE,
     MAX_COOKIE_BYTES,
     SESSION_COOKIE_NAME,
 )
-from itsdangerous.exc import BadSignature
-from starlette.datastructures import MutableHeaders
-from starlette.requests import HTTPConnection
 
 if TYPE_CHECKING:
     from collections.abc import Callable

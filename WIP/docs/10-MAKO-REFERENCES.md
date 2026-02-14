@@ -7,6 +7,10 @@ templates that remain in-tree for parity tooling. Runtime rendering is Jinja2
 only; Mako is used by WIP/tools to compare output and to keep rebase safety with
 upstream Pyramid.
 
+For active template authoring and updates, use
+[WIP/docs/2.3-JINJA2.md](WIP/docs/2.3-JINJA2.md) and
+[WIP/docs/11.2-MAKO-JINJA2-RULES.md](WIP/docs/11.2-MAKO-JINJA2-RULES.md).
+
 ## Status (authoritative)
 
 - Legacy Mako templates live in [server/fishtest/templates](server/fishtest/templates).

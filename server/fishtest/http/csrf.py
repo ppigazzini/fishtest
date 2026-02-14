@@ -12,8 +12,9 @@ from typing import TYPE_CHECKING
 from fastapi import HTTPException, Request
 
 if TYPE_CHECKING:
-    from fishtest.http.cookie_session import CookieSession
     from starlette.datastructures import FormData
+
+    from fishtest.http.cookie_session import CookieSession
 
 
 def csrf_token_from_form(form: FormData) -> str | None:

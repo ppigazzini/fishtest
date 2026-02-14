@@ -24,7 +24,7 @@ Environment="FISHTEST_PRIMARY_PORT=8000"
 WorkingDirectory=/home/usr00/fishtest/server
 User=usr00
 
-ExecStart=/home/usr00/fishtest/server/.venv/bin/python -m uvicorn fishtest.app:app --host 127.0.0.1 --port %i --proxy-headers --forwarded-allow-ips=127.0.0.1 --limit-concurrency 10 --backlog 100 --log-level warning --workers $UVICORN_WORKERS
+ExecStart=/home/usr00/fishtest/server/.venv/bin/python -m uvicorn fishtest.app:app --host 127.0.0.1 --port %i --proxy-headers --forwarded-allow-ips=127.0.0.1 --backlog 8192 --log-level warning --workers $UVICORN_WORKERS
 Restart=on-failure
 RestartSec=3
 
@@ -32,27 +32,42 @@ RestartSec=3
 WantedBy=multi-user.target
 ```
 
+File descriptor limit override (`/etc/systemd/system/fishtest_fastapi@.service.d/override.conf`):
+
+```ini
+[Service]
+LimitNOFILE=65536
+```
+
 
 `/etc/nginx/site-available/fistest_fastapi.com`
 ```nginx
 upstream backend_8000 {
     server 127.0.0.1:8000;
-    keepalive 64;
+    keepalive 256;
+    keepalive_requests 10000;
+    keepalive_timeout 60s;
 }
 
 upstream backend_8001 {
     server 127.0.0.1:8001;
-    keepalive 64;
+    keepalive 256;
+    keepalive_requests 10000;
+    keepalive_timeout 60s;
 }
 
 upstream backend_8002 {
     server 127.0.0.1:8002;
-    keepalive 64;
+    keepalive 256;
+    keepalive_requests 10000;
+    keepalive_timeout 60s;
 }
 
 upstream backend_8003 {
     server 127.0.0.1:8003;
-    keepalive 64;
+    keepalive 256;
+    keepalive_requests 10000;
+    keepalive_timeout 60s;
 }
 
 map $uri $backends {
@@ -72,41 +87,7 @@ server {
 
     server_name SERVER_NAME;
 
-    location / {
-        return 301 https://$host$request_uri;
-    }
-
-    location /api/ {
-        # Canonical upstream identity
-        proxy_set_header Host                $http_host;
-        proxy_set_header X-Real-IP           $remote_addr;
-
-        # Forwarded chain
-        proxy_set_header X-Forwarded-For     $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto   $scheme;
-        proxy_set_header X-Forwarded-Host    $host;
-        proxy_set_header X-Forwarded-Port    $server_port;
-
-        # Custom metadata
-        proxy_set_header X-Country-Code      $region;
-
-        # Timeouts
-        proxy_connect_timeout      10s;
-        proxy_send_timeout         60s;
-        proxy_read_timeout         120s;
-
-        # Buffering
-        proxy_request_buffering    on;
-        proxy_buffering            on;
-
-        client_max_body_size       200m;
-        client_body_buffer_size    512k;
-
-        proxy_redirect             off;
-        proxy_http_version         1.1;
-
-        proxy_pass http://$backends;
-    }
+    return 301 https://$host$request_uri;
 }
 server {
     listen 443 ssl;
@@ -168,9 +149,9 @@ server {
         proxy_set_header X-Country-Code      $region;
 
         # Timeouts
-        proxy_connect_timeout      10s;
-        proxy_send_timeout         60s;
-        proxy_read_timeout         120s;
+        proxy_connect_timeout      2s;
+        proxy_send_timeout         30s;
+        proxy_read_timeout         60s;
 
         # Buffering
         proxy_request_buffering    on;

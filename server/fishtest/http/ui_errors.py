@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from starlette.concurrency import run_in_threadpool
+
 from fishtest.http.boundary import (
     SessionCommitFlags,
     build_template_context,
@@ -14,7 +16,6 @@ from fishtest.http.boundary import (
 )
 from fishtest.http.cookie_session import load_session
 from fishtest.http.template_renderer import render_template_to_response
-from starlette.concurrency import run_in_threadpool
 
 if TYPE_CHECKING:
     from fastapi import Request

@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Annotated, Protocol, cast
 
 from fastapi import Depends, Request
+
 from fishtest.http.cookie_session import (
     REMEMBER_MAX_AGE_SECONDS,
     CookieSession,

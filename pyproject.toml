@@ -16,6 +16,10 @@ dev = [
 target-version = "py314"
 src = ["server", "worker"]
 extend-exclude = ["worker/packages"]
+force-exclude = true
+
+[tool.ruff.lint]
+extend-select = ["I"]
 
 [tool.ruff.per-file-target-version]
 "worker/**/*.py" = "py38"

@@ -22,11 +22,14 @@ import signal
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Protocol, cast
 
-import fishtest.github_api as gh
+from anyio.to_thread import current_default_thread_limiter
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
+
+import fishtest.github_api as gh
 from fishtest import schemas
-from fishtest.http.api import router as api_router
+from fishtest.api import router as api_router
 from fishtest.http.cookie_session import (
     DEFAULT_SAMESITE,
     SESSION_COOKIE_NAME,
@@ -41,9 +44,8 @@ from fishtest.http.middleware import (
 )
 from fishtest.http.session_middleware import FishtestSessionMiddleware
 from fishtest.http.settings import AppSettings, default_static_dir
-from fishtest.http.views import router as views_router
 from fishtest.rundb import RunDb
-from starlette.concurrency import run_in_threadpool
+from fishtest.views import router as views_router
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -52,6 +54,7 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+THREADPOOL_TOKENS = 200
 
 
 class MiddlewareFactory(Protocol):
@@ -128,11 +131,15 @@ def _require_single_worker_on_primary(settings: AppSettings) -> None:
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
+    bootstrap_settings = AppSettings.from_env()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings = AppSettings.from_env()
         app.state.settings = settings
+
+        limiter = current_default_thread_limiter()
+        limiter.total_tokens = THREADPOOL_TOKENS
 
         _require_single_worker_on_primary(settings)
 
@@ -162,7 +169,15 @@ def create_app() -> FastAPI:
         finally:
             await _shutdown_rundb(rundb)
 
-    app = FastAPI(lifespan=lifespan)
+    # OpenAPI docs are disabled in production (openapi_url defaults to None).
+    # To enable /docs and /redoc during development, start with:
+    #   OPENAPI_URL=/openapi.json uvicorn fishtest.app:app --reload
+    openapi_url = bootstrap_settings.openapi_url
+
+    app = FastAPI(
+        lifespan=lifespan,
+        openapi_url=openapi_url,
+    )
 
     install_error_handlers(app)
 

@@ -8,7 +8,7 @@ Date: **2026-02-12**
 
 (Last updated: **2026-02-12** — M12 Phase 6 parity remediation completed; SIGUSR1 support and parity tooling updates recorded)
 
-This document describes the **current architecture of this repository**: what the major components are, how the server and worker interact, where the data lives, and what has changed (and *has not changed*) after the Pyramid → FastAPI replacement.
+This document describes the **current architecture of this repository**: what the major components are, how the server and worker interact, and where the data lives.
 
 Scope:
 
@@ -83,10 +83,7 @@ server/fishtest/
 │  ├─ ui_pipeline.py      # Cache-Control header helper
 │  ├─ template_renderer.py# TemplateResponse adapter (template/context debug)
 │  └─ jinja.py            # Jinja2 environment + static_url + render helpers
-├─ api.py                 # Pyramid-era API module kept as a behavioral spec (tests import it)
-├─ views.py               # Pyramid-era views module kept as a behavioral spec (tests import it)
-├─ templates_jinja2/      # Jinja2 templates (*.html.j2) used at runtime
-├─ templates/             # Legacy Mako templates (*.mak) for parity tooling only
+├─ templates/      # Jinja2 templates (*.html.j2) used at runtime
 ├─ static/                # CSS/JS/images served at /static
 ├─ rundb.py               # Core DB adapter and scheduling
 ├─ userdb.py              # Users, groups, auth decisions
@@ -97,16 +94,6 @@ server/fishtest/
 ├─ schemas.py             # Validation schemas + helper computations
 └─ util.py                # Shared utility helpers
 ```
-
-### Legacy Pyramid layout (reference only; not part of runtime)
-
-The upstream Pyramid implementation lives under the repo subfolder:
-
-- `fishtest-pyramid/server/fishtest/` (Pyramid WSGI code)
-
-This tree is not imported by the running FastAPI server; it is kept as a
-reference for behavior parity and (critically) for keeping the FastAPI flat
-files in the same top-to-bottom order to reduce rebase pain.
 
 ---
 
@@ -205,7 +192,7 @@ Error handling:
 
 UI HTML render flow:
 
-1. FastAPI UI route enters `http/views.py` and calls `_dispatch_view()`.
+1. FastAPI UI route enters `views.py` and calls `_dispatch_view()`.
 2. View logic runs in a threadpool (sync upstream logic preserved).
 3. `build_template_context()` assembles the shared base context.
 4. `render_template_to_response()` returns a Starlette `TemplateResponse`.
@@ -226,9 +213,9 @@ UI error flow:
 Signals and shutdown:
 
 - `SIGUSR1` thread-dump is installed in the active server via `faulthandler.register(signal.SIGUSR1, all_threads=True)` with safe fallback logging when unavailable/already registered.
-- `SIGINT`/`SIGTERM` are handled by Uvicorn. Fishtest's Pyramid-era cleanup steps are executed
+- `SIGINT`/`SIGTERM` are handled by Uvicorn. Cleanup steps are executed
   from FastAPI's lifespan shutdown and offloaded to a threadpool (stop scheduler, flush/save on primary, log a stop event).
-- Once shutdown begins, the app rejects new requests with HTTP `503` (matching Pyramid's
+- Once shutdown begins, the app rejects new requests with HTTP `503` (via the
   `rundb._shutdown` request guard).
 
 Operational constraint enforcement:
@@ -240,7 +227,7 @@ Operational constraint enforcement:
 
 UI form POST behavior (CSRF + flash + redirects):
 
-- Implemented in `server/fishtest/http/views.py` using helpers from `server/fishtest/http/cookie_session.py` and `server/fishtest/http/csrf.py`.
+- Implemented in `server/fishtest/views.py` using helpers from `server/fishtest/http/cookie_session.py` and `server/fishtest/http/csrf.py`.
 - Session data is loaded via `load_session()` (dict-backed, persisted by `session_middleware.py`).
 
 ---
@@ -258,7 +245,7 @@ In the FastAPI app (`server/fishtest/app.py`):
   - `RunDb.update_aggregated_data()`
   - `RunDb.schedule_tasks()`
 
-In worker endpoints (`server/fishtest/http/api.py`):
+In worker endpoints (`server/fishtest/api.py`):
 
 - Several worker endpoints and UI mutation endpoints rely on `RunDb.buffer(...)`, which is only
   wired on the primary instance (see `RunDb.__init__`).
@@ -291,7 +278,8 @@ The data lives in MongoDB collections (names may be accessed through `RunDb`). T
 - `server/fishtest/workerdb.py`: worker state and block/unblock actions.
 - `server/fishtest/actiondb.py`: event logging (stop run, messages, system events).
 
-Most of this logic is **carried over from the Pyramid era**: the migration is primarily replacing the HTTP layer while keeping the database-backed invariants intact.
+Most of this logic is independent of the HTTP framework: the domain layer operates
+on MongoDB documents and in-memory state, not on HTTP request/response objects.
 
 ---
 
@@ -304,7 +292,7 @@ There are two families of endpoints, with different “contracts”.
 > [!NOTE]
 > **Worker protocol contracts** (status codes, JSON shape, error semantics) are canonically documented in [1-FASTAPI-REFACTOR.md](1-FASTAPI-REFACTOR.md).
 
-Location: `server/fishtest/http/api.py`
+Location: `server/fishtest/api.py`
 
 Endpoints implemented here include:
 
@@ -320,7 +308,7 @@ Endpoints implemented here include:
 
 ### 6.2 Public/web API (`/api/...`)
 
-Location: `server/fishtest/http/api.py`
+Location: `server/fishtest/api.py`
 
 This is the API the UI uses for reading state and downloading artifacts.
 
@@ -365,18 +353,18 @@ Brief summary (see [4-VPS.md](4-VPS.md) for full routing matrix and nginx config
     It does not touch `run_cache` or scheduler state, so it does not require primary.
 - **Load-balance safe**: read-only endpoints
 
-### 6.4 How `http/api.py` keeps Pyramid-era behavior
+### 6.4 How `api.py` preserves worker-protocol behavior
 
-The FastAPI server keeps `/api/...` behavior stable by adapting the Pyramid-style handler expectations inside `server/fishtest/http/api.py`, instead of rewriting all downstream logic.
+The FastAPI server keeps `/api/...` behavior stable by adapting handler expectations inside `server/fishtest/api.py`.
 
 Implementation highlights:
 
-- **Request shim**: endpoints build a small Pyramid-like request object (shim) so legacy code can keep using familiar fields such as `request.json_body`, `request.matchdict`, and a response object for `status_code`/headers.
+- **Request shim**: endpoints build a small request adapter object (shim) so handler code can use familiar fields such as `request.json_body`, `request.matchdict`, and a response object for `status_code`/headers.
 - **JSON parsing parity**: invalid/missing JSON is detected in a way that preserves the worker-visible error semantics (workers often key off exact strings like “request is not json encoded”).
-- **Threadpool boundary**: the “real work” (MongoDB access, locks, semaphores) stays synchronous. The FastAPI endpoint wrapper runs that synchronous handler in a threadpool so the event loop is not blocked and concurrency remains close to Pyramid/Waitress.
+- **Threadpool boundary**: the "real work" (MongoDB access, locks, semaphores) stays synchronous. The FastAPI endpoint wrapper runs that synchronous handler in a threadpool so the event loop is not blocked.
 - **Error shaping**: API exceptions and application errors are converted to the same JSON shapes the existing clients expect (worker endpoints often use HTTP `200` with an `error` field for application-level failures).
-- **Streaming downloads**: Pyramid streaming (`FileIter`-style) is implemented with Starlette `StreamingResponse`, and file-like iteration is performed via a threadpool iterator bridge so streaming does not block the event loop. Download headers (`Content-Disposition`, `Content-Length` when known) are preserved.
-- **CORS/preflight parity**: where historically required, explicit `OPTIONS` handlers exist so browsers can preflight selected endpoints.
+- **Streaming downloads**: Starlette `StreamingResponse` with file-like iteration performed via a threadpool iterator bridge so streaming does not block the event loop. Download headers (`Content-Disposition`, `Content-Length` when known) are preserved.
+- **CORS/preflight**: where required, explicit `OPTIONS` handlers exist so browsers can preflight selected endpoints.
 
 ---
 
@@ -384,11 +372,9 @@ Implementation highlights:
 
 Location:
 
-- Routes: `server/fishtest/http/views.py`
-- Templates: `server/fishtest/templates_jinja2/*.html.j2`
+- Routes: `server/fishtest/views.py`
+- Templates: `server/fishtest/templates/*.html.j2`
 - Static: `server/fishtest/static/*`
-
-Legacy Mako templates remain in `server/fishtest/templates` and are only used by parity scripts under WIP/tools.
 
 The UI has two layers:
 
@@ -411,23 +397,23 @@ The FastAPI implementation provides a small compatibility layer via:
 - `server/fishtest/http/jinja.py` (`static_url` global)
 - `server/fishtest/http/session_middleware.py` (cookie persistence)
 
-### 7.1 FastAPI HTTP glue (template context compatibility)
+### 7.1 FastAPI HTTP helpers (template context compatibility)
 
-Fishtest’s UI templates were originally written for Pyramid and expect stable session and helper surfaces. The FastAPI server keeps the existing templates by providing a small set of compatibility helpers.
+Fishtest's UI templates expect stable session and helper surfaces. The FastAPI server provides a small set of compatibility helpers to keep the existing templates unchanged.
 
 Why these helpers exist:
 
 - The templates (notably `base.html.j2`) depend on **flash messages** and **CSRF token** access.
-- The templates also use the legacy `static_url("fishtest:static/...")` asset notation.
-- Rewriting all templates at once would be high-risk and provides little user value, so the helpers preserve the existing template contract while the HTTP framework is FastAPI.
+- The templates also use the `static_url("fishtest:static/...")` asset notation.
+- Rewriting all templates at once would be high-risk and provides little user value, so the helpers preserve the existing template contract.
 
-### 7.2 How `http/views.py` adapts Pyramid views
+### 7.2 How `views.py` implements the UI dispatch
 
-Pyramid UI code relies on decorators + implicit request/session/response behaviors. The FastAPI UI layer preserves that contract via a small “view system” implemented in `server/fishtest/http/views.py`.
+UI routes use a data-driven dispatch pattern implemented in `server/fishtest/views.py`.
 
 Mechanics:
 
-- **Data-driven route registration**: UI routes are defined in a `_VIEW_ROUTES` list of `(function, path, config)` tuples. A registration function walks this list and calls `router.add_api_route()` for each entry. There are no Pyramid-style decorator stubs.
+- **Data-driven route registration**: UI routes are defined in a `_VIEW_ROUTES` list of `(function, path, config)` tuples. A registration function walks this list and calls `router.add_api_route()` for each entry.
 - **Central dispatch pipeline**: instead of re-implementing session/CSRF/template logic per route, UI requests flow through a single dispatcher that:
   - loads the cookie session (dict-backed, persisted by `session_middleware.py`) and constructs the shared template context,
   - parses form data for POST,
@@ -437,13 +423,13 @@ Mechanics:
   - renders Jinja2 templates off the event loop (threadpool) and returns HTML,
   - applies response headers, cache controls, and session flags.
 
-This is why UI routes behave like Pyramid pages (HTML 404/login pages, redirects, flashes) instead of FastAPI’s default JSON validation errors.
+This is why UI routes return HTML error pages (404/login), redirects, and flash messages instead of FastAPI's default JSON validation errors.
 
 ### 7.4 M12 architectural decisions (explicit)
 
-- **Route registration model**: keep `_VIEW_ROUTES` + `_dispatch_view()` for UI endpoints in `http/views.py`.
+- Route registration model**: keep `_VIEW_ROUTES` + `_dispatch_view()` for UI endpoints in `views.py`.
   - Rationale: it centralizes 11 cross-cutting concerns (session, CSRF, template rendering, cache, response headers, etc.) and avoids repeating boilerplate across 28+ routes.
-  - This is intentionally asymmetric with `http/api.py`, where endpoints are decorator-registered and do not require the same UI dispatch concerns.
+  - This is intentionally asymmetric with `api.py`, where endpoints are decorator-registered and do not require the same UI dispatch concerns.
 
 - **Validation model**: keep vtjson as the protocol-validation source of truth.
   - Rationale: worker-protocol schemas rely on complex conditional/intersection validators, and broad Pydantic adoption would create dual-validation complexity without clear safety gain.
@@ -457,7 +443,7 @@ This is why UI routes behave like Pyramid pages (HTML 404/login pages, redirects
 
 #### `server/fishtest/http/cookie_session.py`
 
-Purpose: provide a minimal session implementation that satisfies template expectations without depending on Pyramid.
+Purpose: provide a minimal session implementation that satisfies template expectations.
 
 What it does:
 
@@ -502,12 +488,11 @@ Notes:
 - Secret key supports lazy initialization via a callable.
 - The per-request `max_age` override is the main divergence from Starlette's built-in `SessionMiddleware` (which only supports a single `max_age` at construction).
 
-Legacy Mako templates are rendered only by parity tools under WIP/tools. There is
-no runtime Mako renderer in the server package.
+There is no runtime Mako renderer in the server package. Mako templates have been removed.
 
 #### `server/fishtest/http/jinja.py`
 
-Purpose: runtime renderer for `server/fishtest/templates_jinja2`.
+Purpose: runtime renderer for `server/fishtest/templates`.
 
 Notes:
 
@@ -523,54 +508,46 @@ What it does:
 - Centralizes the “extract token from request + compare to session token” logic.
 - Keeps UI POST routes consistent and reduces per-endpoint boilerplate.
 
-### 7.3 Where the HTTP layer differs from the Pyramid “spec” modules
+### 7.3 HTTP layer design
 
-This repository intentionally keeps `server/fishtest/api.py` and `server/fishtest/views.py` as Pyramid-era **behavioral specs** (tests import them), but the running server uses FastAPI + the HTTP layer.
+The HTTP layer is deliberately minimal: it provides the adapter surfaces that
+handlers and templates rely on, nothing more.
 
-The HTTP layer is deliberately minimal: it does not try to be Pyramid; it only emulates the surfaces that existing handlers/templates rely on.
+- **Registration** — explicit router registration; UI uses a data-driven `_VIEW_ROUTES` list + `router.add_api_route()` calls.
+- **Request/response objects** — two thin adapters: `_ViewContext` (UI views, provides session/DB/auth/URL access) and `ApiRequestShim` (API endpoints, provides `rundb`/`json_body`/`matchdict`/`params`), plus a shared template context (`csrf_token`, `flash`, `current_user`, `static_url`).
+- **Exceptions and control flow** — uses native Starlette/FastAPI patterns: `RedirectResponse` for redirects, `raise HTTPException(status_code=404)` for not-found, `raise HTTPException(status_code=403)` for forbidden.
+- **Streaming** — ASGI streaming (`StreamingResponse`) with iteration performed via a threadpool bridge.
+- **Threading model** — handlers are invoked in a threadpool explicitly so blocking MongoDB/locking code runs without blocking the event loop. The async event loop accepts thousands of concurrent connections simultaneously, dispatching them as threadpool slots become available. The connection capacity is decoupled from the thread count.
 
-Concrete differences:
+Do **not** use Uvicorn's `--limit-concurrency` flag — it rejects excess connections with
+HTTP 503 instead of queuing them (see [4-VPS.md](4-VPS.md) for the correct systemd template).
 
-- **Registration**
+Production scaling configuration (see `docs/6-deployment.md` for full details):
 
-  - Pyramid: route config + decorator scanning.
-  - HTTP: explicit FastAPI router registration; UI uses a data-driven `_VIEW_ROUTES` list + `router.add_api_route()` calls.
-- **Request/response objects**
-
-  - Pyramid: rich request/response types.
-  - HTTP: two thin adapters remain — `_ViewContext` (UI views, provides session/DB/auth/URL access) and `ApiRequestShim` (API endpoints, provides `rundb`/`json_body`/`matchdict`/`params`) — plus a shared template context (`csrf_token`, `flash`, `current_user`, `static_url`). No Pyramid-era shim classes, response shims, or decorator stubs remain.
-- **Exceptions and control flow**
-
-  - Pyramid: `HTTPFound`/`HTTPNotFound`/`HTTPForbidden` exceptions.
-  - HTTP: uses native Starlette/FastAPI patterns — `RedirectResponse` for redirects, `raise HTTPException(status_code=404)` for not-found, `raise HTTPException(status_code=403)` for forbidden. No Pyramid exception shims remain.
-- **Streaming**
-
-  - Pyramid: WSGI iteration (`FileIter`).
-  - HTTP: ASGI streaming (`StreamingResponse`) with iteration performed via a threadpool bridge.
-- **Threading model**
-
-  - Pyramid/Waitress: handlers run in threads by default.
-  - HTTP: handlers are invoked in a threadpool explicitly so blocking MongoDB/locking code keeps the same effective concurrency model.
+- `--backlog 8192` absorbs reconnection bursts during restarts.
+- `LimitNOFILE=65536` (systemd override) prevents fd exhaustion at high worker counts.
+- `THREADPOOL_TOKENS = 200` (`app.py`) sizes the anyio threadpool for 9,400+ workers.
+- nginx `keepalive 256` per upstream + `worker_connections 16384` match production capacity.
 
 ---
 
-## 8) What is mostly unchanged from Pyramid fishtest
+## 8) Architecture layers
 
-It helps to separate “architecture” from “framework”:
+It helps to separate "core architecture" from "HTTP wiring":
 
-### Unchanged (core architecture)
+### Core (stable)
 
 - The **database schema and collections** (MongoDB) and the surrounding adapters.
 - Task assignment and ingestion logic in `RunDb`.
 - The **worker protocol** (payload fields, error semantics, and response shape).
-- Most templates, JS, and CSS assets.
+- Templates, JS, and CSS assets.
 - Statistical computations (SPRT/Elo utilities under `server/fishtest/stats/`).
 
-### Changed (HTTP and app wiring)
+### HTTP wiring
 
-- The server now has a first-class **FastAPI (ASGI)** entrypoint in `server/fishtest/app.py`.
-- The UI and API are implemented as FastAPI routers in `http/views.py` and `http/api.py`.
-- Sessions for UI routes are now implemented without Pyramid (cookie session helper).
+- FastAPI (ASGI) entrypoint in `server/fishtest/app.py`.
+- UI and API implemented as FastAPI routers in `views.py` and `api.py`.
+- Cookie-based sessions (`fishtest_session`) via itsdangerous signing.
 
 ---
 
@@ -583,19 +560,16 @@ Important constraints:
 - Many tests expect a working **MongoDB** on `localhost:27017`.
 - FastAPI `TestClient` requires `httpx` (test-time dependency).
 
-Test-only Pyramid stubs:
+No `pyramid.*` imports exist in the codebase. All tests use the FastAPI `TestClient`
+or domain-level unit tests.
 
-- Some unit tests (and the legacy “spec” modules `server/fishtest/api.py` / `server/fishtest/views.py`) import `pyramid.*` symbols.
-- To avoid a runtime dependency on Pyramid, a minimal stub implementation lives under `server/tests/pyramid/` and is only intended to be importable during test runs.
-
-There is a lightweight test app factory in `server/tests/util.py` that wires routers directly onto a small `FastAPI()` instance, bypassing production lifespan side effects.
+There is a lightweight test app factory in `server/tests/test_support.py` that wires routers directly onto a small `FastAPI()` instance, bypassing production lifespan side effects.
 
 ### 9.1 Verification gates (no-tests workflow)
 
 When making refactors in the FastAPI server code (especially routers/middleware/errors), the minimum verification bar used in this repo is:
 
 - `cd server && uv run ruff check .`
-- `cd server && uv run ty check fishtest/app.py` (and any touched modules)
-- `WIP/tools/run_parity_all.sh` (or `WIP/tools/run_parity_all.sh --strict` for strict response-template parity)
+- `cd server && uv run ty check fishtest/app.py fishtest/http/`
 
 ---

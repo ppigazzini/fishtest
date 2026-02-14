@@ -4,9 +4,10 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
+from vtjson import validate
+
 from fishtest.lru_cache import LRUCache, lru_cache
 from fishtest.schemas import sha as sha_schema
-from vtjson import validate
 
 """
 Note: we generally don't suppress exceptions since too many things can
@@ -17,8 +18,6 @@ GITHUB_API_VERSION = 2
 TIMEOUT = 3
 INITIAL_RATELIMIT = 5000
 LRU_CACHE_SIZE = 6000
-_RETRYABLE_STATUS = {502, 503, 504}
-_MAX_RETRIES = 2
 
 _api_initialized = False
 
@@ -51,7 +50,7 @@ def init(kvstore, actiondb):
         for k, v in github_api_cache["lru_cache"]:
             _lru_cache[tuple(k)] = v
     except Exception as e:
-        print(f"Unable to restore github_api_cache from kvstore: {e!s}", flush=True)
+        print(f"Unable to restore github_api_cache from kvstore: {str(e)}", flush=True)
 
     _api_initialized = True
     update_official_master_sha()
@@ -82,45 +81,27 @@ def call(url, *args, _method="GET", _ignore_rate_limit=False, **kwargs):
     if "GH_TOKEN" in os.environ:
         headers["Authorization"] = "Bearer " + os.environ["GH_TOKEN"]
 
-    r = None
-    for attempt in range(_MAX_RETRIES + 1):
-        try:
-            r = requests.request(_method, url, *args, headers=headers, **kwargs)
-        except requests.RequestException:
-            if attempt >= _MAX_RETRIES or _method not in {"GET", "HEAD"}:
-                raise
-            time.sleep(0.2 * (2**attempt))
-            continue
-
-        if _method in {"GET", "HEAD"} and r.status_code in _RETRYABLE_STATUS:
-            if attempt >= _MAX_RETRIES:
-                break
-            time.sleep(0.2 * (2**attempt))
-            continue
-        break
+    r = requests.request(_method, url, *args, headers=headers, **kwargs)
     resource = r.headers.get("X-RateLimit-Resource", "")
     if resource == "core":
         _github_rate_limit["remaining"] = int(
-            r.headers.get("X-RateLimit-Remaining", _github_rate_limit["remaining"]),
+            r.headers.get("X-RateLimit-Remaining", _github_rate_limit["remaining"])
         )
         _github_rate_limit["used"] = int(
-            r.headers.get("X-RateLimit-Used", _github_rate_limit["used"]),
+            r.headers.get("X-RateLimit-Used", _github_rate_limit["used"])
         )
         _github_rate_limit["reset"] = int(
-            r.headers.get("X-RateLimit-Reset", _github_rate_limit["reset"]),
+            r.headers.get("X-RateLimit-Reset", _github_rate_limit["reset"])
         )
         _github_rate_limit["limit"] = int(
-            r.headers.get("X-RateLimit-Limit", _github_rate_limit["limit"]),
+            r.headers.get("X-RateLimit-Limit", _github_rate_limit["limit"])
         )
         _github_rate_limit.pop("_uninitialized", None)
     return r
 
 
 def _download_from_github_raw(
-    item,
-    user="official-stockfish",
-    repo="Stockfish",
-    branch="master",
+    item, user="official-stockfish", repo="Stockfish", branch="master"
 ):
     item_url = f"https://raw.githubusercontent.com/{user}/{repo}/{branch}/{item}"
     r = call(item_url, timeout=TIMEOUT, _ignore_rate_limit=True)
@@ -164,9 +145,10 @@ def download_from_github(
             branch=branch,
             ignore_rate_limit=ignore_rate_limit,
         )
-    if method == "raw":
+    elif method == "raw":
         return _download_from_github_raw(item, user=user, repo=repo, branch=branch)
-    raise ValueError(f"Unknown method {method}")
+    else:
+        raise ValueError(f"Unknown method {method}")
 
 
 def get_commit(
@@ -205,7 +187,7 @@ def _update_rate_limit():
             # sets _github_rate_limit
             call(url, timeout=TIMEOUT, _ignore_rate_limit=True)
         except Exception as e:
-            print(f"Unable to get rate limit: {e!s}", flush=True)
+            print(f"Unable to get rate limit: {str(e)}", flush=True)
 
 
 def rate_limit():
@@ -216,8 +198,7 @@ def rate_limit():
 # it's not necessary to include user1, user2 in the key as shas
 # are globally unique
 @lru_cache(
-    cache=_lru_cache,
-    key=lambda f, args, kw: (f.__name__, kw["sha1"], kw["sha2"]),
+    cache=_lru_cache, key=lambda f, args, kw: (f.__name__, kw["sha1"], kw["sha2"])
 )
 def compare_sha(
     user1="official-stockfish",
@@ -304,9 +285,7 @@ def is_ancestor(
 def _is_master(sha, ignore_rate_limit=False):
     try:
         merge_base_commit = get_merge_base_commit(
-            sha1=sha,
-            sha2=official_master_sha,
-            ignore_rate_limit=ignore_rate_limit,
+            sha1=sha, sha2=official_master_sha, ignore_rate_limit=ignore_rate_limit
         )
     except requests.HTTPError as e:
         if e.response.status_code == 404:
@@ -335,9 +314,7 @@ def is_master(sha, ignore_rate_limit=False):
 
 
 def get_master_repo(
-    user="official-stockfish",
-    repo="Stockfish",
-    ignore_rate_limit=False,
+    user="official-stockfish", repo="Stockfish", ignore_rate_limit=False
 ):
     api_url = f"https://api.github.com/repos/{user}/{repo}"
     r = call(api_url, timeout=TIMEOUT, _ignore_rate_limit=ignore_rate_limit)
@@ -346,7 +323,8 @@ def get_master_repo(
     while True:
         if not r["fork"]:
             return r["html_url"]
-        r = r["parent"]
+        else:
+            r = r["parent"]
 
 
 @lru_cache(maxsize=128, expiration=600, refresh=False)
@@ -363,10 +341,7 @@ def normalize_repo(repo):
 
 
 def compare_branches_url(
-    user1="stockfish-chess",
-    branch1="master",
-    user2=None,
-    branch2=None,
+    user1="stockfish-chess", branch1="master", user2=None, branch2=None
 ):
     if user2 is None:
         user2 = user1
@@ -387,7 +362,7 @@ def update_official_master_sha():
         official_master_sha = response["sha"]
     except Exception as e:
         print(
-            f"Unable to obtain the official stockfish master sha: {e!s}",
+            f"Unable to obtain the official stockfish master sha: {str(e)}",
             flush=True,
         )
     if official_master_sha != _dummy_sha:

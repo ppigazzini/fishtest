@@ -1,7 +1,8 @@
 from datetime import UTC, datetime
 
-from fishtest.schemas import worker_schema
 from vtjson import validate
+
+from fishtest.schemas import worker_schema
 
 
 class WorkerDb:
@@ -24,7 +25,8 @@ class WorkerDb:
                 "message": "",
                 "last_updated": None,
             }
-        return r
+        else:
+            return r
 
     def update_worker(self, worker_name, blocked=None, message=None):
         r = {

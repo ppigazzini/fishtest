@@ -6,39 +6,31 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable, cast
 
+import test_support
 from fastapi import Depends, Request
 from starlette.responses import Response
-
-try:
-    import fastapi_util
-except ModuleNotFoundError:  # pragma: no cover
-    from tests import fastapi_util
 
 
 class TestHttpBoundary(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Skips cleanly if FastAPI/TestClient (and its deps like httpx) aren't available.
-        _FastAPI, TestClient = fastapi_util.require_fastapi()
+        _FastAPI, TestClient = test_support.require_fastapi()
 
-        try:
-            import util as test_util
-        except ModuleNotFoundError:  # pragma: no cover
-            from tests import util as test_util
-
-        cls.rundb = test_util.get_rundb()
+        cls.rundb = test_support.get_rundb()
         cls.TestClient = TestClient
 
     @classmethod
     def tearDownClass(cls):
-        cls.rundb.userdb.clear_cache()
-        cls.rundb.pgndb.delete_many({})
-        cls.rundb.runs.delete_many({})
-        cls.rundb.runs.drop()
-        cls.rundb.conn.close()
+        test_support.cleanup_test_rundb(
+            cls.rundb,
+            clear_pgndb=True,
+            clear_runs=True,
+            drop_runs=True,
+        )
 
     def _build_app(self, *, include_views: bool = False):
-        return fastapi_util.build_test_app(
+        return test_support.build_test_app(
             rundb=self.rundb,
             include_api=False,
             include_views=include_views,
@@ -47,7 +39,7 @@ class TestHttpBoundary(unittest.TestCase):
     def test_request_shim_parity(self):
         from fishtest.http.boundary import ApiRequestShim
         from fishtest.http.cookie_session import CookieSession
-        from fishtest.http.views import _RequestShim
+        from fishtest.views import _RequestShim
 
         app = self._build_app()
 

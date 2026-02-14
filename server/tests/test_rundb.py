@@ -3,11 +3,12 @@ import sys
 import unittest
 from datetime import UTC, datetime
 
-import util
+import test_support
+from pymongo import DESCENDING
+
 from fishtest.api import WORKER_VERSION
 from fishtest.run_cache import Prio
 from fishtest.spsa_handler import _pack_flips, _unpack_flips
-from pymongo import DESCENDING
 
 run_id = None
 
@@ -15,7 +16,7 @@ run_id = None
 class CreateRunDBTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.rundb = util.get_rundb()
+        cls.rundb = test_support.get_rundb()
 
     def setUp(self):
         random.seed()
@@ -222,7 +223,7 @@ class CreateRunDBTest(unittest.TestCase):
         self.assertEqual(run, {"task_alive": False})
 
     def test_30_finish(self):
-        print(f"run_id: {run_id}")
+        print("run_id: {}".format(run_id))
         run = self.rundb.get_run(run_id)
         run["finished"] = True
         self.rundb.buffer(run, priority=Prio.SAVE_NOW)
@@ -244,9 +245,9 @@ class CreateRunDBTest(unittest.TestCase):
 
     def test_flips(self):
         random.seed(0)
-        for _ in range(100):
+        for _ in range(0, 100):
             L = random.randint(0, 1000)
-            a = [random.choice((-1, 1)) for _ in range(L)]
+            a = [random.choice((-1, 1)) for _ in range(0, L)]
             b = _pack_flips(a)
             self.assertTrue(isinstance(b, bytes))
             c = _unpack_flips(b, length=L)

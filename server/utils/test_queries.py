@@ -6,8 +6,9 @@
 import pprint
 import time
 
-from fishtest.rundb import RunDb
 from pymongo import DESCENDING, MongoClient
+
+from fishtest.rundb import RunDb
 
 db_name = "fishtest_new"
 rundb = RunDb()

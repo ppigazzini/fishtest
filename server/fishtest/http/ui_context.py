@@ -18,6 +18,7 @@ from fishtest.http.dependencies import (
 
 if TYPE_CHECKING:
     from fastapi import Request
+
     from fishtest.actiondb import ActionDb
     from fishtest.http.cookie_session import CookieSession
     from fishtest.rundb import RunDb

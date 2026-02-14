@@ -434,22 +434,27 @@ They are **not interchangeable**:
 
 This milestone is effectively closed. Reassess only if a concrete use case appears where Pydantic provides safety or maintenance value that vtjson cannot — no such case exists today.
 
-## Milestone N — Delete legacy Pyramid code
+## Milestone N — Finalize branch for upstream merge
 
-Goal: the repo no longer carries Pyramid-specific runtime codepaths.
+Goal: prepare the branch for upstream merge by removing legacy Pyramid/Mako code, updating authoritative documentation to reflect the finished project, and writing the conventional commit for the squashed branch.
+
+Status: Phases 0–7 complete; Phase 8 pending (PR branch only). See [3.13-ITERATION.md](3.13-ITERATION.md) for iteration plan.
 
 Target end-state for upstream at Milestone N:
 
 - FastAPI + Starlette + Jinja2 + Uvicorn are the only active server stack.
 - Pyramid and Mako are fully removed from runtime and repository surfaces used by the active server.
-- No milestone task depends on `WIP/` paths (the `WIP/` tree is removed).
+- Authoritative documentation (`1-FASTAPI-REFACTOR.md`, `2-ARCHITECTURE.md`) is updated to describe the final state, not the migration process.
+- A conventional commit message is written for squashing the branch into a single commit for the upstream PR.
+- No milestone task depends on `WIP/` paths (the `WIP/` tree is removed only in the PR branch).
 
-Expanded TODO seed list (to be detailed in Iteration N planning):
+### Task 1 — Delete legacy Pyramid code and test stubs
 
 - Delete legacy test modules that still validate Pyramid-era surfaces:
   - `server/tests/test_actions_view.py`
   - `server/tests/test_api.py`
   - `server/tests/test_users.py`
+- Keep domain-layer tests that do not depend on Pyramid and remain valuable:
   - `server/tests/test_rundb.py`
   - `server/tests/test_github_api.py`
 - Delete Pyramid test stubs no longer needed once legacy tests are gone:
@@ -459,6 +464,8 @@ Expanded TODO seed list (to be detailed in Iteration N planning):
   - `server/tests/pyramid/view.py`
   - `server/tests/pyramid/response.py`
   - `server/tests/pyramid/testing.py`
+
+### Task 2 — Delete legacy Pyramid spec modules and move HTTP routes up
 
 - Move active HTTP route modules up one level:
   - source move: `server/fishtest/http/api.py` → `server/fishtest/api.py`
@@ -476,38 +483,155 @@ Expanded TODO seed list (to be detailed in Iteration N planning):
       - `server/tests/test_http_boundary.py`
       - `server/tests/test_http_helpers.py`
       - `server/tests/test_http_users.py`
-    - parity tooling:
+    - parity tooling (if still present):
       - `WIP/tools/parity_check_api_ast.py`
       - `WIP/tools/parity_check_api_routes.py`
       - `WIP/tools/parity_check_urls_dict.py`
     - authoritative docs:
       - `WIP/docs/1-FASTAPI-REFACTOR.md`
       - `WIP/docs/2-ARCHITECTURE.md`
+- Delete `server/fishtest/models.py` (Pyramid ACL/authorization; unused by FastAPI runtime).
+- Remove any remaining runtime imports from `pyramid.*` across `server/fishtest/**`.
 
-- Drop Mako from runtime packaging metadata (`server/pyproject.toml`):
-  - remove classifier `Framework :: Mako`
-  - remove dependency `mako>=...`
-  - remove package-data globs `*.mak` and `*.mako` from runtime wheel metadata
-  - delete legacy Mako template tree at `server/fishtest/templates/`
-  - remove/replace any scripts, tests, or docs that still assume Mako template parity.
+### Task 3 — Remove Mako from test dependencies and delete legacy templates
 
-- Remove `WIP/` dependencies from Milestone N execution:
-  - migrate any still-needed tools/docs out of `WIP/` into permanent repo locations before deletion
-  - update references currently pointing to `WIP/tools/*` and `WIP/docs/*` to their non-WIP destinations
-  - delete `WIP/` tree once migrations are complete
+- Drop Mako from packaging metadata (`server/pyproject.toml`):
+  - remove `mako>=...` from `[dependency-groups] test`
+- Delete legacy Mako template tree at `server/fishtest/templates/`.
+- Remove/replace any scripts, tests, or docs that still assume Mako template parity.
+- Delete parity tooling in `WIP/tools/` that depends on Mako templates (e.g., `compare_template_parity.py`, `compare_jinja_mako_parity.py`, `template_context_coverage.py` Mako paths).
 
-- Additional required work:
-  - remove any remaining runtime imports from `pyramid.*` across `server/fishtest/**`
-  - update route/parity scripts and docs so FastAPI/Starlette/Jinja2/Uvicorn are the only active server references
-  - run full contract/parity suite after each deletion/move batch before continuing
+### Task 4 — Update authoritative documentation for the finished project
+
+Update `1-FASTAPI-REFACTOR.md` and `2-ARCHITECTURE.md` to describe the **final state**, not the migration process:
+
+- `1-FASTAPI-REFACTOR.md`: retire migration-oriented framing (phases, parity gates, "mechanical port" language); rewrite as the authoritative server architecture and protocol contract reference. Remove references to Pyramid as a "behavioral spec" — the FastAPI implementation is now the spec.
+- `2-ARCHITECTURE.md`: update module map to reflect post-move file locations (`api.py` and `views.py` at top level, no `http/api.py` or `http/views.py`). Remove "what changed from Pyramid" framing — describe what exists now. Remove references to legacy twins, parity scripts, and `tests/pyramid/` stubs.
+- `0-INDEX.md`: update navigation to reflect final doc set.
+- Remove or archive migration-only docs that have no value post-merge (iteration docs, reports, reference guides for porting decisions).
+- Keep docs that remain useful post-merge (deployment notes, rebase process adapted for ongoing maintenance).
+
+### Task 5 — Final verification
+
+Run the final quality gates after Tasks 1–4 and record metrics.
+
+Verification gates:
+- Run full local test suite: `bash WIP/tools/run_local_tests.sh`.
+- Run lint: `bash WIP/tools/lint_http.sh`.
+- Verify no remaining `pyramid`/`mako` imports in Python sources:
+  - `grep -rn 'from pyramid\|import pyramid\|from mako\|import mako' server/ --include='*.py' | grep -v __pycache__`
+- Verify `server/pyproject.toml` has no Pyramid or Mako references.
+- Verify deployment entrypoint import: `uv run python -c 'import fishtest.app'`.
+- Record final metrics in [3.13-ITERATION.md](3.13-ITERATION.md).
+
+### Task 6 — Create permanent project documentation
+
+Create `server/fishtest/docs/` with contributor-facing technical documentation for the finished server. These docs describe the system as it is — not the migration from Pyramid. New contributors read these to understand how the server works and how to add features.
+
+Documents to create:
+- `README.md` — documentation index and quick-start guide.
+- `architecture.md` — server structure, module map, request flow, startup, middleware stack, primary instance concept, signals, core domain adapters, validation.
+- `threading-model.md` — async/sync boundaries, event loop vs threadpool inventory, rules for adding new code.
+- `api-reference.md` — worker API protocol invariants, endpoint catalog, authentication, error shape, validation, how to add a new endpoint.
+- `ui-reference.md` — route registration, `_dispatch_view()` pipeline, session handling, CSRF, authentication, URL generation, how to add a new UI route.
+- `templates.md` — Jinja2 environment configuration, rendering flow, shared base context, template catalog, context contracts per template, authoring rules, how to add a new template.
+- `deployment.md` — prerequisites, installation, systemd/nginx configuration, environment variables, primary/secondary model, signals, update procedure, session cookie notes.
+
+Source material: refactored from `WIP/docs/2-ARCHITECTURE.md`, `WIP/docs/2.1-ASYNC-INVENTORY.md`, `WIP/docs/2.3-JINJA2.md`, `WIP/docs/11.1-JINJA2-CONTEXT-CONTRACTS.md`, `WIP/docs/4-VPS.md`, `WIP/docs/1-FASTAPI-REFACTOR.md` Protocol A/B, `WIP/docs/6-FASTAPI-REFERENCES.md`, `WIP/docs/7-STARLETTE-REFERENCES.md`.
+
+### Task 7 — Write the conventional commit for the upstream PR
+
+Write the conventional commit message for squashing the entire branch into a single commit. The message must:
+
+- Use the `feat(server):` prefix.
+- Have a subject line ≤ 72 characters.
+- Have a body wrapped at 80 characters.
+- Summarize the architectural change (Pyramid/Mako → FastAPI/Jinja2).
+- List key outcomes (runtime stack, template engine, session handling, middleware, test suite).
+- Note breaking changes (session cookie format, deployment command).
+
+Prepared commit message:
+
+```
+feat(server): replace Pyramid/Mako with FastAPI/Jinja2
+
+Replace the Pyramid WSGI framework and Mako template engine with
+FastAPI/Starlette (ASGI) and Jinja2. Deploy via Uvicorn instead
+of Waitress.
+
+Runtime stack:
+- FastAPI + Starlette + Uvicorn (ASGI).
+- Jinja2 templates (.html.j2, StrictUndefined).
+- itsdangerous TimestampSigner cookie sessions.
+- Pure ASGI middleware stack (5 layers: shutdown guard, request
+  state, worker routing, blocked-user redirect, session).
+- vtjson validation layer (17 schemas).
+
+Server implementation:
+- fishtest/api.py: 22 API routes (9 worker POST, 1 actions POST,
+  10 read-only GET, 2 CORS OPTIONS).
+- fishtest/views.py: 29 UI routes (data-driven _VIEW_ROUTES +
+  centralized _dispatch_view pipeline).
+- fishtest/http/: 15 support modules (session, CSRF, middleware,
+  errors, dependencies, template helpers, boundary, settings).
+- 26 Jinja2 templates with shared base context construction
+  (build_template_context + template_helpers).
+- Worker API: JSON responses with duration field, HTTP 200 for
+  application errors, CORS for /api/actions and /api/get_run.
+- UI pipeline: cookie sessions, CSRF enforcement, flash messages,
+  per-route primary-instance guard, HTTP cache headers.
+
+Build system:
+- hatchling build backend for both server and worker.
+- uv dependency management; single uv.lock at repo root.
+- Pre-commit hooks: ruff lint + format, uv-lock check.
+- CI workflows: lint, server tests (MongoDB), worker tests
+  (POSIX + MSYS2).
+
+Dependencies:
+- Added: fastapi, uvicorn, itsdangerous, jinja2,
+  python-multipart, httpx (test).
+- Removed: pyramid, pyramid-debugtoolbar, pyramid-mako, waitress,
+  setuptools, mako.
+
+Documentation:
+- 10 docs in docs/ (architecture, threading model, API reference,
+  UI reference, templates, worker, development guide, deployment
+  with systemd + nginx configs, references).
+
+Test suite:
+- 161 tests (unittest discover) covering worker API, UI flows,
+  HTTP boundary, middleware, session semantics, domain layer.
+- Test helpers consolidated in test_support.py.
+
+Breaking changes:
+- Deployment entrypoint: `uvicorn fishtest.app:app` (was
+  `pserve development.ini`).
+- Session cookies invalidated on first deploy (itsdangerous
+  TimestampSigner format); users re-authenticate once.
+- Python >= 3.14 required (server); >= 3.8 (worker).
+```
+
+### Task 8 — OPTIONAL: delete the `WIP/` folder
+
+> [!IMPORTANT]
+> This task is performed **only in the PR branch** that opens the upstream pull request, not in the development branch.
+
+- Migrate any still-needed tools/docs out of `WIP/` into permanent repo locations before deletion.
+- Update references currently pointing to `WIP/tools/*` and `WIP/docs/*` to their non-WIP destinations.
+- Delete `WIP/` tree.
+- Verify no remaining references to `WIP/` paths in code, tests, or docs.
 
 Definition of done:
 
 - Pyramid packages/configs are removed from the runtime deployable.
 - Mako packages/templates are removed from the active repository/runtime path.
 - Tests no longer depend on Pyramid stubs for coverage of the active server behavior.
-- Docs/config/scripts no longer depend on `WIP/` paths.
-- Docs point to FastAPI/Starlette/Jinja2/Uvicorn as the only server stack.
+- Authoritative docs describe the final FastAPI/Jinja2 architecture (not the migration process).
+- Permanent project documentation exists in `server/fishtest/docs/` (7 files: README + 6 docs).
+- A conventional commit message is written and ready for the squashed branch commit.
+- Docs/config/scripts no longer depend on `WIP/` paths (if Task 8 is executed).
+- All contract tests pass.
 
 ## What does NOT belong here
 

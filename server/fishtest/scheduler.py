@@ -34,7 +34,7 @@ def _execute(worker, *args, _background=False, **kwargs):
         try:
             worker(*args, **kwargs)
         except Exception as e:
-            print(f"{e.__class__.__name__} in {worker.__name__}: {e!s}", flush=True)
+            print(f"{e.__class__.__name__} in {worker.__name__}: {str(e)}", flush=True)
     else:
         kwargs["_background"] = False
         args = (worker,) + args
@@ -84,10 +84,7 @@ class Task:
     def _do_work(self):
         if not self.__expired:
             _execute(
-                self.worker,
-                *self.args,
-                _background=self.__background,
-                **self.kwargs,
+                self.worker, *self.args, _background=self.__background, **self.kwargs
             )
             if not self.one_shot:
                 jitter = uniform(-self.__rel_jitter, self.__rel_jitter)
@@ -231,9 +228,10 @@ class Scheduler:
             for task in copy.copy(self.__tasks):
                 if task.expired():
                     self.__del_task(task)
-                elif next_schedule is None or task._next_schedule() < next_schedule:
-                    next_task = task
-                    next_schedule = task._next_schedule()
+                else:
+                    if next_schedule is None or task._next_schedule() < next_schedule:
+                        next_task = task
+                        next_schedule = task._next_schedule()
             if next_schedule is not None:
                 delay = (next_schedule - datetime.now(UTC)).total_seconds()
                 self.__event.wait(delay)

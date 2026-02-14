@@ -2,37 +2,30 @@
 
 import unittest
 
-try:
-    import fastapi_util
-except ModuleNotFoundError:  # pragma: no cover
-    from tests import fastapi_util
+import test_support
 
 
 class TestHttpErrors(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Skips cleanly if FastAPI/TestClient (and its deps like httpx) aren't available.
-        FastAPI, TestClient = fastapi_util.require_fastapi()
+        FastAPI, TestClient = test_support.require_fastapi()
 
-        try:
-            import util as test_util
-        except ModuleNotFoundError:  # pragma: no cover
-            from tests import util as test_util
-
-        cls.rundb = test_util.get_rundb()
+        cls.rundb = test_support.get_rundb()
         cls.FastAPI = FastAPI
         cls.TestClient = TestClient
 
     @classmethod
     def tearDownClass(cls):
-        cls.rundb.userdb.clear_cache()
-        cls.rundb.pgndb.delete_many({})
-        cls.rundb.runs.delete_many({})
-        cls.rundb.runs.drop()
-        cls.rundb.conn.close()
+        test_support.cleanup_test_rundb(
+            cls.rundb,
+            clear_pgndb=True,
+            clear_runs=True,
+            drop_runs=True,
+        )
 
     def test_ui_404_is_html(self):
-        client = fastapi_util.make_test_client(
+        client = test_support.make_test_client(
             rundb=self.rundb,
             include_api=False,
             include_views=True,
@@ -48,7 +41,7 @@ class TestHttpErrors(unittest.TestCase):
         )
 
     def test_api_404_is_json(self):
-        client = fastapi_util.make_test_client(
+        client = test_support.make_test_client(
             rundb=self.rundb,
             include_api=True,
             include_views=False,
@@ -67,7 +60,7 @@ class TestHttpErrors(unittest.TestCase):
     def test_worker_validation_error_is_shaped(self):
         from pydantic import BaseModel
 
-        app = fastapi_util.build_test_app(
+        app = test_support.build_test_app(
             rundb=self.rundb,
             include_api=False,
             include_views=False,

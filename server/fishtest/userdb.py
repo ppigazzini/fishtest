@@ -1,9 +1,10 @@
 from datetime import UTC, datetime
 
-from fishtest.lru_cache import lru_cache
-from fishtest.schemas import user_schema
 from pymongo import ASCENDING
 from vtjson import ValidationError, validate
+
+from fishtest.lru_cache import lru_cache
+from fishtest.schemas import user_schema
 
 DEFAULT_MACHINE_LIMIT = 16
 
@@ -12,7 +13,7 @@ def validate_user(user):
     try:
         validate(user_schema, user, "user")
     except ValidationError as e:
-        message = f"The user object does not validate: {e!s}"
+        message = f"The user object does not validate: {str(e)}"
         print(message, flush=True)
         raise ValidationError(message) from None
 
@@ -30,9 +31,7 @@ class UserDb:
         self.find_by_username.cache_clear()
 
     @lru_cache(
-        expiration=120,
-        refresh=False,
-        filter=lambda f, args, kw, val: val is not None,
+        expiration=120, refresh=False, filter=lambda f, args, kw, val: val is not None
     )
     def find_by_username(self, name):
         return self.users.find_one({"username": name})
@@ -45,10 +44,10 @@ class UserDb:
         if not user or user["password"] != password:
             print(f"Invalid login: '{username}' '{password}'", flush=True)
             return {"error": f"Invalid password for user: {username}"}
-        if user.get("blocked"):
+        if "blocked" in user and user["blocked"]:
             print(f"Blocked account: '{username}' '{password}'", flush=True)
             return {"error": f"Account blocked for user: {username}"}
-        if user.get("pending"):
+        if "pending" in user and user["pending"]:
             print(f"Pending account: '{username}' '{password}'", flush=True)
             return {"error": f"Account pending for user: {username}"}
 
@@ -121,8 +120,9 @@ class UserDb:
                 flush=True,
             )
             return True
-        # User not found
-        return False
+        else:
+            # User not found
+            return False
 
     def get_machine_limit(self, username):
         user = self.get_user(username)

@@ -5,11 +5,13 @@ import re
 from datetime import UTC, datetime
 from functools import cache
 
-import fishtest.stats.stat_util
 import numpy as np
 import scipy.stats
 from email_validator import EmailNotValidError, caching_resolver, validate_email
 from zxcvbn import zxcvbn
+
+import fishtest.github_api as gh
+import fishtest.stats.stat_util
 
 FISHTEST = "fishtest_new"
 PASSWORD_MAX_LENGTH = 72
@@ -35,7 +37,7 @@ class GeneratorAsFileReader:
 
 
 def hex_print(run_id):
-    return hashlib.md5(str(run_id).encode("utf-8")).hexdigest()
+    return hashlib.md5(str(run_id).encode("utf-8")).digest().hex()
 
 
 def worker_name(worker_info, short=False):
@@ -44,7 +46,7 @@ def worker_name(worker_info, short=False):
     cores = str(worker_info["concurrency"])
     uuid = worker_info["unique_key"]
     modified = worker_info.get("modified", False)
-    name = f"{username}-{cores}cores"
+    name = "{}-{}cores".format(username, cores)
     if len(uuid) != 0:
         uuid_split = uuid.split("-")
         if len(uuid_split) >= 1:
@@ -58,6 +60,7 @@ def worker_name(worker_info, short=False):
 
 def get_chi2(tasks, exclude_workers=set()):
     """Perform chi^2 test on the stats from each worker."""
+
     default_results = {
         "chi2": float("nan"),
         "dof": 0,
@@ -211,24 +214,25 @@ def get_bad_workers(tasks, cached_chi2=None, p=0.001, res=7.0, iters=1):
 def residual_to_color(residual, chi2):
     if abs(residual) < chi2["z_95"]:
         return "green"
-    if abs(residual) < chi2["z_99"]:
+    elif abs(residual) < chi2["z_99"]:
         return "yellow"
-    return "red"
+    else:
+        return "red"
 
 
 def display_residual(task, chi2):
     if "bad" in task and "residual" in task:
         residual = task["residual"]
         residual_color = task["residual_color"]
-    elif crash_or_time(task):
-        residual = 10.0
-        residual_color = "red"
     else:
-        residual = chi2["residual"].get(
-            task["worker_info"]["unique_key"],
-            float("inf"),
-        )
-        residual_color = residual_to_color(residual, chi2)
+        if crash_or_time(task):
+            residual = 10.0
+            residual_color = "red"
+        else:
+            residual = chi2["residual"].get(
+                task["worker_info"]["unique_key"], float("inf")
+            )
+            residual_color = residual_to_color(residual, chi2)
 
     display_colors = {
         "green": "#44EB44",
@@ -249,7 +253,9 @@ def display_residual(task, chi2):
 
 def format_bounds(elo_model, elo0, elo1):
     seps = {"BayesElo": r"[]", "logistic": r"{}", "normalized": r"<>"}
-    return f"{seps[elo_model][0]}{elo0:.2f},{elo1:.2f}{seps[elo_model][1]}"
+    return "{}{:.2f},{:.2f}{}".format(
+        seps[elo_model][0], elo0, elo1, seps[elo_model][1]
+    )
 
 
 def format_results(run):
@@ -263,12 +269,11 @@ def format_results(run):
     if "spsa" in run["args"]:
         result["info"].append(
             "{:d}/{:d} iterations".format(
-                run["args"]["spsa"]["iter"],
-                run["args"]["spsa"]["num_iter"],
-            ),
+                run["args"]["spsa"]["iter"], run["args"]["spsa"]["num_iter"]
+            )
         )
         result["info"].append(
-            "{:d}/{:d} games played".format(sum(WLD), run["args"]["num_games"]),
+            "{:d}/{:d} games played".format(sum(WLD), run["args"]["num_games"])
         )
         return result
 
@@ -283,19 +288,19 @@ def format_results(run):
                 sprt["lower_bound"],
                 sprt["upper_bound"],
                 format_bounds(elo_model, sprt["elo0"], sprt["elo1"]),
-            ),
+            )
         )
     else:
         if "pentanomial" in run_results.keys():
             elo, elo95, los = fishtest.stats.stat_util.get_elo(
-                run_results["pentanomial"],
+                run_results["pentanomial"]
             )
         else:
             elo, elo95, los = fishtest.stats.stat_util.get_elo([WLD[1], WLD[2], WLD[0]])
 
         # Display the results
-        eloInfo = f"Elo: {elo:.2f} ± {elo95:.1f} (95%)"
-        losInfo = f"LOS: {los:.1%}"
+        eloInfo = "Elo: {:.2f} ± {:.1f} (95%)".format(elo, elo95)
+        losInfo = "LOS: {:.1%}".format(los)
 
         result["info"].append(eloInfo + " " + losInfo)
 
@@ -305,12 +310,12 @@ def format_results(run):
             state = "accepted"
 
     result["info"].append(
-        f"Total: {sum(WLD):d} W: {WLD[0]:d} L: {WLD[1]:d} D: {WLD[2]:d}",
+        "Total: {:d} W: {:d} L: {:d} D: {:d}".format(sum(WLD), WLD[0], WLD[1], WLD[2])
     )
     if "pentanomial" in run_results.keys():
         result["info"].append(
             "Ptnml(0-2): "
-            + ", ".join(str(run_results["pentanomial"][i]) for i in range(5)),
+            + ", ".join(str(run_results["pentanomial"][i]) for i in range(0, 5))
         )
 
     if state == "rejected":
@@ -359,8 +364,7 @@ def estimate_game_duration(tc):
 
 def get_tc_ratio(tc, threads=1, base="10+0.1"):
     """Get TC ratio relative to the `base`, which defaults to standard STC.
-    Example: standard LTC is 6x, SMP-STC is 4x.
-    """
+    Example: standard LTC is 6x, SMP-STC is 4x."""
     return threads * estimate_game_duration(tc) / estimate_game_duration(base)
 
 
@@ -505,34 +509,15 @@ def password_strength(password, *args):
     # values below 3 will give suggestions and an (optional) warning
     if password_analysis["score"] > 2:
         return True, ""
-    feedback = password_analysis.get("feedback") or {}
-    suggestions_list = feedback.get("suggestions") or []
-    suggestions = suggestions_list[0] if suggestions_list else ""
-    warning = feedback.get("warning") or ""
-    details = " ".join(part for part in (suggestions, warning) if part)
-    if details:
-        return False, "Error! Weak password: " + details
-    return False, "Error! Weak password"
-
-
-def get_cookie(request, name):
-    """Workaround for a bug in pyramid.request.cookies.
-    Chrome may send different cookies with the same name.
-    The one that applies is the first one
-    (the one with the most specific path).
-    But pyramid.request.cookies picks the last one.
-    """
-    name = name.strip()
-    if "Cookie" not in request.headers:
-        return None
-    cookies = request.headers["Cookie"].split(";")
-    for cookie in cookies:
-        try:
-            k, v = cookie.split("=", 1)
-        except ValueError:
-            continue
-        if k.strip() == name:
-            return v.strip()
+    else:
+        feedback = password_analysis.get("feedback") or {}
+        suggestions_list = feedback.get("suggestions") or []
+        suggestions = suggestions_list[0] if suggestions_list else ""
+        warning = feedback.get("warning") or ""
+        details = " ".join(part for part in (suggestions, warning) if part)
+        if details:
+            return False, "Error! Weak password: " + details
+        return False, "Error! Weak password"
 
 
 def email_valid(email):
@@ -551,6 +536,7 @@ def get_hash(engine_options):
 
 def strip_run(run):
     """Expose only non-sensitive workers data and skip deepcopying some heavy data."""
+
     stripped = {}
     for k1, v1 in run.items():
         if k1 in ("tasks", "bad_tasks"):
@@ -583,14 +569,13 @@ def tests_repo(run):
     tests_repo = run["args"]["tests_repo"]
     if tests_repo != "":
         return tests_repo
-    # very old tests didn't have a separate
-    # tests repo
-    return "https://github.com/official-stockfish/Stockfish"
+    else:
+        # very old tests didn't have a separate
+        # tests repo
+        return "https://github.com/official-stockfish/Stockfish"
 
 
 def diff_url(run, master_check=True):
-    import fishtest.github_api as gh
-
     tests_repo_ = tests_repo(run)
     user2, repo = gh.parse_repo(tests_repo_)
     sha2 = run["args"]["resolved_new"]
@@ -607,7 +592,7 @@ def diff_url(run, master_check=True):
             im2 = gh.is_master(sha2)
         except Exception as e:
             print(
-                f"Unable to evaluate is_master({sha1}) or is_master({sha2}): {e!s}",
+                f"Unable to evaluate is_master({sha1}) or is_master({sha2}): {str(e)}"
             )
         else:
             if im1:

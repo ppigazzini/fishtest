@@ -8,8 +8,9 @@
 import pprint
 import sys
 
-from fishtest.rundb import RunDb
 from pymongo import ASCENDING, DESCENDING, MongoClient
+
+from fishtest.rundb import RunDb
 
 db_name = "fishtest_new"
 

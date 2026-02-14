@@ -4,13 +4,16 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import test_support
+from starlette.responses import Response
+
+from fishtest.api import WORKER_API_PATHS
 from fishtest.app import _require_single_worker_on_primary
 from fishtest.http import cookie_session, jinja
-from fishtest.http.api import WORKER_API_PATHS
 from fishtest.http.errors import _WORKER_API_PATHS
 from fishtest.http.middleware import _get_blocked_cached
 from fishtest.http.settings import AppSettings
-from starlette.responses import Response
+from fishtest.http.ui_pipeline import apply_http_cache
 
 
 class TemplateRequestStaticUrlTests(unittest.TestCase):
@@ -101,12 +104,7 @@ class CookieSessionTests(unittest.TestCase):
             {"FISHTEST_AUTHENTICATION_SECRET": "test-secret"},
             clear=True,
         ):
-            try:
-                import fastapi_util
-            except ModuleNotFoundError:  # pragma: no cover
-                from tests import fastapi_util
-
-            _FastAPI, TestClient = fastapi_util.require_fastapi()
+            _FastAPI, TestClient = test_support.require_fastapi()
             app = _FastAPI()
 
             from fishtest.http.cookie_session import MAX_COOKIE_BYTES, load_session
@@ -216,3 +214,21 @@ class BlockedUserCacheTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(first, third)
         self.assertEqual(userdb.calls, 2)
+
+
+class HttpCacheHeaderTests(unittest.TestCase):
+    def test_sets_header_when_missing_and_numeric(self):
+        response = Response()
+        result = apply_http_cache(response, {"http_cache": 60})
+        self.assertIs(result, response)
+        self.assertEqual(response.headers.get("Cache-Control"), "max-age=60")
+
+    def test_preserves_existing_cache_control(self):
+        response = Response(headers={"Cache-Control": "no-store"})
+        apply_http_cache(response, {"http_cache": 60})
+        self.assertEqual(response.headers.get("Cache-Control"), "no-store")
+
+    def test_ignores_non_int_coercible_value(self):
+        response = Response()
+        apply_http_cache(response, {"http_cache": "not-a-number"})
+        self.assertIsNone(response.headers.get("Cache-Control"))

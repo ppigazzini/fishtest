@@ -1,3 +1,5 @@
+from __future__ import division
+
 import copy
 import math
 
@@ -20,7 +22,9 @@ nelo_divided_by_nt = 800 / math.log(10)  # 347.43558552260146
 
 
 def secular(pdf):
-    """Solve the secular equation sum_i pi*ai/(1+x*ai)=0."""
+    """
+    Solve the secular equation sum_i pi*ai/(1+x*ai)=0.
+    """
     epsilon = 1e-9
     v, w = pdf[0][0], pdf[-1][0]
     values = [ai for ai, pi in pdf]
@@ -34,11 +38,7 @@ def secular(pdf):
         return sum([pi * ai / (1 + x * ai) for ai, pi in pdf])
 
     x, res = scipy.optimize.brentq(
-        f,
-        lower_bound + epsilon,
-        upper_bound - epsilon,
-        full_output=True,
-        disp=False,
+        f, lower_bound + epsilon, upper_bound - epsilon, full_output=True, disp=False
     )
     assert res.converged
     return x
@@ -50,7 +50,8 @@ def uniform(pdf):
 
 
 def MLE_expected(pdfhat, s):
-    """Compute the maximum likelihood estimate for
+    """
+    Compute the maximum likelihood estimate for
     a discrete distribution with expectation value s,
     given an observed (i.e. empirical) distribution pdfhat.
 
@@ -59,8 +60,7 @@ def MLE_expected(pdfhat, s):
 
     https://www.cantate.be/Fishtest/support_MLE_multinomial.pdf
 
-    (see Proposition 1.1).
-    """
+    (see Proposition 1.1)."""
     pdf1 = [(ai - s, pi) for ai, pi in pdfhat]
     x = secular(pdf1)
     pdf_MLE = [(ai, pi / (1 + x * (ai - s))) for ai, pi in pdfhat]
@@ -70,7 +70,8 @@ def MLE_expected(pdfhat, s):
 
 
 def MLE_t_value(pdfhat, ref, s):
-    """Compute the maximum likelihood estimate for
+    """
+    Compute the maximum likelihood estimate for
     a discrete distribution with t-value ((mu-ref)/sigma),
     given an observed (i.e. empirical) distribution pdfhat.
 
@@ -79,8 +80,7 @@ def MLE_t_value(pdfhat, ref, s):
 
     https://www.cantate.be/Fishtest/normalized_elo_practical.pdf
 
-    (see Section 4.1).
-    """
+    (see Section 4.1)."""
     N = len(pdfhat)
     pdf_MLE = uniform(pdfhat)
     for i in range(10):
@@ -104,7 +104,7 @@ def MLE_t_value(pdfhat, ref, s):
 
 def stats(pdf):
     epsilon = 1e-6
-    for i in range(len(pdf)):
+    for i in range(0, len(pdf)):
         assert -epsilon <= pdf[i][1] <= 1 + epsilon
     n = sum([prob for value, prob in pdf])
     assert abs(n - 1) < epsilon
@@ -114,9 +114,9 @@ def stats(pdf):
 
 
 def stats_ex(pdf):
-    """Computes expectation value, variance, skewness and excess
-    kurtosis for a discrete distribution.
     """
+    Computes expectation value, variance, skewness and excess
+    kurtosis for a discrete distribution."""
     s, var = stats(pdf)
     m3 = sum([prob * (value - s) ** 3 for value, prob in pdf])
     m4 = sum([prob * (value - s) ** 4 for value, prob in pdf])
@@ -134,12 +134,13 @@ def LLRjumps(pdf, s0, s1, ref=None, statistic="expectation"):
         assert False
     return [
         (math.log(pdf1[i][1]) - math.log(pdf0[i][1]), pdf[i][1])
-        for i in range(len(pdf))
+        for i in range(0, len(pdf))
     ]
 
 
 def LLR(pdf, s0, s1, ref=None, statistic="expectation"):
-    """Compute the generalized log likelihood ratio (divided by N)
+    """
+    Compute the generalized log likelihood ratio (divided by N)
     for s=s1 versus s=s0 where pdf is an empirical
     distribution and s is score of the true distribution.
     """
@@ -147,7 +148,8 @@ def LLR(pdf, s0, s1, ref=None, statistic="expectation"):
 
 
 def LLR_alt(pdf, s0, s1):
-    """Compute the approximate generalized log likelihood ratio
+    """
+    Compute the approximate generalized log likelihood ratio
     (divided by N) for s=s1 versus s=s0 where pdf is an empirical
     distribution and s is the expectation value of the true
     distribution. See
@@ -159,7 +161,8 @@ def LLR_alt(pdf, s0, s1):
 
 
 def LLR_alt2(pdf, s0, s1):
-    """Compute the approximate generalized log likelihood ratio
+    """
+    Compute the approximate generalized log likelihood ratio
     (divided by N) for s=s1 versus s=s0 where pdf is an empirical
     distribution and s is the expectation value of the true
     distribution. See
@@ -171,11 +174,11 @@ def LLR_alt2(pdf, s0, s1):
 
 
 def LLR_drift_variance(pdf, s0, s1, s=None):
-    """Compute the drift and variance of the LLR for a test s=s0 against
+    """
+    Compute the drift and variance of the LLR for a test s=s0 against
     s=s0 when the empirical distribution is pdf, but the true value of s
     is as given by the argument s. If s is not given then it is assumed
-    that pdf is the true distribution.
-    """
+    that pdf is the true distribution."""
     if s is not None:
         pdf = MLE_expected(pdf, s)
     jumps = LLRjumps(pdf, s0, s1)
@@ -183,7 +186,8 @@ def LLR_drift_variance(pdf, s0, s1, s=None):
 
 
 def LLR_drift_variance_alt2(pdf, s0, s1, s=None):
-    """Compute the approximated drift and variance of the LLR for a test
+    """
+    Compute the approximated drift and variance of the LLR for a test
     s=s0 against s=s0 approximated by a Brownian motion, when the
     empirical distribution is pdf, but the true value of s is as given by
     the argument s. If s is not given the it is assumed that pdf is the
@@ -204,10 +208,11 @@ def L_(x):
 
 
 def regularize(results):
-    """If necessary mix in a small prior for regularization."""
+    """
+    If necessary mix in a small prior for regularization."""
     epsilon = 1e-3
     results = copy.copy(results)
-    for i in range(len(results)):
+    for i in range(0, len(results)):
         if results[i] == 0:
             results[i] = epsilon
     return results
@@ -217,28 +222,28 @@ def results_to_pdf(results):
     results = regularize(results)
     N = sum(results)
     count = len(results)
-    return N, [(i / (count - 1), results[i] / N) for i in range(count)]
+    return N, [(i / (count - 1), results[i] / N) for i in range(0, count)]
 
 
 def LLR_logistic(elo0, elo1, results):
-    """Compute the generalized log-likelihood ratio for "results"
-    using the statistic "expectation". elo0,elo1 are in logistic elo.
     """
+    Compute the generalized log-likelihood ratio for "results"
+    using the statistic "expectation". elo0,elo1 are in logistic elo."""
     s0, s1 = [L_(elo) for elo in (elo0, elo1)]
     N, pdf = results_to_pdf(results)
     return N * LLR(pdf, s0, s1, statistic="expectation")
 
 
 def LLR_normalized_alt(nelo0, nelo1, results):
-    """Compute the generalized log-likelihood ratio for "results"
+    """
+    Compute the generalized log-likelihood ratio for "results"
     using the approximation in
 
     https://www.cantate.be/Fishtest/normalized_elo_practical.pdf
 
     (see Section 4.2).
 
-    nelo0,nelo1 are in normalized Elo.
-    """
+    nelo0,nelo1 are in normalized Elo."""
     count, pdf = results_to_pdf(results)
     mu, var = stats(pdf)
     if len(results) == 5:
@@ -253,14 +258,14 @@ def LLR_normalized_alt(nelo0, nelo1, results):
     nt = (mu - 0.5) / sigma_pg
 
     return (games / 2.0) * math.log(
-        (1 + (nt - nt0) * (nt - nt0)) / (1 + (nt - nt1) * (nt - nt1)),
+        (1 + (nt - nt0) * (nt - nt0)) / (1 + (nt - nt1) * (nt - nt1))
     )
 
 
 def LLR_normalized(nelo0, nelo1, results):
-    """Compute the generalized log-likelihood ratio for "results"
-    using the statistic "t_value". nelo0,nelo1 are in normalized elo.
     """
+    Compute the generalized log-likelihood ratio for "results"
+    using the statistic "t_value". nelo0,nelo1 are in normalized elo."""
     nt0, nt1 = [nelo / nelo_divided_by_nt for nelo in (nelo0, nelo1)]
     sqrt2 = 2**0.5
     t0, t1 = (

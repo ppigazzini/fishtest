@@ -14,11 +14,12 @@ from os import environ
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
+from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
+from starlette.templating import Jinja2Templates
+
 import fishtest
 import fishtest.github_api as gh
 from fishtest.http import template_helpers as helpers
-from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
-from starlette.templating import Jinja2Templates
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -27,25 +28,21 @@ if TYPE_CHECKING:
     from starlette.background import BackgroundTask
     from starlette.responses import Response
 
-REPO_ROOT_DEPTH: Final[int] = 3
 TEMPLATES_DIR_ENV: Final[str] = "FISHTEST_JINJA_TEMPLATES_DIR"
 _MISSING_REQUEST_ERROR: Final[str] = "context must include Request under 'request'"
-_STATIC_DIR: Final[Path] = Path(__file__).resolve().parents[1] / "static"
+_STATIC_DIR: Path = Path(__file__).resolve().parents[1] / "static"
 _STATIC_URL_PARAM: Final[str] = "x"
 _STATIC_TOKEN_CACHE_MAX: int = 1024
-
-
-def _repo_root() -> Path:
-    """Return the repository root directory."""
-    return Path(__file__).resolve().parents[REPO_ROOT_DEPTH]
 
 
 def templates_dir() -> Path:
     """Return the Jinja2 templates directory path."""
     raw = environ.get(TEMPLATES_DIR_ENV, "").strip()
     if raw:
-        return Path(raw)
-    return _repo_root() / "server" / "fishtest" / "templates_jinja2"
+        return Path(raw).expanduser()
+
+    # Package-relative resolution works for both source checkouts and wheels.
+    return Path(__file__).resolve().parents[1] / "templates"
 
 
 @lru_cache(maxsize=_STATIC_TOKEN_CACHE_MAX)
@@ -114,7 +111,6 @@ def default_environment() -> Environment:
             "format_results": helpers.format_results,
             "format_time_ago": helpers.format_time_ago,
             "gh": gh,
-            "get_cookie": helpers.get_cookie,
             "is_active_sprt_ltc": helpers.is_active_sprt_ltc,
             "is_elo_pentanomial_run": helpers.is_elo_pentanomial_run,
             "list_to_string": helpers.list_to_string,

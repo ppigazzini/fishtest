@@ -4,10 +4,11 @@ from enum import IntEnum
 
 from bson.errors import InvalidId
 from bson.objectid import ObjectId
+from vtjson import validate
+
 from fishtest.lru_cache import lru_cache
 from fishtest.schemas import cache_schema
 from fishtest.schemas import run_id as run_id_schema
-from vtjson import validate
 
 
 class Prio(IntEnum):
@@ -35,7 +36,8 @@ class RunCache:
         return threading.RLock()
 
     def buffer(self, run, *, priority=Prio.NORMAL, create=False):
-        """Guidelines for priority
+        """
+        Guidelines for priority
         =======================
         Prio.MEDIUM: finished task
         Prio.HIGH: new task

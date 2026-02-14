@@ -8,9 +8,6 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
-
-REPO_ROOT_DEPTH: Final[int] = 3
 
 
 def env_int(name: str, *, default: int) -> int:
@@ -24,14 +21,14 @@ def env_int(name: str, *, default: int) -> int:
         return default
 
 
-def repo_root() -> Path:
-    """Return the repository root directory."""
-    return Path(__file__).resolve().parents[REPO_ROOT_DEPTH]
-
-
 def default_static_dir() -> Path:
     """Return the default static directory path for `/static` mounting."""
-    return repo_root() / "server" / "fishtest" / "static"
+    env_value = os.environ.get("FISHTEST_STATIC_DIR", "").strip()
+    if env_value:
+        return Path(env_value).expanduser()
+
+    # Package-relative resolution works for both source checkouts and wheels.
+    return Path(__file__).resolve().parents[1] / "static"
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +38,7 @@ class AppSettings:
     port: int
     primary_port: int
     is_primary_instance: bool
+    openapi_url: str | None = None
 
     @classmethod
     def from_env(cls) -> AppSettings:
@@ -55,8 +53,15 @@ class AppSettings:
         else:
             is_primary_instance = port == primary_port
 
+        # OpenAPI docs are disabled in production by default.
+        # Set OPENAPI_URL=/openapi.json in development to re-enable
+        # /docs, /redoc, and /openapi.json.
+        openapi_url_raw = os.environ.get("OPENAPI_URL", "").strip()
+        openapi_url: str | None = openapi_url_raw or None
+
         return cls(
             port=port,
             primary_port=primary_port,
             is_primary_instance=is_primary_instance,
+            openapi_url=openapi_url,
         )

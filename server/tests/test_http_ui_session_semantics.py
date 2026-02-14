@@ -2,36 +2,29 @@
 
 import unittest
 
-try:
-    import fastapi_util
-except ModuleNotFoundError:  # pragma: no cover
-    from tests import fastapi_util
+import test_support
 
 
 class TestHttpUiSessionSemantics(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        fastapi_util.require_fastapi()
+        test_support.require_fastapi()
 
-        try:
-            import util as test_util
-        except ModuleNotFoundError:  # pragma: no cover
-            from tests import util as test_util
-
-        cls.rundb = test_util.get_rundb()
+        cls.rundb = test_support.get_rundb()
 
     @classmethod
     def tearDownClass(cls):
-        cls.rundb.userdb.clear_cache()
-        cls.rundb.pgndb.delete_many({})
-        cls.rundb.runs.delete_many({})
-        cls.rundb.runs.drop()
-        cls.rundb.conn.close()
+        test_support.cleanup_test_rundb(
+            cls.rundb,
+            clear_pgndb=True,
+            clear_runs=True,
+            drop_runs=True,
+        )
 
     def test_ui_404_commits_session_cookie(self):
         from fishtest.http.cookie_session import SESSION_COOKIE_NAME
 
-        client = fastapi_util.make_test_client(
+        client = test_support.make_test_client(
             rundb=self.rundb,
             include_api=False,
             include_views=False,
@@ -48,12 +41,13 @@ class TestHttpUiSessionSemantics(unittest.TestCase):
     def test_csrf_failure_is_ui_403_not_json(self):
         from fastapi import Request
         from fastapi.responses import HTMLResponse
+
         from fishtest.http.cookie_session import SESSION_COOKIE_NAME, load_session
         from fishtest.http.csrf import csrf_or_403, csrf_token_from_form
 
-        _FastAPI, TestClient = fastapi_util.require_fastapi()
+        _FastAPI, TestClient = test_support.require_fastapi()
 
-        app = fastapi_util.build_test_app(
+        app = test_support.build_test_app(
             rundb=self.rundb,
             include_api=False,
             include_views=False,
