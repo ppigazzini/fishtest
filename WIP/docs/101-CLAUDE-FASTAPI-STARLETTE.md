@@ -388,6 +388,315 @@ None of these conditions currently hold.
 
 ---
 
+## 8. Why fishtest does not use FastAPI's key features
+
+FastAPI's three headline features — security schemes, dependency
+injection, and Pydantic validation — are all unused or vestigial in
+this project. Each was evaluated during the migration from Pyramid
+and rejected for specific, documented reasons.
+
+### 8.1 Security schemes: not used
+
+FastAPI provides ~1,560 lines of security infrastructure across
+12 classes: `APIKeyQuery`, `APIKeyHeader`, `APIKeyCookie`,
+`HTTPBasic`, `HTTPBearer`, `HTTPDigest` (stub), `OAuth2`,
+`OAuth2PasswordBearer`, `OAuth2AuthorizationCodeBearer`,
+`OpenIdConnect` (stub), `OAuth2PasswordRequestForm`, and
+`SecurityScopes`.
+
+**What these classes actually do:** They are async callables that
+extract credentials from HTTP headers, query parameters, or cookies.
+They do **not** perform authentication — they only parse and return
+the raw credential string. The developer must still verify
+passwords, validate JWTs, or check API keys in their own code.
+
+**Why fishtest doesn't use them:**
+
+| Reason | Detail |
+|--------|--------|
+| **Wrong transport** | FastAPI's security classes expect credentials in the `Authorization` header (RFC 7235). Fishtest's UI uses signed cookie sessions — identity lives in a tamper-proof cookie, not a header. FastAPI has no session-cookie security class. |
+| **Worker protocol is body-based** | Workers send `username` + `password` inside the JSON request body alongside the data payload. FastAPI's `HTTPBasic` reads `Authorization: Basic <b64>`, `OAuth2PasswordBearer` reads `Authorization: Bearer <token>`. Neither can parse credentials from a JSON body. |
+| **Custom session already exists** | `FishtestSessionMiddleware` provides signed sessions via `itsdangerous.TimestampSigner` with: httponly/secure/samesite cookie flags, per-request max\_age overrides (remember-me), automatic size-limit enforcement, forced session clearing for blocked users. Starlette's built-in `SessionMiddleware` and FastAPI's security classes lack all four of these. |
+| **CSRF is not covered** | FastAPI has no CSRF protection. Fishtest implements synchronizer-token CSRF with `secrets.compare_digest()` (timing-safe) — a requirement for cookie-based UI auth that no FastAPI feature addresses. |
+| **DI coupling** | FastAPI's security classes are designed as `Depends()` callables — they integrate with the DI system. Since fishtest doesn't use DI in route handlers (see §8.2), the integration point doesn't exist. |
+| **No OpenAPI benefit** | Security classes auto-populate the OpenAPI `securitySchemes` section, enabling the Authorize button in Swagger UI. With OpenAPI disabled in production and workers not using the docs, this has zero value. |
+
+**What fishtest built instead:**
+
+| Component | Module | Mechanism |
+|-----------|--------|-----------|
+| Signed cookie sessions | `http/session_middleware.py` | `itsdangerous.TimestampSigner` + HMAC-SHA1; httponly/secure/samesite |
+| CSRF protection | `http/csrf.py` | Synchronizer token; `secrets.compare_digest()` timing-safe comparison |
+| Session helpers | `http/cookie_session.py` | `load_session()`, `authenticated_user()`, `invalidate()`, token rotation |
+| Blocked user eviction | `http/middleware.py` | ASGI middleware with 2s-TTL cached DB lookup; session clear + redirect |
+| Worker API auth | `api.py` `WorkerApi` | Two-phase: `api_access_schema` (vtjson) → `userdb.authenticate()` |
+| Public API | `api.py` `UserApi` | No auth — read-only public data with explicit CORS headers |
+
+### 8.2 Dependency injection: declared but unused
+
+FastAPI's DI system is ~1,220 lines of core code
+(`dependencies/models.py` + `dependencies/utils.py`) providing:
+recursive dependency resolution, per-request caching, generator-based
+teardown with two-phase scoping (function vs request lifetime), and
+`app.dependency_overrides` for testing.
+
+**Current state:** Three `Depends()` declarations exist in
+`http/boundary.py`:
+
+```
+RequestShimDep = Annotated[ApiRequestShim, Depends(get_request_shim)]
+JsonBodyDep    = Annotated[JsonBodyResult,  Depends(get_json_body)]
+UIContextDep   = Annotated[UIRequestContext, Depends(get_ui_context)]
+```
+
+No route handler signature uses any of them. They are dead code.
+
+**Why fishtest doesn't use DI:**
+
+| Reason | Detail |
+|--------|--------|
+| **Pyramid heritage** | The codebase was mechanically ported from Pyramid, where every view takes a single `request` object carrying all context. The `_ViewContext` shim replicates this pattern — a monolithic context object passed to every view function. |
+| **`_dispatch_view()` replaces DI** | The centralized UI dispatch pipeline (`views.py`) already performs everything DI would: session loading, DB handle injection, CSRF validation, form parsing, template rendering, session commit, cache headers. Rewriting 29 UI views to accept decomposed `Depends()` parameters would be a large refactor for no new capability. |
+| **Middleware handles DB injection** | `AttachRequestStateMiddleware` stamps `rundb`, `userdb`, `actiondb`, `workerdb` on `request.state` for every request. This is simpler than a DI tree for a fixed set of 4 database handles. |
+| **DI requires Pydantic internally** | FastAPI's DI resolver uses `ModelField` (Pydantic's `TypeAdapter`) for parameter extraction and validation. This creates a hidden coupling — even simple `Depends()` usage activates Pydantic's type analysis. Since the project explicitly avoided Pydantic (§8.3), activating DI would conflate the two decisions. |
+| **Refactor risk** | Session commit timing and flash message ordering in `_dispatch_view()` are precise sequences. Decomposing them into DI generators would require careful testing of the teardown order. The current sequential pipeline is explicit and auditable. |
+| **All 22 API handlers follow the same pattern** | Each API endpoint calls `await get_request_shim(request)` explicitly, then runs `WorkerApi` validation. This 2-line boilerplate is simpler than wiring DI for a uniform pattern. |
+
+### 8.3 Pydantic: rejected at Milestone 12
+
+FastAPI's Pydantic integration (~2,200 lines) provides automatic
+request body parsing, response filtering via `response_model`, and
+OpenAPI schema generation from `BaseModel` subclasses.
+
+**The M12 assessment** (documented in `WIP/docs/94-CLAUDE-M12-REPORT.md`
+and `WIP/docs/3-MILESTONES.md`) formally evaluated Pydantic adoption
+and decided against it. The decision is recorded as "deferred, not
+rejected."
+
+**Why fishtest uses vtjson instead:**
+
+| Reason | Detail |
+|--------|--------|
+| **Scope mismatch** | Most validation is in the domain layer (MongoDB document integrity), not at the HTTP boundary. Only 3 of ~15+ `validate()` sites are in the API handler. Pydantic is designed for request/response boundaries; vtjson validates anywhere. |
+| **Cross-field schemas don't translate** | `runs_schema` (~100 lines) uses `ifthen`, `intersect`, `lax`, `cond` for conditional cross-field invariants like "if `sprt` is present then `num_games` must be absent." In Pydantic, these require chains of `@model_validator` methods. `action_schema` dispatches across 16 action types via `cond()` — this would need 16 model classes + a discriminated union. |
+| **Error format conflict** | Workers expect HTTP 400 + `{"error": "...", "duration": N}`. Pydantic defaults to HTTP 422 with `[{"loc": [...], "msg": "...", "type": "..."}]`. Overriding this adds complexity rather than removing it. |
+| **Dual validation is worse** | Using Pydantic for simple schemas + vtjson for complex ones means two validation systems to maintain. A single system is simpler. |
+| **Dict-native workflow** | Fishtest passes plain Python dicts from MongoDB through validation and back. vtjson validates dicts in place — no serialization round-trip. Pydantic would create typed model instances that must be converted back to dicts for MongoDB insertion. |
+| **No OpenAPI need** | The API serves internal workers with a fixed protocol. There are no external consumers, no API marketplace, no generated client libraries. Auto-generated OpenAPI schemas provide no operational value. |
+| **vtjson is more expressive for this domain** | Combinators like `intersect(int, ge(0))`, `div(2)`, `close_to()`, `magic("application/gzip")`, `ifthen(condition, then, else)` are first-class. Pydantic requires custom validators for each. |
+
+**What vtjson cannot do (and the project consciously forgoes):**
+
+| Capability | Pydantic | vtjson |
+|------------|----------|--------|
+| JSON Schema generation | Yes — powers OpenAPI docs | No |
+| IDE autocomplete on validated data | Yes — `item.name` | No — remains `data["name"]` |
+| Serialization / response filtering | Yes — `model.model_dump(exclude=...)` | No — validation only |
+| Type coercion (string→int) | Yes — configurable strict mode | No |
+| Data transformation (aliases, defaults) | Yes | No |
+
+The project treats these as acceptable tradeoffs — the data stays as
+dicts throughout, MongoDB is the system of record, and the worker
+protocol is fixed.
+
+---
+
+## 9. FastAPI features that could improve the project
+
+While the current architecture is production-proven, several FastAPI
+features offer concrete improvements if conditions change.
+
+### 9.1 Dependency injection for testing (high value, low effort)
+
+**What it provides:** `app.dependency_overrides[original] = mock`
+replaces any dependency in the entire app without monkeypatching.
+The DI resolver checks overrides before calling any dependency.
+
+**How it helps fishtest:**
+
+| Benefit | Current state | With DI |
+|---------|--------------|---------|
+| Test isolation | Tests mock `request.state.rundb` by patching `app.state` or constructing fake request objects | `app.dependency_overrides[get_rundb] = lambda: mock_rundb` — clean, localized, no patching |
+| Selective mocking | Replacing one DB handle requires understanding the middleware chain | Override one dependency function; the rest continue working |
+| Parallel testing | Shared `app.state` makes parallel test runs fragile | Per-test overrides on test client instances |
+
+**Migration path:** Define dependency functions for DB handles
+(already scaffolded in `boundary.py`). Add `Depends(get_rundb)` to
+route signatures. Leave `AttachRequestStateMiddleware` in place as
+a fallback during transition.
+
+**Estimated effort:** ~2 days for the 22 API routes (uniform
+pattern). UI routes are harder due to `_dispatch_view()` coupling.
+
+### 9.2 Pydantic for new API endpoints (medium value, targeted)
+
+**What it provides:** Automatic request body parsing + response
+filtering + OpenAPI documentation from a single `BaseModel` class.
+
+**When it makes sense for fishtest:**
+
+- **New public API endpoints** that serve external consumers
+  (e.g., a future public leaderboard API, webhook notifications).
+  These would benefit from generated OpenAPI docs and typed
+  request/response contracts.
+- **SPSA parameter validation** where type coercion is useful
+  (floats from form strings) and the schema is simple enough for
+  a flat `BaseModel`.
+- **Admin endpoints** added in future iterations that don't touch
+  the legacy worker protocol.
+
+**How to adopt incrementally:**
+
+```python
+# New endpoint — Pydantic at the boundary, vtjson for domain logic
+class EloRequest(BaseModel):
+    run_id: str
+    confidence: float = Field(ge=0.9, le=0.999)
+
+@router.post("/api/v2/calc_elo")
+async def calc_elo_v2(body: EloRequest, request: Request):
+    # Pydantic validated the shape; vtjson validates domain invariants
+    run = await run_in_threadpool(request.state.rundb.get_run, body.run_id)
+    validate(runs_schema, run)
+    ...
+```
+
+**Key constraint:** Existing worker API endpoints must NOT change —
+they use the `{"error": "...", "duration": N}` format at HTTP 400.
+New Pydantic endpoints can use the standard 422 format since they
+serve different consumers.
+
+**Estimated effort:** Per-endpoint, not a bulk migration. Each new
+endpoint that wants Pydantic gets it; existing endpoints keep vtjson.
+
+### 9.3 OpenAPI for development and contributor onboarding (medium value, zero code)
+
+**What it provides:** Setting `OPENAPI_URL=/openapi.json` enables
+Swagger UI at `/docs` and ReDoc at `/redoc` — interactive API
+explorers with try-it-out functionality.
+
+**How it helps fishtest:**
+
+| Benefit | Detail |
+|---------|--------|
+| **New contributor ramp-up** | Swagger UI documents all 22 API endpoints with their paths, methods, and response codes — no need to read source code |
+| **Worker protocol documentation** | The API contract is currently implicit (defined by `api_schema` in Python). With OpenAPI, it becomes a browsable, testable spec |
+| **Debugging** | The "Try it out" button lets developers test endpoints directly in the browser during development |
+| **Contract testing** | Generated OpenAPI schema can be versioned and diffed to catch unintentional API changes |
+
+**Current state:** Already implemented but disabled. `app.py` reads
+`OPENAPI_URL` from environment — setting it is a deployment config
+change, not a code change.
+
+**Limitation:** Without Pydantic models on route signatures, the
+auto-generated schema will show minimal parameter detail. Adding
+`response_model` or Pydantic body types to specific endpoints
+enriches the docs incrementally.
+
+### 9.4 `response_model` for sensitive data filtering (medium value)
+
+**What it provides:** Automatic removal of fields from response
+bodies based on a Pydantic model. This is a **security feature** —
+it prevents accidental exposure of internal fields.
+
+**Where fishtest could benefit:**
+
+| Endpoint | Risk | `response_model` fix |
+|----------|------|---------------------|
+| `/api/get_run/{id}` | Returns full run dict from MongoDB, which may contain internal scheduling fields | `RunPublicResponse` model strips `_id`, `tasks[].worker.password`, internal counters |
+| `/api/active_runs` | Returns list of runs with worker info | `ActiveRunResponse` excludes worker credentials |
+| User profile endpoints | Could expose hashed passwords or email addresses | `UserPublicResponse` with explicit field whitelist |
+
+**How it works:** FastAPI calls `model.model_dump(include=...,
+exclude_unset=...)` on the response before JSON serialization. Fields
+not in the model are silently dropped — defense in depth against data
+leakage.
+
+**Migration path:** Define response models for public API endpoints.
+Set `response_model=RunPublicResponse` on the route decorator. The
+endpoint function continues returning a plain dict — FastAPI filters
+it.
+
+### 9.5 Dependency injection for auth guards (medium value)
+
+**What it provides:** Declarative route-level authentication and
+authorization, replacing manual `ensure_logged_in()` calls.
+
+**How it would work:**
+
+```python
+# Dependency function
+async def require_auth(request: Request) -> str:
+    user = authenticated_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+    return user
+
+async def require_approver(user: str = Depends(require_auth)) -> str:
+    if not has_permission(user, "approve_run"):
+        raise HTTPException(status_code=403)
+    return user
+
+# Route declaration — auth enforced by the framework
+@router.post("/api/approve_run", dependencies=[Depends(require_approver)])
+async def approve_run(request: Request):
+    ...
+```
+
+**Benefits:**
+
+| Benefit | Detail |
+|---------|--------|
+| **Declarative security** | Auth requirements visible at the route definition, not buried inside the handler |
+| **Composable** | `require_approver` depends on `require_auth` — the chain is explicit and cacheable |
+| **No forgotten checks** | A route without `Depends(require_auth)` is visibly public; current pattern relies on developers remembering to call `ensure_logged_in()` |
+| **Test swappable** | `dependency_overrides[require_auth] = lambda: "test_user"` eliminates auth in tests |
+
+**Constraint:** UI routes use `_dispatch_view()` which centralizes
+auth. DI auth guards are most valuable for the 22 API routes where
+each handler currently calls `worker_api.validate_username_password()`
+inline.
+
+### 9.6 `Security()` with scopes for role-based API access (future value)
+
+**What it provides:** FastAPI's `Security(dependency, scopes=[...])`
+propagates OAuth2-style scopes through the DI tree. `SecurityScopes`
+collects the required scopes from the entire dependency chain.
+
+**When it's relevant for fishtest:**
+
+- If the project introduces **API tokens** (replacing password-in-body
+  for workers), scopes could differentiate read-only tokens from
+  write tokens, machine tokens from human tokens.
+- If **external API consumers** need different access levels (e.g.,
+  a "view results" token vs a "submit tasks" token).
+
+**Current relevance:** Low. The worker protocol is fixed. All workers
+authenticate with the same password and have the same permissions.
+There is no token-based access today.
+
+**Trigger for adoption:** A decision to introduce bearer token
+authentication for workers or a public API with tiered access levels.
+
+### 9.7 Feature adoption roadmap
+
+The following sequence prioritizes impact and minimizes risk:
+
+| Phase | Feature | Trigger | Effort |
+|-------|---------|---------|--------|
+| **Now** | OpenAPI in dev/staging (`OPENAPI_URL`) | Already implemented | Config change only |
+| **Next worker protocol revision** | Pydantic for new API v2 endpoints | New public-facing endpoints | Per-endpoint |
+| **Test infrastructure improvement** | DI for DB handles (`dependency_overrides`) | Test suite growth or parallelization need | ~2 days for API routes |
+| **Auth hardening** | DI auth guards on API routes | Security audit or incident | ~1 day for API routes |
+| **Response safety net** | `response_model` on public endpoints | Data leakage concern or external API consumers | Per-endpoint |
+| **Token-based auth** | `Security()` with scopes | Worker protocol v2 or public API launch | Significant design work |
+
+Each phase is independent. None requires the others as a
+prerequisite. The existing vtjson + custom session + `_dispatch_view()`
+architecture continues working alongside any of these additions.
+
+---
+
 ## Appendix A: Class hierarchy
 
 ```
