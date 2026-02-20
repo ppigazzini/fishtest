@@ -21,7 +21,7 @@ from fishtest.http.cookie_session import (
 )
 
 if TYPE_CHECKING:
-    from starlette.types import ASGIApp, Receive, Scope, Send
+    from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 
 _BLOCKED_CACHE_TTL_SECONDS = 2.0
@@ -99,11 +99,13 @@ class HeadMethodMiddleware:
             await self.app(scope, receive, send)
             return
 
-        async def send_no_body(message: object) -> None:
-            msg = dict(message)  # type: ignore[call-overload]
-            if msg.get("type") == "http.response.body":
-                msg["body"] = b""
-            await send(msg)
+        async def send_no_body(message: Message) -> None:
+            if message["type"] == "http.response.body":
+                # Preserve status/headers from the GET handler
+                # while dropping payload bytes.
+                await send({**message, "body": b""})
+                return
+            await send(message)
 
         await self.app({**scope, "method": "GET"}, receive, send_no_body)
 
