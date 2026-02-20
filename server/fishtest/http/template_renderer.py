@@ -11,7 +11,7 @@ from fishtest.http import jinja as jinja_renderer
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from fastapi import Request
+    from starlette.requests import Request
     from starlette.responses import Response
     from starlette.templating import Jinja2Templates
 

@@ -17,7 +17,7 @@ from fishtest.http.dependencies import (
 )
 
 if TYPE_CHECKING:
-    from fastapi import Request
+    from starlette.requests import Request
 
     from fishtest.actiondb import ActionDb
     from fishtest.http.cookie_session import CookieSession

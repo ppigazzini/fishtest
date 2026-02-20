@@ -84,9 +84,19 @@ def _external_base_url_from_request(request: Request) -> str:
 class HeadMethodMiddleware:
     """Convert HEAD requests to GET and strip the response body.
 
-    FastAPI's APIRoute does not auto-add HEAD for GET routes (unlike
-    plain Starlette's Route).  This middleware restores HTTP-spec
+    FastAPI's ``APIRoute`` does not auto-add HEAD for GET routes (unlike
+    plain Starlette's ``Route``).  This middleware restores HTTP-spec
     compliance (RFC 9110 §9.3.2) so that HEAD works on every GET route.
+
+    Root cause: ``fastapi.routing.APIRoute.__init__`` does not call
+    ``super().__init__()`` and manually sets methods without adding HEAD
+    when GET is present.  Starlette's ``Route.__init__`` adds HEAD
+    automatically (starlette/routing.py line ~241).
+
+    Upstream tracking: https://github.com/fastapi/fastapi/discussions/5765
+    Local analysis: WIP/docs/200-ISSUE-HEAD.md
+
+    Remove this middleware only after FastAPI fixes the gap upstream.
     """
 
     def __init__(self, app: ASGIApp) -> None:

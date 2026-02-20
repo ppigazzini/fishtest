@@ -8,9 +8,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from json import JSONDecodeError
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Annotated, Protocol, cast
+from typing import TYPE_CHECKING, Protocol, cast
 
-from fastapi import Depends, Request
+from starlette.requests import Request
 
 from fishtest.http.cookie_session import (
     REMEMBER_MAX_AGE_SECONDS,
@@ -309,22 +309,15 @@ def build_template_context(
 
 
 def get_ui_context(request: Request) -> UIRequestContext:
-    """Dependency that builds the UI request context."""
+    """Build the UI request context from the current request."""
     session = load_session(request)
     return build_ui_context(request, session)
 
 
-RequestShimDep = Annotated[ApiRequestShim, Depends(get_request_shim)]
-JsonBodyDep = Annotated[JsonBodyResult, Depends(get_json_body)]
-UIContextDep = Annotated[UIRequestContext, Depends(get_ui_context)]
-
 __all__ = [
     "ApiRequestShim",
-    "JsonBodyDep",
     "JsonBodyResult",
-    "RequestShimDep",
     "SessionCommitFlags",
-    "UIContextDep",
     "build_template_context",
     "commit_session_flags",
     "commit_session_response",

@@ -366,12 +366,12 @@ Usage ratio:                   ~60%
 
 ### Recommended hygiene
 
-| # | Action | Why |
-|---|--------|-----|
-| 1 | Remove dead `Depends()` declarations from `boundary.py` | Misleading — suggests DI is used when it is not |
-| 2 | Normalize imports: prefer `from starlette` for re-exported classes | Honest about where the code actually comes from |
-| 3 | Document the FastAPI-as-thin-wrapper pattern in `docs/1-architecture.md` | Prevents contributors from expecting Pydantic/DI patterns |
-| 4 | Keep `HeadMethodMiddleware` until FastAPI fixes the HEAD gap upstream | Track [fastapi#11messages](https://github.com/fastapi/fastapi/issues/) |
+| # | Action | Why | Status |
+|---|--------|-----|--------|
+| 1 | Remove dead `Depends()` declarations from `boundary.py` | Misleading — suggests DI is used when it is not | **DONE** — see §10.1 |
+| 2 | Normalize imports: prefer `from starlette` for re-exported classes | Honest about where the code actually comes from | **DONE** — see §10.2 |
+| 3 | Document the FastAPI-as-thin-wrapper pattern in `docs/1-architecture.md` | Prevents contributors from expecting Pydantic/DI patterns | **DONE** — see §10.3 |
+| 4 | Keep `HeadMethodMiddleware` until FastAPI fixes the HEAD gap upstream | Track [fastapi/fastapi#5765](https://github.com/fastapi/fastapi/discussions/5765) | **DONE** — see §10.4 |
 
 ### If reconsideration is needed
 
@@ -440,16 +440,17 @@ recursive dependency resolution, per-request caching, generator-based
 teardown with two-phase scoping (function vs request lifetime), and
 `app.dependency_overrides` for testing.
 
-**Current state:** Three `Depends()` declarations exist in
-`http/boundary.py`:
+**Current state:** Three `Depends()` declarations previously existed
+in `http/boundary.py` — they have been **removed** (see §10.1):
 
 ```
+# REMOVED — were dead code, never referenced by any route handler
 RequestShimDep = Annotated[ApiRequestShim, Depends(get_request_shim)]
 JsonBodyDep    = Annotated[JsonBodyResult,  Depends(get_json_body)]
 UIContextDep   = Annotated[UIRequestContext, Depends(get_ui_context)]
 ```
 
-No route handler signature uses any of them. They are dead code.
+No route handler signature ever used any of them. They were dead code.
 
 **Why fishtest doesn't use DI:**
 
@@ -716,21 +717,101 @@ starlette.middleware.sessions.SessionMiddleware
 ## Appendix B: Import flow diagram
 
 ```
-fishtest code
-  ├── from fastapi:     FastAPI, APIRouter, HTTPException, Request,
-  │                     Depends (dead), JSONResponse, HTMLResponse,
-  │                     RedirectResponse, StreamingResponse, StaticFiles,
+fishtest code (after hygiene actions — see §10)
+  ├── from fastapi:     FastAPI, APIRouter, HTTPException,
   │                     RequestValidationError, exception_handlers
-  │     └── re-exports: Request, HTTPException, JSONResponse, HTMLResponse,
-  │                     RedirectResponse, StreamingResponse, StaticFiles
-  │                     (all are starlette classes)
+  │     └── FastAPI-exclusive: HTTPException (subclass, not re-export),
+  │                            RequestValidationError (no starlette equivalent)
   │
-  └── from starlette:   run_in_threadpool, iterate_in_threadpool,
-                        Request, HTTPConnection, MutableHeaders,
-                        JSONResponse, PlainTextResponse, RedirectResponse,
+  └── from starlette:   Request, HTMLResponse, JSONResponse,
+                        RedirectResponse, StreamingResponse,
+                        PlainTextResponse, StaticFiles, Response,
+                        run_in_threadpool, iterate_in_threadpool,
+                        HTTPConnection, MutableHeaders, FormData,
                         Jinja2Templates, Route, ASGIApp, Scope, Send,
-                        Receive, Message, BackgroundTask, Response
+                        Receive, Message, BackgroundTask
 ```
+
+## 10. Hygiene actions executed
+
+All four recommended hygiene actions from §7 have been implemented,
+linted clean, and verified against the full 164-test suite.
+
+### 10.1 Removed dead `Depends()` declarations
+
+**Files changed:** `server/fishtest/http/boundary.py`
+
+Removed:
+- `from typing import Annotated`
+- `from fastapi import Depends` (replaced `from fastapi import Depends, Request`
+  with `from starlette.requests import Request`)
+- Three type aliases: `RequestShimDep`, `JsonBodyDep`, `UIContextDep`
+- Corresponding `__all__` entries
+- Updated `get_ui_context` docstring ("Dependency that builds..." →
+  "Build the UI request context...")
+
+The underlying functions (`get_request_shim()`, `get_json_body()`,
+`get_ui_context()`) remain — they are called directly by route
+handlers, not via FastAPI's DI system.
+
+### 10.2 Normalized imports
+
+**Runtime imports normalized (6 files):**
+
+| File | Before | After |
+|------|--------|-------|
+| `views.py` | `from fastapi import Request`, `from fastapi.responses import HTMLResponse, RedirectResponse` | `from starlette.requests import Request`, `from starlette.responses import ...` |
+| `api.py` | `from fastapi import Request`, `from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse` | `from starlette.requests import Request`, `from starlette.responses import ...` |
+| `app.py` | `from fastapi.staticfiles import StaticFiles` | `from starlette.staticfiles import StaticFiles` |
+| `http/boundary.py` | `from fastapi import Depends, Request` | `from starlette.requests import Request` |
+| `http/csrf.py` | `from fastapi import Request` | `from starlette.requests import Request` (moved to `TYPE_CHECKING`) |
+| `http/errors.py` | `from fastapi.responses import JSONResponse` | `from starlette.responses import JSONResponse` (merged with existing starlette import) |
+
+**TYPE_CHECKING imports normalized (6 files):**
+
+`from fastapi import Request` → `from starlette.requests import Request` in:
+`http/ui_context.py`, `http/template_renderer.py`, `http/ui_errors.py`,
+`http/jinja.py`, `http/dependencies.py`, `http/errors.py`
+
+**Kept as `from fastapi`** (not re-exports):
+- `HTTPException` — FastAPI subclass of `starlette.exceptions.HTTPException`
+  (verified: `fastapi.HTTPException is not starlette.exceptions.HTTPException`)
+- `RequestValidationError` — FastAPI-exclusive (`fastapi.exceptions` module)
+- `FastAPI`, `APIRouter` — FastAPI-exclusive classes
+
+After normalization, the `from fastapi` surface is:
+`FastAPI`, `APIRouter`, `HTTPException`, `RequestValidationError`.
+
+### 10.3 Documented thin-wrapper pattern
+
+**File changed:** `docs/1-architecture.md`
+
+Added section "Framework usage: FastAPI as a thin wrapper" between
+"Validation" and "Error handling". Content:
+- Lists 3 FastAPI-exclusive features in use
+- Lists 6 FastAPI features NOT used (and why)
+- Instructs contributors to prefer `from starlette` for re-exported classes
+- References this report for full analysis
+
+### 10.4 Updated `HeadMethodMiddleware` tracking
+
+**File changed:** `server/fishtest/http/middleware.py`
+
+Expanded `HeadMethodMiddleware` docstring with:
+- Root cause explanation: `APIRoute.__init__` does not call
+  `super().__init__()`, skipping Starlette's automatic HEAD method
+  generation
+- Upstream tracking: `https://github.com/fastapi/fastapi/discussions/5765`
+- Local analysis reference: `WIP/docs/200-ISSUE-HEAD.md`
+- Explicit instruction: "Remove only after FastAPI fixes the gap"
+
+### 10.5 Verification
+
+- **Lint:** `WIP/tools/lint_http.sh` (ruff `--select ALL` + ty) — passes clean
+- **Tests:** 164/164 pass (`python -m unittest discover`)
+- **No out-of-scope changes:** only files listed above were touched
+
+---
 
 ## Appendix C: Migration effort estimate (if ever needed)
 
@@ -740,8 +821,8 @@ fishtest code
 | `APIRouter` → `Route()` lists | 2 (api.py, views.py) | Medium |
 | `include_router()` → constructor routes | 1 (app.py) | Low |
 | `add_middleware()` → constructor middleware | 1 (app.py) | Low |
-| Remove `Depends` imports | 1 (boundary.py) | Trivial |
-| Swap `from fastapi` → `from starlette` | ~10 files | Trivial |
+| ~~Remove `Depends` imports~~ | ~~1 (boundary.py)~~ | ~~Trivial~~ — **already done (§10.1)** |
+| ~~Swap `from fastapi` → `from starlette`~~ | ~~\~10 files~~ | ~~Trivial~~ — **partially done (§10.2)** |
 | Remove `RequestValidationError` handler | 1 (errors.py) | Trivial |
 | Remove `openapi_url` config | 2 (app.py, settings.py) | Trivial |
 | Remove `include_in_schema=False` | 1 (views.py) | Trivial |

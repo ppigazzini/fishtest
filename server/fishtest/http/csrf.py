@@ -9,10 +9,11 @@ from __future__ import annotations
 import secrets
 from typing import TYPE_CHECKING
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException
 
 if TYPE_CHECKING:
     from starlette.datastructures import FormData
+    from starlette.requests import Request
 
     from fishtest.http.cookie_session import CookieSession
 

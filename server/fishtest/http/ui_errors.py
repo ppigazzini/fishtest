@@ -18,7 +18,7 @@ from fishtest.http.cookie_session import load_session
 from fishtest.http.template_renderer import render_template_to_response
 
 if TYPE_CHECKING:
-    from fastapi import Request
+    from starlette.requests import Request
     from starlette.responses import Response
 
 

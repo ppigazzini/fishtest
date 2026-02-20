@@ -222,6 +222,36 @@ that validate plain Python dicts. Schemas are used in:
 
 No Pydantic models are used anywhere in the codebase.
 
+## Framework usage: FastAPI as a thin wrapper
+
+This project uses FastAPI as a thin routing convenience layer on top of
+Starlette. The three FastAPI-exclusive features in use are:
+
+1. **`FastAPI()`** — the application class (inherits `starlette.Starlette`).
+2. **`APIRouter`** — decorator-style route registration and data-driven
+   `add_api_route()`.
+3. **Exception handlers** — two fallback handlers from
+   `fastapi.exception_handlers`.
+
+The following FastAPI features are **not used**:
+
+- Pydantic request/response models (`BaseModel`, `response_model`).
+- Dependency injection (`Depends()`) in route signatures.
+- Parameter declarations (`Body`, `Query`, `Path`, `Header`, `Cookie`).
+- Security schemes (`OAuth2`, `HTTPBasic`, `APIKey`).
+- OpenAPI generation (disabled in production).
+
+All middleware is pure ASGI (Starlette pattern). Session handling, CSRF
+protection, authentication, and request validation use custom
+implementations — not FastAPI's built-in machinery. Validation uses
+vtjson exclusively. See [WIP/docs/101-CLAUDE-FASTAPI-STARLETTE.md] for
+the full framework analysis.
+
+Contributors should not expect Pydantic, DI, or security scheme patterns
+in this codebase. When importing classes that FastAPI re-exports from
+Starlette (`Request`, `Response`, `JSONResponse`, `StaticFiles`, etc.),
+prefer importing from `starlette` directly.
+
 ## Error handling
 
 Error handlers are installed via `install_error_handlers(app)` in `app.py`.

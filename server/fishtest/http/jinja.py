@@ -24,8 +24,8 @@ from fishtest.http import template_helpers as helpers
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from fastapi import Request
     from starlette.background import BackgroundTask
+    from starlette.requests import Request
     from starlette.responses import Response
 
 TEMPLATES_DIR_ENV: Final[str] = "FISHTEST_JINJA_TEMPLATES_DIR"

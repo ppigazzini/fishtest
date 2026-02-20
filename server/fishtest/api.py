@@ -6,9 +6,10 @@ import re
 from datetime import UTC, datetime
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
+from fastapi import APIRouter, HTTPException
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
+from starlette.requests import Request
+from starlette.responses import JSONResponse, RedirectResponse, StreamingResponse
 from vtjson import ValidationError, validate
 
 import fishtest.github_api as gh

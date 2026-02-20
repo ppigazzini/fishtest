@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, TypedDict
 
 if TYPE_CHECKING:
-    from fastapi import Request
+    from starlette.requests import Request
 
 from fishtest.actiondb import ActionDb
 from fishtest.http.cookie_session import CookieSession, authenticated_user, load_session

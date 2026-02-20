@@ -11,13 +11,11 @@ from urllib.parse import quote, urlencode
 import bson
 import regex
 import requests
-from fastapi import (
-    APIRouter,
-    Request,
-)
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.requests import Request
+from starlette.responses import HTMLResponse, RedirectResponse
 from vtjson import ValidationError, union, validate
 
 import fishtest.github_api as gh

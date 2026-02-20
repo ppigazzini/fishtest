@@ -18,9 +18,8 @@ from fastapi.exception_handlers import (
     request_validation_exception_handler,
 )
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.responses import PlainTextResponse
+from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.routing import Route
 
 from fishtest.api import WORKER_API_PATHS
@@ -28,7 +27,8 @@ from fishtest.api import router as api_router
 from fishtest.http.ui_errors import render_forbidden_response, render_notfound_response
 
 if TYPE_CHECKING:
-    from fastapi import FastAPI, Request
+    from fastapi import FastAPI
+    from starlette.requests import Request
     from starlette.responses import Response
 
 STATUS_NOT_FOUND: Final[int] = 404

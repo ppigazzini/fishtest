@@ -24,8 +24,8 @@ from typing import TYPE_CHECKING, Protocol, cast
 
 from anyio.to_thread import current_default_thread_limiter
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
+from starlette.staticfiles import StaticFiles
 
 import fishtest.github_api as gh
 from fishtest import schemas
