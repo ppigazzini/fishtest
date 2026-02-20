@@ -128,13 +128,14 @@ class MyMiddleware:
 
 Current middleware stack (all are pure ASGI):
 - Installation order in `app.add_middleware(...)`:
-    `ShutdownGuardMiddleware` -> `AttachRequestStateMiddleware` ->
+    `HeadMethodMiddleware` -> `ShutdownGuardMiddleware` ->
+    `AttachRequestStateMiddleware` ->
     `RejectNonPrimaryWorkerApiMiddleware` -> `RedirectBlockedUiUsersMiddleware` ->
     `FishtestSessionMiddleware`
 - Runtime order (outermost -> innermost):
     `FishtestSessionMiddleware` -> `RedirectBlockedUiUsersMiddleware` ->
     `RejectNonPrimaryWorkerApiMiddleware` -> `AttachRequestStateMiddleware` ->
-    `ShutdownGuardMiddleware`
+    `ShutdownGuardMiddleware` -> `HeadMethodMiddleware`
 
 **Request form limits** (DOS protection):
 

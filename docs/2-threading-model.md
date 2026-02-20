@@ -87,6 +87,7 @@ Async generators that yield chunks, with each chunk read in the threadpool.
 | `AttachRequestStateMiddleware` | `[LOOP]` | Copies state references, stamps start time |
 | `RejectNonPrimaryWorkerApiMiddleware` | `[LOOP]` | Checks primary flag, returns 503 |
 | `RedirectBlockedUiUsersMiddleware` | `[LOOP]` + `[THREAD]` | Session read on loop; blocked-user DB lookup offloaded |
+| `HeadMethodMiddleware` | `[LOOP]` | Converts HEAD to GET, strips response body |
 
 ### API router (`api.py`)
 

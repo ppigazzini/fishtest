@@ -154,21 +154,32 @@ Observed HEAD statuses:
 
 Conclusion: middleware fix works in application code without nginx involvement.
 
-## Deployment diagnosis for your dev host
+## Deployment verification on dev host
 
-Observed on `https://dfts-0.pigazzini.it`:
+Observed on `https://dfts-0.pigazzini.it` after deployment:
 
-- `HEAD /` -> `308`
-- `HEAD /tests` -> `405`
-- `HEAD /api/calc_elo?W=1&D=0&L=0` -> `405`
-- `HEAD /api/active_runs` -> `405`
+| Path | HEAD status | Expected |
+|------|-------------|----------|
+| `/` | `308` | Redirect to `/tests` (nginx) |
+| `/tests` | `200` | GET route |
+| `/tests/finished` | `200` | GET route |
+| `/api/active_runs` | `200` | GET route |
+| `/api/calc_elo` | `400` | GET route (missing params) |
+| `/api/actions` | `405` | POST-only route |
+| `/api/get_run/1` | `404` | GET route (no such run) |
+| `/contributors` | `200` | GET route |
+| `/nns` | `200` | GET route |
+| `/user` | `302` | Redirect (not logged in) |
+| `/actions` | `200` | GET route |
 
 Badge check:
 
 - `https://img.shields.io/website?url=https%3A%2F%2Fdfts-0.pigazzini.it/tests`
-- returns SVG label `website: down`
+- returns SVG label **`website: up`**
 
-This mismatch (local 200 vs dev 405) means the deployed process is not running the middleware-enabled code yet (or is serving from a different instance/revision).
+All GET routes return valid HEAD responses. POST-only routes correctly
+return 405. The middleware is operating as designed across the full
+nginx → uvicorn stack.
 
 ## Badge recommendation
 
@@ -180,6 +191,18 @@ After deploying HEAD middleware, keep simple Shields badge:
 
 This monitors live app reachability through your canonical URL, with minimal operational burden.
 
-## Residual risk / open item
+## Documentation updates
 
-No code-level blocker remains for HEAD behavior in this branch. Remaining work is deployment alignment on the dev host.
+The following `docs/` files were updated to reflect the new middleware:
+
+| File | Change |
+|------|--------|
+| `docs/1-architecture.md` | `middleware.py` description: 4 → 5 middleware classes; added `HeadMethodMiddleware` row (order 6) to middleware table |
+| `docs/2-threading-model.md` | Added `HeadMethodMiddleware` (`[LOOP]`) to middleware component table |
+| `docs/9-references.md` | Updated installation and runtime order lists to include `HeadMethodMiddleware` |
+| `WIP/docs/900-GIT-COVENTIONAL-COMMIT.md` | Middleware layers 5 → 6; test count 161 → 164; schema count 17 → 19 |
+
+## Status
+
+Resolved. HEAD middleware is deployed and verified on the dev host.
+No code-level or deployment-level issues remain.

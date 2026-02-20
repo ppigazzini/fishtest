@@ -53,7 +53,7 @@ http/
 ├── dependencies.py          — FastAPI dependency functions (get_rundb, get_userdb, etc.)
 ├── errors.py                — Centralized error handler installation (API/UI routing)
 ├── jinja.py                 — Jinja2 Environment, Jinja2Templates instance, static_url
-├── middleware.py            — Pure ASGI middleware (4 middleware classes)
+├── middleware.py            — Pure ASGI middleware (5 middleware classes)
 ├── session_middleware.py    — FishtestSessionMiddleware (itsdangerous cookie signing)
 ├── settings.py              — AppSettings (environment variable parsing)
 ├── template_helpers.py      — Jinja2 filters and global functions
@@ -147,6 +147,7 @@ order (outermost first in the request path):
 | 3 | `RejectNonPrimaryWorkerApiMiddleware` | Returns 503 for worker API on non-primary instances |
 | 4 | `AttachRequestStateMiddleware` | Copies `app.state` handles to `request.state`; stamps `request_started_at` |
 | 5 | `ShutdownGuardMiddleware` | Returns 503 for all requests during shutdown |
+| 6 | `HeadMethodMiddleware` | Converts HEAD to GET and strips response body (RFC 9110 §9.3.2) |
 
 All middleware classes are pure ASGI (`__call__(self, scope, receive, send)`).
 None use Starlette's `BaseHTTPMiddleware`.
