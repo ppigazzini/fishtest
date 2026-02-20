@@ -38,6 +38,7 @@ from fishtest.http.cookie_session import (
 from fishtest.http.errors import install_error_handlers
 from fishtest.http.middleware import (
     AttachRequestStateMiddleware,
+    HeadMethodMiddleware,
     RedirectBlockedUiUsersMiddleware,
     RejectNonPrimaryWorkerApiMiddleware,
     ShutdownGuardMiddleware,
@@ -181,6 +182,7 @@ def create_app() -> FastAPI:
 
     install_error_handlers(app)
 
+    app.add_middleware(cast("MiddlewareFactory", HeadMethodMiddleware))
     app.add_middleware(cast("MiddlewareFactory", ShutdownGuardMiddleware))
     app.add_middleware(cast("MiddlewareFactory", AttachRequestStateMiddleware))
     app.add_middleware(

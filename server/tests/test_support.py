@@ -86,6 +86,7 @@ def build_test_app(*, rundb: Any, include_api: bool, include_views: bool):
         from fishtest.http.errors import install_error_handlers
         from fishtest.http.middleware import (
             AttachRequestStateMiddleware,
+            HeadMethodMiddleware,
             RedirectBlockedUiUsersMiddleware,
             ShutdownGuardMiddleware,
         )
@@ -104,6 +105,7 @@ def build_test_app(*, rundb: Any, include_api: bool, include_views: bool):
 
     install_error_handlers(app)
 
+    app.add_middleware(HeadMethodMiddleware)
     app.add_middleware(ShutdownGuardMiddleware)
     app.add_middleware(AttachRequestStateMiddleware)
     app.add_middleware(RedirectBlockedUiUsersMiddleware)

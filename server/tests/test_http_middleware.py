@@ -137,6 +137,53 @@ class TestHttpMiddleware(unittest.TestCase):
         set_cookie = response.headers.get("set-cookie", "")
         self.assertIn(f"{SESSION_COOKIE_NAME}=", set_cookie)
 
+    def test_head_method_returns_200_with_empty_body(self):
+        from fishtest.http.middleware import HeadMethodMiddleware
+
+        app = self.FastAPI()
+        app.add_middleware(HeadMethodMiddleware)
+
+        @app.get("/ping")
+        async def _ping():
+            return {"ok": True}
+
+        client = self.TestClient(app)
+        response = client.head("/ping")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"")
+
+    def test_head_method_preserves_content_type(self):
+        from fastapi.responses import HTMLResponse
+
+        from fishtest.http.middleware import HeadMethodMiddleware
+
+        app = self.FastAPI()
+        app.add_middleware(HeadMethodMiddleware)
+
+        @app.get("/page")
+        async def _page():
+            return HTMLResponse("<html><body>Hello</body></html>")
+
+        client = self.TestClient(app)
+        response = client.head("/page")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/html", response.headers.get("content-type", ""))
+        self.assertEqual(response.content, b"")
+
+    def test_head_on_post_only_route_returns_405(self):
+        from fishtest.http.middleware import HeadMethodMiddleware
+
+        app = self.FastAPI()
+        app.add_middleware(HeadMethodMiddleware)
+
+        @app.post("/submit")
+        async def _submit():
+            return {"ok": True}
+
+        client = self.TestClient(app)
+        response = client.head("/submit")
+        self.assertEqual(response.status_code, 405)
+
 
 class TestHttpMiddlewareMongo(unittest.TestCase):
     @classmethod

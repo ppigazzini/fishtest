@@ -81,6 +81,33 @@ def _external_base_url_from_request(request: Request) -> str:
     return str(request.base_url).rstrip("/")
 
 
+class HeadMethodMiddleware:
+    """Convert HEAD requests to GET and strip the response body.
+
+    FastAPI's APIRoute does not auto-add HEAD for GET routes (unlike
+    plain Starlette's Route).  This middleware restores HTTP-spec
+    compliance (RFC 9110 §9.3.2) so that HEAD works on every GET route.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        """Store the downstream ASGI app."""
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Serve HEAD via GET semantics while suppressing the response body."""
+        if scope["type"] != "http" or scope["method"] != "HEAD":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_no_body(message: object) -> None:
+            msg = dict(message)  # type: ignore[call-overload]
+            if msg.get("type") == "http.response.body":
+                msg["body"] = b""
+            await send(msg)
+
+        await self.app({**scope, "method": "GET"}, receive, send_no_body)
+
+
 class ShutdownGuardMiddleware:
     """Return HTTP 503 when the app is shutting down."""
 
