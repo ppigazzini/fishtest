@@ -1,0 +1,23 @@
+[
+  {
+    "diff_snippets": [
+      {
+        "left": "ax_actions=1&amp;action=&amp;user=&amp;text=&amp;before=1700000000&amp;run_id=\"> 23\u201111\u201114 22:13:20 </a></td><td>new_run</td><td><a href=\"/user/alice\">alice</a></",
+        "right": "ax_actions=1&amp;action=&amp;user=&amp;text=&amp;before=1700000000&amp;run_id=\">23\u201111\u201114 22:13:20</a></td><td>new_run</td><td><a href=\"/user/alice\">alice</a></t",
+        "tag": "delete"
+      },
+      {
+        "left": "ction=&amp;user=&amp;text=&amp;before=1700000000&amp;run_id=\"> 23\u201111\u201114 22:13:20 </a></td><td>new_run</td><td><a href=\"/user/alice\">alice</a></td><td><a href=\"/t",
+        "right": "action=&amp;user=&amp;text=&amp;before=1700000000&amp;run_id=\">23\u201111\u201114 22:13:20</a></td><td>new_run</td><td><a href=\"/user/alice\">alice</a></td><td><a href=\"/t",
+        "tag": "delete"
+      }
+    ],
+    "left_len": 21172,
+    "minified_equal": false,
+    "minified_score": 0.999339661576558,
+    "normalized_equal": false,
+    "raw_equal": false,
+    "right_len": 21097,
+    "template": "actions.mak"
+  }
+]

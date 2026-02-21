@@ -1,0 +1,784 @@
+{
+  "_defaults": {
+    "request": {
+      "url": "/",
+      "GET": {},
+      "cookies": {},
+      "authenticated_userid": ""
+    },
+    "csrf_token": "csrf-token",
+    "current_user": null,
+    "flash": {
+      "error": [],
+      "warning": [],
+      "info": []
+    },
+    "pending_users_count": 0,
+    "theme": "",
+    "urls": {
+      "home": "/",
+      "api_rate_limit": "/api/rate_limit",
+      "tests": "/tests",
+      "tests_finished": "/tests/finished",
+      "tests_finished_ltc": "/tests/finished?ltc_only=1",
+      "tests_finished_success": "/tests/finished?success_only=1",
+      "tests_finished_yellow": "/tests/finished?yellow_only=1",
+      "tests_run": "/tests/run",
+      "tests_user_prefix": "/tests/user/",
+      "tests_machines": "/tests/machines",
+      "nn_upload": "/upload",
+      "nns": "/nns",
+      "contributors": "/contributors",
+      "contributors_monthly": "/contributors/monthly",
+      "actions": "/actions",
+      "user_management": "/user_management",
+      "workers_blocked": "/workers/show",
+      "sprt_calc": "/sprt_calc",
+      "rate_limits": "/rate_limits",
+      "login": "/login",
+      "logout": "/logout",
+      "signup": "/signup",
+      "user_profile": "/user"
+    },
+    "page_idx": 0,
+    "username": ""
+  },
+  "pagination.mak": {
+    "pages": [
+      {
+        "state": "active",
+        "url": "/tests?page=1",
+        "idx": 1
+      },
+      {
+        "state": "",
+        "url": "/tests?page=2",
+        "idx": 2
+      },
+      {
+        "state": "",
+        "url": "/tests?page=3",
+        "idx": 3
+      },
+      {
+        "state": "",
+        "url": "/tests?page=4",
+        "idx": 4
+      }
+    ]
+  },
+  "actions.mak": {
+    "actions": [
+      {
+        "time": 1700000000,
+        "action": "new_run",
+        "username": "alice",
+        "run": "run-1",
+        "run_id": "abc123",
+        "time_label": "23\u201111\u201114 22:13:20",
+        "time_url": "/actions?max_actions=1&action=&user=&text=&before=1700000000&run_id=",
+        "event": "new_run",
+        "agent_name": "alice",
+        "agent_url": "/user/alice",
+        "target_name": "run-1",
+        "target_url": "/tests/view/abc123",
+        "message": "Created run"
+      }
+    ],
+    "action_param": "",
+    "username_param": "",
+    "text_param": "",
+    "run_id_param": "",
+    "approver": false,
+    "filters": {
+      "action": "",
+      "username": "",
+      "text": "",
+      "run_id": ""
+    },
+    "pages": [
+      {
+        "state": "active",
+        "url": "/actions?page=1",
+        "idx": 1
+      }
+    ],
+    "usernames": ["alice"],
+    "request": {
+      "url": "/actions",
+      "GET": {
+        "action": ""
+      },
+      "userdb": {
+        "users": [
+          {
+            "username": "alice"
+          }
+        ]
+      }
+    }
+  },
+  "contributors.mak": {
+    "is_monthly": false,
+    "monthly_suffix": "",
+    "summary": {
+      "testers": 1,
+      "developers": 1,
+      "active_testers": 1,
+      "cpu_hours": 100,
+      "games": 200,
+      "tests": 3
+    },
+    "users": [
+      {
+        "username": "alice",
+        "last_updated": {
+          "__datetime__": "2026-02-04T00:00:00+00:00"
+        },
+        "tests": 3,
+        "games_per_hour": 10,
+        "cpu_hours": 100,
+        "games": 200,
+        "tests_repo": "https://github.com/official-stockfish/Stockfish",
+        "user_url": "/user/alice",
+        "last_updated_label": "7 days ago",
+        "last_updated_sort": -1770163200.0,
+        "tests_repo_url": "https://github.com/official-stockfish/Stockfish",
+        "tests_user_url": "/tests/user/alice"
+      }
+    ],
+    "approver": true,
+    "is_approver": true
+  },
+  "machines.mak": {
+    "machines_list": [
+      {
+        "username": "alice",
+        "country_code": "us",
+        "concurrency": 4,
+        "unique_key": "worker-1234",
+        "gcc_version": [
+          10,
+          2,
+          1
+        ],
+        "python_version": [
+          3,
+          11,
+          2
+        ],
+        "version": "1.0",
+        "modified": false,
+        "nps": 1000000,
+        "max_memory": 2048,
+        "uname": "Linux",
+        "worker_arch": "x86-64",
+        "last_updated": {
+          "__datetime__": "2026-02-04T00:00:00+00:00"
+        },
+        "run": {
+          "_id": "run1",
+          "args": {
+            "new_tag": "branch"
+          }
+        },
+        "task_id": 0
+      }
+    ],
+    "machines": [
+      {
+        "username": "alice",
+        "country_code": "us",
+        "concurrency": 4,
+        "worker_url": "/workers/alice-4cores-worker",
+        "worker_short": "worker",
+        "nps_m": "1.00",
+        "max_memory": "2048",
+        "system": "Linux",
+        "worker_arch": "x86-64",
+        "compiler_label": "g++ 10.2.1",
+        "python_label": "3.11.2",
+        "version_label": "1.0",
+        "run_url": "/tests/view/run1?show_task=0",
+        "run_label": "branch/0",
+        "last_active_label": "7 days ago",
+        "last_active_sort": -1770163200.0
+      }
+    ]
+  },
+  "tasks.mak": {
+    "run": {
+      "_id": "run1",
+      "args": {
+        "tc": "10+0.1"
+      },
+      "results": {
+        "wins": 1,
+        "losses": 1,
+        "draws": 1
+      },
+      "tasks": [
+        {
+          "task_id": 0,
+          "active": false,
+          "num_games": 2,
+          "stats": {
+            "wins": 1,
+            "losses": 1,
+            "draws": 0,
+            "crashes": 0,
+            "time_losses": 0
+          },
+          "worker_info": {
+            "username": "alice",
+            "concurrency": 4,
+            "unique_key": "worker-1234",
+            "modified": false,
+            "gcc_version": [
+              10,
+              2,
+              1
+            ],
+            "python_version": [
+              3,
+              11,
+              2
+            ],
+            "version": "1.0",
+            "ARCH": "x86-64",
+            "worker_arch": "x86-64",
+            "uname": "Linux",
+            "max_memory": 2048
+          },
+          "last_updated": "2026-02-04 00:00:00"
+        }
+      ],
+      "bad_tasks": []
+    },
+    "show_task": -1,
+    "approver": false,
+    "chi2": {
+      "residual": {},
+      "z_95": 1.0,
+      "z_99": 2.0
+    },
+    "tasks": [
+      {
+        "task_id": 0,
+        "row_class": "",
+        "pgn_url": "/api/pgn/run1-0.pgn",
+        "worker_label": "alice-4cores-worker-1234",
+        "worker_url": "",
+        "info_label": "os: Linux; ram: 2048MiB; compiler: g++ 10.2.1; python: 3.11.2; worker: 1.0; arch: x86-64; features: x86-64",
+        "last_updated_label": "2026-02-04 00:00:00",
+        "played_label": "002 / 002",
+        "results_cells": ["1", "1", "0"],
+        "crashes": "0",
+        "time_losses": "0",
+        "residual_label": "-",
+        "residual_bg": ""
+      }
+    ],
+    "show_residual": true
+  },
+  "tests_stats.mak": {
+    "page_title": "run1",
+    "run": {
+      "_id": "run1",
+      "args": {
+        "tc": "10+0.1"
+      },
+      "results": {
+        "wins": 1,
+        "losses": 1,
+        "draws": 1
+      }
+    },
+    "stats": {
+      "bayes_note": "Note: BayesElo is the LLR as computed using the BayesElo model.\n It is not clear how to generalize it to the pentanomial case.",
+      "context_rows": [
+        [
+          "Base TC",
+          "10+0.1"
+        ],
+        [
+          "Test TC",
+          "10+0.1"
+        ],
+        [
+          "Book",
+          "?"
+        ],
+        [
+          "Threads",
+          "?"
+        ],
+        [
+          "Base options",
+          "?"
+        ],
+        [
+          "New options",
+          "?"
+        ]
+      ],
+      "draw_rows": [
+        [
+          "Draw ratio",
+          "0.33333"
+        ],
+        [
+          "DrawElo (BayesElo)",
+          "120.41"
+        ]
+      ],
+      "has_pentanomial": false,
+      "has_sprt": false,
+      "has_spsa": false,
+      "llr_note": "Note: The quantities labeled alt and alt2 are various approximations for the exact quantities. Simulations indicate that the exact quantities perform better under extreme conditions.",
+      "pentanomial": {},
+      "run_id": "run1",
+      "sprt_bounds_rows": [],
+      "sprt_note": "Note: normalized Elo is inversely proportional to the square root of the number of games it takes on average to detect a given strength difference with a given level of significance. It is given by logistic_elo/(2*standard_deviation_per_game). In other words if the draw ratio is zero and Elo differences are small then normalized Elo and logistic Elo coincide.",
+      "sprt_rows": [],
+      "tri_note": "Note: The following quantities are computed using the incorrect trinomial model and so they should be taken with a grain of salt. The trinomial quantities are listed because they serve as a sanity check for the correct pentanomial quantities and moreover it is possible to extract some genuinely interesting information from the comparison between the two.",
+      "trinomial": {
+        "aux_rows": [
+          [
+            "Games",
+            "3"
+          ],
+          [
+            "Results [losses, draws, wins]",
+            "[1, 1, 1]"
+          ],
+          [
+            "Distribution {loss ratio, draw ratio, win ratio}",
+            "{0.00: 0.33333, 0.50: 0.33333, 1.00: 0.33333}"
+          ],
+          [
+            "Expected value",
+            "0.50000"
+          ],
+          [
+            "Variance",
+            "0.16667"
+          ],
+          [
+            "Skewness",
+            "0.00000"
+          ],
+          [
+            "Excess kurtosis",
+            "-1.50000"
+          ],
+          [
+            "Score",
+            "0.50000 [0.03803, 0.96197]"
+          ],
+          [
+            "Variance/game",
+            "0.16667 [0.03331, 0.30003]"
+          ],
+          [
+            "Stdev/game",
+            "0.40825 [0.18250, 0.54775]"
+          ],
+          [
+            "Normalized Elo",
+            "0.00 [-393.15, 393.15]"
+          ]
+        ],
+        "basic_rows": [
+          [
+            "Elo",
+            "-0.0000 [-561.2043, 561.2043]"
+          ],
+          [
+            "LOS(1-p)",
+            "0.50000"
+          ]
+        ]
+      }
+    }
+  },
+  "login.mak": {},
+  "notfound.mak": {},
+  "rate_limits.mak": {},
+  "sprt_calc.mak": {},
+  "elo_results.mak": {
+    "show_gauge": false,
+    "run": {
+      "_id": "run1",
+      "args": {
+        "tc": "10+0.1",
+        "new_tc": "10+0.1"
+      },
+      "results": {
+        "wins": 1,
+        "losses": 1,
+        "draws": 1
+      }
+    }
+  },
+  "tests_run.mak": {
+    "args": {
+      "base_tag": "master",
+      "base_signature": 123,
+      "tc": "10+0.1",
+      "new_tc": "10+0.1",
+      "tests_repo": "https://github.com/official-stockfish/Stockfish",
+      "resolved_base": "deadbeef",
+      "resolved_new": "cafebabe",
+      "num_games": 10000,
+      "priority": 0,
+      "auto_purge": false
+    },
+    "master_info": {
+      "bench": 123,
+      "message": "Commit message",
+      "date": "2026-02-04"
+    },
+    "pt_info": {
+      "pt_version": "v1",
+      "pt_branch": "master",
+      "pt_bench": 123
+    },
+    "tests_repo": "https://github.com/official-stockfish/Stockfish",
+    "form_action": "/tests/run",
+    "tests_repo_value": "https://github.com/official-stockfish/Stockfish",
+    "new_tag_value": "",
+    "new_signature_value": "",
+    "new_options_value": "Hash=16",
+    "base_options_value": "Hash=16",
+    "info_value": "",
+    "test_book": "UHO_Lichess_4852_v1.epd",
+    "pt_book": "UHO_Lichess_4852_v1.epd",
+    "setup": {
+      "base_branch": "master",
+      "latest_bench": 123,
+      "pt_version": "v1",
+      "pt_branch": "master",
+      "pt_signature": 123,
+      "tc": "10+0.1",
+      "new_tc": "10+0.1",
+      "default_book": "UHO_Lichess_4852_v1.epd",
+      "is_odds": false,
+      "arch_filter": "",
+      "compiler": ""
+    },
+    "rescheduled_from": null,
+    "supported_arches": ["x86-64"],
+    "supported_compilers": ["g++"],
+    "valid_books": ["book.epd"],
+    "is_rerun": false
+  },
+  "tests_view.mak": {
+    "page_title": "run1",
+    "document_size": 1234,
+    "warnings": [],
+    "notes": [],
+    "approver": false,
+    "can_modify_run": false,
+    "same_user": false,
+    "totals": "(0/0/0)",
+    "tasks_shown": false,
+    "show_task": -1,
+    "follow": 0,
+    "allow_github_api_calls": false,
+    "use_3dot_diff": false,
+    "spsa_data": {},
+    "chi2": {
+      "chi2": 0.0,
+      "dof": 0,
+      "p": 1.0
+    },
+    "run": {
+      "_id": "run1",
+      "args": {
+        "username": "alice",
+        "tc": "10+0.1",
+        "new_tc": "10+0.1",
+        "num_games": 10000,
+        "priority": 0,
+        "throughput": 1000,
+        "tests_repo": "https://github.com/official-stockfish/Stockfish",
+        "resolved_base": "deadbeef",
+        "resolved_new": "cafebabe"
+      },
+      "results": {
+        "wins": 1,
+        "losses": 1,
+        "draws": 1
+      },
+      "start_time": {
+        "__datetime__": "2026-02-04T00:00:00+00:00"
+      },
+      "last_updated": {
+        "__datetime__": "2026-02-04T00:00:00+00:00"
+      },
+      "finished": false,
+      "approver": ""
+    },
+    "run_args": [
+      ["username", "alice", ""],
+      ["resolved_new", "cafebabe", ""],
+      ["resolved_base", "deadbeef", ""]
+    ]
+  },
+  "nns.mak": {
+    "master_only": false,
+    "filters": {
+      "network_name": "",
+      "user": "",
+      "master_only": false
+    },
+    "network_name_filter": "",
+    "user_filter": "",
+    "pages": [],
+    "nns": [
+      {
+        "time": {
+          "__datetime__": "2026-02-04T00:00:00+00:00"
+        },
+        "name": "nn-123",
+        "name_url": "api/nn/nn-123",
+        "user": "alice",
+        "downloads": 0,
+        "time_label": "26-02-04 00:00:00",
+        "first_test_label": "",
+        "first_test_url": "",
+        "last_test_label": "",
+        "last_test_url": ""
+      }
+    ]
+  },
+  "nn_upload.mak": {
+    "upload_url": "/upload",
+    "testing_guidelines_url": "https://github.com/official-stockfish/fishtest/wiki/Creating-my-first-test",
+    "cc0_url": "https://creativecommons.org/share-your-work/public-domain/cc0/",
+    "nn_stats_url": "/nns"
+  },
+  "run_table.mak": {
+    "runs": [
+      {
+        "_id": "run1",
+        "finished": true,
+        "start_time": {
+          "__datetime__": "2026-02-04T00:00:00+00:00"
+        },
+        "args": {
+          "username": "alice",
+          "new_tag": "branch",
+          "tests_repo": "https://github.com/official-stockfish/Stockfish",
+          "resolved_new": "cafebabe",
+          "resolved_base": "deadbeef",
+          "num_games": 1000,
+          "tc": "10+0.1",
+          "threads": 1,
+          "info": ""
+        },
+        "results": {
+          "wins": 1,
+          "losses": 1,
+          "draws": 1
+        },
+        "run": {
+          "_id": "run1",
+          "args": {
+            "tc": "10+0.1",
+            "new_tc": "10+0.1",
+            "num_games": 1000
+          },
+          "results": {
+            "wins": 1,
+            "losses": 1,
+            "draws": 1
+          },
+          "finished": true
+        },
+        "run_id": "run1",
+        "start_date_label": "26-02-04",
+        "user_short": "ali",
+        "user_name": "alice",
+        "user_url": "/tests/user/alice",
+        "is_finished": true,
+        "is_sprt": false,
+        "new_tag_short": "branch",
+        "run_url": "/tests/view/run1",
+        "diff_url": "https://github.com/official-stockfish/Stockfish/compare/official-stockfish:deadbeef...official-stockfish:cafebabe",
+        "live_label": "1000",
+        "live_url": "",
+        "tc_label": "10+0.1",
+        "threads": 1,
+        "cores_label": "",
+        "info_html": ""
+      }
+    ],
+    "pages": [],
+    "show_delete": false,
+    "header": "Finished",
+    "count": 1,
+    "toggle": null,
+    "cookie_name": "",
+    "toggle_state": "Show",
+    "title_text": "Finished Tests - page 1 | Stockfish Testing",
+    "alt": "No tests",
+    "page_idx": 0,
+    "show_gauge": false
+  },
+  "run_tables.mak": {
+    "username": "alice",
+    "pending_approval_runs": [],
+    "paused_runs": [],
+    "active_runs": [],
+    "failed_runs": [],
+    "finished_runs": [],
+    "num_finished_runs": 0,
+    "finished_runs_pages": [],
+    "page_idx": 0,
+    "prefix": "user616c696365_",
+    "toggle_states": {},
+    "finished_title_text": "Finished Tests - page 1 | Stockfish Testing",
+    "show_gauge": false,
+    "runs": {
+      "pending": [],
+      "active": []
+    }
+  },
+  "tests.mak": {
+    "page_idx": 0,
+    "cores": 0,
+    "nps": 0,
+    "nps_m": "0M",
+    "games_per_minute": 0,
+    "pending_hours": 0,
+    "machines_shown": false,
+    "machines_count": 0,
+    "height": "0px",
+    "min_height": "37px",
+    "max_height": "34.7vh",
+    "runs": {
+      "pending": [],
+      "active": []
+    },
+    "failed_runs": [],
+    "finished_runs": [],
+    "num_finished_runs": 0,
+    "finished_runs_pages": [],
+    "run_tables_ctx": {
+      "pending_approval_runs": [],
+      "paused_runs": [],
+      "active_runs": [],
+      "failed_runs": [],
+      "finished_runs": [],
+      "num_finished_runs": 0,
+      "finished_runs_pages": [],
+      "page_idx": 0,
+      "prefix": "user_",
+      "toggle_states": {},
+      "finished_title_text": "Finished Tests - page 1 | Stockfish Testing",
+      "show_gauge": false
+    }
+  },
+  "tests_finished.mak": {
+    "filters": {
+      "success_only": false,
+      "yellow_only": false,
+      "ltc_only": false
+    },
+    "query_params": {},
+    "title": "",
+    "title_suffix": "",
+    "title_text": "Finished Tests - page 1 | Stockfish Testing",
+    "show_gauge": false,
+    "finished_runs": [],
+    "num_finished_runs": 0,
+    "finished_runs_pages": []
+  },
+  "tests_user.mak": {
+    "username": "alice",
+    "is_approver": false,
+    "runs": {
+      "pending": [],
+      "active": []
+    },
+    "failed_runs": [],
+    "finished_runs": [],
+    "num_finished_runs": 0,
+    "finished_runs_pages": [],
+    "run_tables_ctx": {
+      "pending_approval_runs": [],
+      "paused_runs": [],
+      "active_runs": [],
+      "failed_runs": [],
+      "finished_runs": [],
+      "num_finished_runs": 0,
+      "finished_runs_pages": [],
+      "page_idx": 0,
+      "prefix": "user616c696365_",
+      "toggle_states": {},
+      "finished_title_text": "Finished Tests - page 1 | Stockfish Testing",
+      "show_gauge": false
+    }
+  },
+  "tests_live_elo.mak": {
+    "page_title": "run1",
+    "run": {
+      "_id": "run1"
+    }
+  },
+  "signup.mak": {
+    "recaptcha_site_key": "6LePs8YUAAAAABMmqHZVyVjxat95Z1c_uHrkugZM"
+  },
+  "user.mak": {
+    "profile": true,
+    "form_action": "/user/alice",
+    "registration_time_label": "2026-02-04",
+    "blocked": false,
+    "user": {
+      "username": "alice",
+      "email": "alice@example.com",
+      "groups": [],
+      "tests_repo": "https://github.com/official-stockfish/Stockfish",
+      "registration_time": {
+        "__datetime__": "2026-02-04T00:00:00+00:00"
+      }
+    },
+    "limit": 0,
+    "hours": 0,
+    "extract_repo_from_link": "Stockfish"
+  },
+  "user_management.mak": {
+    "all_users": [],
+    "pending_users": [],
+    "blocked_users": [],
+    "idle_users": [],
+    "approvers_users": []
+  },
+  "workers.mak": {
+    "show_admin": false,
+    "show_email": false,
+    "blocked_workers": [
+      {
+        "worker_name": "worker-1234",
+        "last_updated": {
+          "__datetime__": "2026-02-04T00:00:00+00:00"
+        },
+        "owner_email": "alice@example.com",
+        "subject": "Issue",
+        "body": "Body",
+        "last_updated_label": "7 days ago",
+        "actions_url": "/actions?text=%22worker-1234%22",
+        "mailto_url": "mailto:alice@example.com?subject=Issue&body=Body"
+      }
+    ],
+    "worker_name": "worker-1234",
+    "message": "",
+    "last_updated": {
+      "__datetime__": "2026-02-04T00:00:00+00:00"
+    },
+    "last_updated_label": "7 days ago",
+    "blocked": false
+  }
+}

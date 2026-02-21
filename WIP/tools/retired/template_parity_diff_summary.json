@@ -1,0 +1,270 @@
+[
+  {
+    "diff_snippets": [],
+    "left_len": 21172,
+    "minified_equal": false,
+    "minified_score": 0.9960281340504757,
+    "normalized_equal": true,
+    "raw_equal": false,
+    "right_len": 21029,
+    "template": "actions.mak"
+  },
+  {
+    "diff_snippets": [
+      {
+        "left": "a></td><td class=\"text-end\" data-sort-value=\"-1770163200.0\">8 days ago</td><td class=\"text-end\">10</td><td class=\"text-en",
+        "right": "a></td><td class=\"text-end\" data-sort-value=\"-1770163200.0\">7 days ago</td><td class=\"text-end\">10</td><td class=\"text-en",
+        "tag": "replace"
+      }
+    ],
+    "left_len": 20624,
+    "minified_equal": false,
+    "minified_score": 0.9962399589813707,
+    "normalized_equal": false,
+    "raw_equal": false,
+    "right_len": 20401,
+    "template": "contributors.mak"
+  },
+  {
+    "diff_snippets": [],
+    "left_len": 146,
+    "minified_equal": true,
+    "minified_score": 1.0,
+    "normalized_equal": true,
+    "raw_equal": false,
+    "right_len": 160,
+    "template": "elo_results.mak"
+  },
+  {
+    "diff_snippets": [],
+    "left_len": 18183,
+    "minified_equal": false,
+    "minified_score": 0.9963662057131322,
+    "normalized_equal": true,
+    "raw_equal": false,
+    "right_len": 17960,
+    "template": "login.mak"
+  },
+  {
+    "diff_snippets": [
+      {
+        "left": "nch/0\">branch/0</a></td><td data-sort-value=\"-1770163200.0\">8 days ago</td></tr></tbody></table>",
+        "right": "nch/0\">branch/0</a></td><td data-sort-value=\"-1770163200.0\">7 days ago</td></tr></tbody></table>",
+        "tag": "replace"
+      }
+    ],
+    "left_len": 983,
+    "minified_equal": false,
+    "minified_score": 0.9984779299847792,
+    "normalized_equal": false,
+    "raw_equal": false,
+    "right_len": 1023,
+    "template": "machines.mak"
+  },
+  {
+    "diff_snippets": [],
+    "left_len": 18674,
+    "minified_equal": false,
+    "minified_score": 0.9951042788602761,
+    "normalized_equal": true,
+    "raw_equal": false,
+    "right_len": 18452,
+    "template": "nn_upload.mak"
+  },
+  {
+    "diff_snippets": [],
+    "left_len": 19145,
+    "minified_equal": false,
+    "minified_score": 0.9949348091173436,
+    "normalized_equal": true,
+    "raw_equal": false,
+    "right_len": 19101,
+    "template": "nns.mak"
+  },
+  {
+    "diff_snippets": [],
+    "left_len": 17628,
+    "minified_equal": false,
+    "minified_score": 0.9955951756685895,
+    "normalized_equal": true,
+    "raw_equal": false,
+    "right_len": 17404,
+    "template": "notfound.mak"
+  },
+  {
+    "diff_snippets": [],
+    "left_len": 428,
+    "minified_equal": true,
+    "minified_score": 1.0,
+    "normalized_equal": true,
+    "raw_equal": false,
+    "right_len": 558,
+    "template": "pagination.mak"
+  },
+  {
+    "diff_snippets": [],
+    "left_len": 19342,
+    "minified_equal": false,
+    "minified_score": 0.9956501619620546,
+    "normalized_equal": true,
+    "raw_equal": false,
+    "right_len": 19117,
+    "template": "rate_limits.mak"
+  },
+  {
+    "diff_snippets": [],
+    "left_len": 1516,
+    "minified_equal": false,
+    "minified_score": 0.96,
+    "normalized_equal": true,
+    "raw_equal": false,
+    "right_len": 1581,
+    "template": "run_table.mak"
+  },
+  {
+    "diff_snippets": [],
+    "left_len": 5158,
+    "minified_equal": true,
+    "minified_score": 1.0,
+    "normalized_equal": true,
+    "raw_equal": false,
+    "right_len": 5432,
+    "template": "run_tables.mak"
+  },
+  {
+    "diff_snippets": [],
+    "left_len": 20459,
+    "minified_equal": false,
+    "minified_score": 0.996643717728055,
+    "normalized_equal": true,
+    "raw_equal": false,
+    "right_len": 20221,
+    "template": "signup.mak"
+  },
+  {
+    "diff_snippets": [],
+    "left_len": 21311,
+    "minified_equal": false,
+    "minified_score": 0.9948215875070798,
+    "normalized_equal": true,
+    "raw_equal": false,
+    "right_len": 21088,
+    "template": "sprt_calc.mak"
+  },
+  {
+    "diff_snippets": [],
+    "left_len": 489,
+    "minified_equal": false,
+    "minified_score": 0.9934426229508196,
+    "normalized_equal": true,
+    "raw_equal": false,
+    "right_len": 515,
+    "template": "tasks.mak"
+  },
+  {
+    "diff_snippets": [],
+    "left_len": 25478,
+    "minified_equal": true,
+    "minified_score": 1.0,
+    "normalized_equal": true,
+    "raw_equal": false,
+    "right_len": 25628,
+    "template": "tests.mak"
+  },
+  {
+    "diff_snippets": [],
+    "left_len": 16983,
+    "minified_equal": false,
+    "minified_score": 0.9890244581870856,
+    "normalized_equal": true,
+    "raw_equal": false,
+    "right_len": 16702,
+    "template": "tests_finished.mak"
+  },
+  {
+    "diff_snippets": [],
+    "left_len": 18356,
+    "minified_equal": false,
+    "minified_score": 0.9965160313052259,
+    "normalized_equal": true,
+    "raw_equal": false,
+    "right_len": 18152,
+    "template": "tests_live_elo.mak"
+  },
+  {
+    "diff_snippets": [],
+    "left_len": 60985,
+    "minified_equal": false,
+    "minified_score": 0.9371447491860273,
+    "normalized_equal": true,
+    "raw_equal": false,
+    "right_len": 58799,
+    "template": "tests_run.mak"
+  },
+  {
+    "diff_snippets": [],
+    "left_len": 18902,
+    "minified_equal": false,
+    "minified_score": 0.995581171950048,
+    "normalized_equal": true,
+    "raw_equal": false,
+    "right_len": 18685,
+    "template": "tests_stats.mak"
+  },
+  {
+    "diff_snippets": [],
+    "left_len": 21776,
+    "minified_equal": false,
+    "minified_score": 0.9971830985915493,
+    "normalized_equal": true,
+    "raw_equal": false,
+    "right_len": 21840,
+    "template": "tests_user.mak"
+  },
+  {
+    "diff_snippets": [],
+    "left_len": 36910,
+    "minified_equal": false,
+    "minified_score": 0.9988710192778784,
+    "normalized_equal": true,
+    "raw_equal": false,
+    "right_len": 37210,
+    "template": "tests_view.mak"
+  },
+  {
+    "diff_snippets": [],
+    "left_len": 24532,
+    "minified_equal": false,
+    "minified_score": 0.9979533076629549,
+    "normalized_equal": true,
+    "raw_equal": false,
+    "right_len": 24359,
+    "template": "user.mak"
+  },
+  {
+    "diff_snippets": [],
+    "left_len": 20542,
+    "minified_equal": false,
+    "minified_score": 0.9969129276440987,
+    "normalized_equal": true,
+    "raw_equal": false,
+    "right_len": 20393,
+    "template": "user_management.mak"
+  },
+  {
+    "diff_snippets": [
+      {
+        "left": "><td><a href=\"/workers/worker-1234\">worker-1234</a></td><td>8 days ago</td><td><a href=\"/actions?text=%22worker-1234%22\">",
+        "right": "><td><a href=\"/workers/worker-1234\">worker-1234</a></td><td>7 days ago</td><td><a href=\"/actions?text=%22worker-1234%22\">",
+        "tag": "replace"
+      }
+    ],
+    "left_len": 19486,
+    "minified_equal": false,
+    "minified_score": 0.9963230287348496,
+    "normalized_equal": false,
+    "raw_equal": false,
+    "right_len": 19303,
+    "template": "workers.mak"
+  }
+]
