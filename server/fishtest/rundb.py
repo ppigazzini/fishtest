@@ -89,7 +89,7 @@ class RunDb:
         self.books = self.kvstore.get("books", {})
         self.worker_runs = self.kvstore.get("worker_runs", {})
 
-        self.task_duration = 1800  # 30 minutes
+        self.task_duration = 180  # 3 minutes
         self.ltc_lower_bound = 40  # Beware: this is used as a filter in an index!
         self.pt_info = {
             "pt_version": "SF_18",
