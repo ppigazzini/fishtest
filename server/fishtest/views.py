@@ -2162,6 +2162,9 @@ def tests_machines(request):
             }
         )
 
+    if request.headers.get("Datastar-Request"):
+        request.response_headers["datastar-selector"] = "#machines"
+        request.response_headers["datastar-mode"] = "inner"
     return {"machines_list": machines_list, "machines": machines}
 
 
