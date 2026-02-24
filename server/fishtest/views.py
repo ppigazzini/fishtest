@@ -2109,6 +2109,9 @@ def tests_tasks(request):
         is_approver=approver,
     )
 
+    if request.headers.get("Datastar-Request"):
+        request.response_headers["datastar-selector"] = "#tasks-body"
+        request.response_headers["datastar-mode"] = "inner"
     return {
         "run": run,
         "approver": approver,
