@@ -67,9 +67,20 @@
     <a href="{{ diff_url(run, master_check=allow_github_api_calls) }}" target="_blank" rel="noopener noreferrer">diff</a>
   </h2>
 
-  <div class="elo-results-top">
+  <div id="elo-{{ run_id }}" class="elo-results-top">
     {% include "elo_results.html.j2" %}
   </div>
+
+  {% if not run["finished"] %}
+  <div hx-get="/tests/elo/{{ run_id }}"
+       hx-trigger="every 60s"
+       hx-swap="none">
+  </div>
+  <div hx-get="/tests/elo/{{ run_id }}?expected={{ 'active' if run.get('workers', 0) > 0 else 'paused' }}"
+       hx-trigger="every 180s"
+       hx-swap="none">
+  </div>
+  {% endif %}
 
   <div class="row">
     <div class="col-12 col-lg-9">
@@ -630,7 +641,8 @@
       tbody.dataset.tasksLoaded = "1";
       resolveTasksLoaded?.();
     });
-    tbody?.addEventListener("htmx:responseError", (e) => {
+
+    const showTasksError = (e) => {
       tbody.dataset.tasksLoaded = "0";
       e.target.innerHTML =
         '<tr><td colspan="20">' +
@@ -639,23 +651,11 @@
         '<button class="btn btn-primary" hx-get="/tests/tasks/{{ run_id }}?show_task={{ show_task }}"' +
         ' hx-target="#tasks-body" hx-swap="innerHTML" hx-disabled-elt="this">' +
         'Retry</button></div></td></tr>';
-      // We injected HTMX attributes via JS, so we must process the new content.
       htmx.process(e.target);
       resolveTasksLoaded?.();
-    });
-    tbody?.addEventListener("htmx:sendError", (e) => {
-      tbody.dataset.tasksLoaded = "0";
-      e.target.innerHTML =
-        '<tr><td colspan="20">' +
-        '<div class="alert alert-danger d-flex justify-content-between align-items-center">' +
-        '<span>Something went wrong. Please try again.</span>' +
-        '<button class="btn btn-primary" hx-get="/tests/tasks/{{ run_id }}?show_task={{ show_task }}"' +
-        ' hx-target="#tasks-body" hx-swap="innerHTML" hx-disabled-elt="this">' +
-        'Retry</button></div></td></tr>';
-      // We injected HTMX attributes via JS, so we must process the new content.
-      htmx.process(e.target);
-      resolveTasksLoaded?.();
-    });
+    };
+    tbody?.addEventListener("htmx:responseError", showTasksError);
+    tbody?.addEventListener("htmx:sendError", showTasksError);
   })();
 
   const followButton = document.getElementById("follow_button_" + runId);
