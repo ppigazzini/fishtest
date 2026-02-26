@@ -2084,7 +2084,7 @@ def tests_elo(request):
     expected = request.params.get("expected")
 
     if expected:
-        # Called from a run table — detect status transitions (every 2 min).
+        # Called from a run table -- detect status transitions.
         actual = "finished" if is_finished else ("active" if is_active else "paused")
         if expected != actual:
             request.response_headers["HX-Refresh"] = "true"
@@ -2093,7 +2093,7 @@ def tests_elo(request):
         else:
             request.response_status = 204  # no ELO swap needed
     else:
-        # Called from detail page or ELO-only poll (every 30s).
+        # Called from detail page or ELO-only poll.
         if is_finished:
             request.response_status = 286
         elif not is_active:
@@ -2102,11 +2102,72 @@ def tests_elo(request):
     return {"run": run}
 
 
+def _build_live_elo_context(run):
+    """Compute SPRT analytics and return template context for gauges + details."""
+    results = run["results"]
+    sprt = run["args"]["sprt"]
+    elo_model = sprt.get("elo_model", "BayesElo")
+    a = fishtest.stats.stat_util.SPRT_elo(
+        results,
+        alpha=sprt["alpha"],
+        beta=sprt["beta"],
+        elo0=sprt["elo0"],
+        elo1=sprt["elo1"],
+        elo_model=elo_model,
+    )
+    WLD = [results["wins"], results["losses"], results["draws"]]
+    games = sum(WLD)
+    pentanomial = results.get("pentanomial", [])
+    return {
+        "run": run,
+        "elo_raw": a["elo"],
+        "ci_lower_raw": a["ci"][0],
+        "ci_upper_raw": a["ci"][1],
+        "LLR_raw": a["LLR"],
+        "LOS_raw": 100 * a["LOS"],
+        "a_raw": a["a"],
+        "b_raw": a["b"],
+        "elo_value": round(a["elo"], 2),
+        "ci_lower": round(a["ci"][0], 2),
+        "ci_upper": round(a["ci"][1], 2),
+        "LLR": round(a["LLR"], 2),
+        "LOS": round(100 * a["LOS"], 1),
+        "a": round(a["a"], 2),
+        "b": round(a["b"], 2),
+        "games": games,
+        "W": WLD[0],
+        "L": WLD[1],
+        "D": WLD[2],
+        "w_pct": round(100 * WLD[0] / max(games, 1), 1),
+        "l_pct": round(100 * WLD[1] / max(games, 1), 1),
+        "d_pct": round(100 * WLD[2] / max(games, 1), 1),
+        "pentanomial": pentanomial[:5],
+        "sprt_state": sprt.get("state", ""),
+        "elo_model": elo_model,
+        "elo0": sprt["elo0"],
+        "elo1": sprt["elo1"],
+        "alpha": sprt["alpha"],
+        "beta": sprt["beta"],
+    }
+
+
 def tests_live_elo(request):
     run = request.rundb.get_run(request.matchdict["id"])
     if run is None or "sprt" not in run["args"]:
         raise StarletteHTTPException(status_code=404)
-    return {"run": run, "page_title": get_page_title(run)}
+    ctx = _build_live_elo_context(run)
+    ctx["page_title"] = get_page_title(run)
+    return ctx
+
+
+def live_elo_update(request):
+    run = request.rundb.get_run(request.matchdict["id"])
+    if run is None or "sprt" not in run["args"]:
+        raise StarletteHTTPException(status_code=404)
+    ctx = _build_live_elo_context(run)
+    if run["args"]["sprt"].get("state"):
+        request.response_status = 286
+    return ctx
 
 
 def tests_stats(request):
@@ -2864,6 +2925,11 @@ _VIEW_ROUTES = [
         {"require_csrf": True, "request_method": "POST", "require_primary": True},
     ),
     (tests_live_elo, "/tests/live_elo/{id}", {"renderer": "tests_live_elo.html.j2"}),
+    (
+        live_elo_update,
+        "/tests/live_elo_update/{id}",
+        {"renderer": "live_elo_fragment.html.j2"},
+    ),
     (tests_elo, "/tests/elo/{id}", {"renderer": "elo_results_fragment.html.j2"}),
     (
         homepage_stats,
