@@ -21,15 +21,15 @@ THREADPOOL_TOKENS: int = 200
 TASK_SEMAPHORE_SIZE: int = 5
 
 # htmx polling intervals (seconds), used via Jinja2 global `poll`.
-POLL_MACHINES_HOMEPAGE_S: int = 60
-POLL_BATCH_HOMEPAGE_S: int = 20
-POLL_ELO_DETAIL_S: int = 15
-POLL_STATS_DETAIL_S: int = 15
-POLL_TASKS_DETAIL_S: int = 60
-POLL_LIVE_ELO_S: int = 10
-POLL_RATE_LIMITS_GITHUB_S: int = 10
-POLL_RATE_LIMITS_SERVER_S: int = 60
-POLL_PENDING_USERS_NAV_S: int = 10
+POLL_MACHINES_HOMEPAGE_S: int = 10
+POLL_BATCH_HOMEPAGE_S: int = 10
+POLL_ELO_DETAIL_S: int = 5
+POLL_STATS_DETAIL_S: int = 5
+POLL_TASKS_DETAIL_S: int = 10
+POLL_LIVE_ELO_S: int = 5
+POLL_RATE_LIMITS_GITHUB_S: int = 5
+POLL_RATE_LIMITS_SERVER_S: int = 10
+POLL_PENDING_USERS_NAV_S: int = 5
 
 # htmx UI timing defaults.
 # Keep this generic so multiple pages can share one debounce baseline.
