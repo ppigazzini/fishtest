@@ -1,4 +1,5 @@
 # ruff: noqa: ANN201, ANN206, D100, D101, D102, E501, INP001, PLC0415, PT009
+"""Test HTTP boundary shims, template context, and fragment behavior."""
 
 import re
 import tempfile
