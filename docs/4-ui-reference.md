@@ -56,7 +56,7 @@ registers it on the FastAPI router.
 | `/tests/tasks/{id}` | GET, POST | `tests_tasks` | `tasks_content_fragment.html.j2` | Fragment-only; updates the scrolling task table body and refreshes fixed controls/pagination OOB, with server-side sorting for every visible task column, one combined worker/info search filter, and 25-row pagination |
 | `/tests/machines` | GET, POST | `tests_machines` | `machines_fragment.html.j2` | Fragment-only, 10s cache |
 | `/tests/elo/{id}` | GET, POST | `tests_elo` | `elo_results_fragment.html.j2` | Fragment-only (OOB); standalone ELO/status/totals fragment |
-| `/tests/elo_batch` | GET, POST | `tests_elo_batch` | `elo_batch_fragment.html.j2` | Fragment-only (OOB batch) |
+| `/tests/elo_batch` | GET, POST | `tests_elo_batch` | `elo_batch_fragment.html.j2` | Fragment-only (OOB batch; unfinished panels use stripped run snapshots) |
 | `/tests/live_elo_update/{id}` | GET, POST | `live_elo_update` | `live_elo_fragment.html.j2` | Fragment-only (OOB) |
 | `/tests/finished` | GET, POST | `tests_finished` | `tests_finished.html.j2` | HX: `tests_finished_content_fragment` |
 | `/tests/user/{username}` | GET, POST | `tests_user` | `tests_user.html.j2` | HX: `tests_user_content_fragment` |
@@ -480,6 +480,14 @@ Behavior notes:
 - When workers filters are active and the Workers panel is collapsed, `/tests`
    and `/tests/elo_batch` recompute the filtered value from the current machine
    snapshot instead of reusing the last cookie-backed filtered count.
+- `/tests/elo_batch` rebuilds the unfinished panels from a stripped unfinished-
+   run snapshot that omits `tasks`, `bad_tasks`, and
+   `args.spsa.param_history`.
+- On the primary instance, that unfinished-run snapshot is copied from the
+   in-memory `unfinished_runs` set and run cache; on secondary instances it is
+   copied from a short-lived projected MongoDB snapshot.
+- The batch response still renders per request; the row fragment includes CSRF
+   form state, so the server does not share rendered batch HTML across users.
 - Machines sorting is fully server-authoritative; the old generic client-side
    header sorter has been retired.
 
