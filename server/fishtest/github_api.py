@@ -113,6 +113,7 @@ def init(kvstore, actiondb, *, refresh_master_sha=True):
 
 def clear_api_cache():
     _lru_cache.clear()
+    normalize_repo.cache_clear()
 
 
 def save():
@@ -428,7 +429,12 @@ def get_master_repo(
             r = r["parent"]
 
 
-@lru_cache(maxsize=128, expiration=600, refresh=False)
+@lru_cache(
+    maxsize=128,
+    expiration=600,
+    refresh=False,
+    key=lambda f, args, kw: (f.__name__, canonicalize_repo_url(args[0])),
+)
 def normalize_repo(repo):
     repo = canonicalize_repo_url(repo)
     r = call(
