@@ -4,7 +4,7 @@
 
 {% block opengraph %}
   <meta property="og:title" content="{{ page_title }} | Stockfish Testing">
-  <meta property="og:url" content="{{ request.url }}">
+  <meta property="og:url" content="{{ (request.url | string).split('?') | first }}">
   {% set results_info = format_results(run) %}
   {% set elo_ptnml_run = is_elo_pentanomial_run(run) %}
   {% set description_lines = [] %}

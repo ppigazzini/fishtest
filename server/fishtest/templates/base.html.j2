@@ -24,7 +24,7 @@
     {% block opengraph %}
     <meta property="og:title" content="Stockfish Testing Framework">
     <meta property="og:description" content="Distributed testing framework for the Stockfish chess engine.">
-    <meta property="og:url" content="{{ request.url }}">
+    <meta property="og:url" content="{{ (request.url | string).split('?') | first }}">
     {% endblock %}
 
     <script>
