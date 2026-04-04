@@ -1,28 +1,6 @@
 {% extends "base.html.j2" %}
 
-{% set results_info = format_results(run) %}
-{% set elo_ptnml_run = is_elo_pentanomial_run(run) %}
-{% set nelo_summary = nelo_pentanomial_summary(run) if elo_ptnml_run else none %}
-
 {% block title %}{{ page_title }} | Stockfish Testing{% endblock %}
-
-{% block opengraph %}
-  <meta property="og:title" content="{{ page_title }} | Stockfish Testing">
-  <meta property="og:url" content="{{ (request.url | string).split('?') | first }}">
-  {% set description_lines = [] %}
-  {% for value in results_info["info"] %}
-    {% set _ = description_lines.append(value.replace("ELO", "Elo") if elo_ptnml_run and loop.index0 == 0 else value) %}
-  {% endfor %}
-  {% if nelo_summary %}
-    {% set _ = description_lines.append(nelo_summary) %}
-  {% endif %}
-  <meta property="og:description" content="{{ '```\n' ~ (description_lines | join('\n')) ~ '\n```' }}">
-  {% set style = results_info.get("style", "") %}
-  {% set theme_color = "#FFFF00" if style == "yellow" else (style if style.startswith("#") else "") %}
-  {% if theme_color %}
-    <meta name="theme-color" content="{{ theme_color }}">
-  {% endif %}
-{% endblock %}
 
 {% block body %}
 {% set run_id = run["_id"] | string %}
