@@ -819,6 +819,82 @@ class TestHttpBoundary(unittest.TestCase):
         # Terminal SPRT runs must stop polling.
         self.assertNotIn("/tests/live_elo_update/", response.text)
 
+    def test_live_elo_page_renders_query_free_open_graph_metadata(self):
+        run_id = self._create_live_elo_run(sprt_state="accepted")
+        app = self._build_app(include_views=True)
+        client = self.TestClient(app)
+
+        response = client.get(f"/tests/live_elo/{run_id}?from=discord")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            test_support.extract_meta_content(
+                response.text,
+                property_name="og:title",
+            ),
+            "Live Elo - SPRT new-branch vs master | Stockfish Testing",
+        )
+        self.assertEqual(
+            test_support.extract_meta_content(
+                response.text,
+                property_name="og:url",
+            ),
+            f"http://testserver/tests/live_elo/{run_id}",
+        )
+        self.assertEqual(
+            test_support.extract_meta_content(
+                response.text,
+                property_name="og:image",
+            ),
+            f"http://testserver/tests/live_elo/{run_id}/preview.png",
+        )
+        self.assertEqual(
+            test_support.extract_meta_content(
+                response.text,
+                property_name="og:image:type",
+            ),
+            "image/png",
+        )
+        self.assertEqual(
+            test_support.extract_meta_content(
+                response.text,
+                property_name="og:image:width",
+            ),
+            "1200",
+        )
+        self.assertEqual(
+            test_support.extract_meta_content(
+                response.text,
+                property_name="og:image:height",
+            ),
+            "630",
+        )
+        image_alt = test_support.extract_meta_content(
+            response.text,
+            property_name="og:image:alt",
+        )
+        self.assertIn("Three horizontal live-Elo gauges", image_alt)
+        description = test_support.extract_meta_content(
+            response.text,
+            property_name="og:description",
+        )
+        self.assertIn("LLR", description)
+        self.assertIn("LOS", description)
+        self.assertIn("Elo", description)
+        self.assertNotIn("&plusmn;", description)
+
+    def test_live_elo_preview_image_route_returns_png(self):
+        run_id = self._create_live_elo_run()
+        app = self._build_app(include_views=True)
+        client = self.TestClient(app)
+
+        response = client.get(f"/tests/live_elo/{run_id}/preview.png")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["content-type"], "image/png")
+        self.assertEqual(response.headers.get("cache-control"), "no-cache")
+        self.assertTrue(response.content.startswith(b"\x89PNG\r\n\x1a\n"))
+
     def test_live_elo_update_terminal_sprt_sets_status_286(self):
         run_id = self._create_live_elo_run(sprt_state="rejected")
         app = self._build_app(include_views=True)

@@ -17,6 +17,7 @@ _GET_ONLY_ROUTES = {
     "/tests",
     "/tests/finished",
     "/tests/live_elo/{id}",
+    "/tests/live_elo/{id}/preview.png",
     "/tests/live_elo_update/{id}",
     "/tests/machines",
     "/tests/stats/{id}",

@@ -57,7 +57,8 @@ but generic `OPTIONS` is not part of the UI route contract and returns `405`.
 | `/tests/delete` | POST | `tests_delete` | -- | CSRF, primary |
 | `/tests/view/{id}` | GET | `tests_view` | `tests_view.html.j2` | Full detail page; renders server-owned Open Graph metadata with a query-free canonical URL and a Discord-oriented multi-line `og:description`; unfinished runs poll the merged detail fragment endpoint and the dedicated tasks endpoint |
 | `/tests/view/{id}/detail` | GET | `tests_view_detail` | `tests_view_detail_fragment.html.j2` | Fragment-only; no page-head metadata; OOB refresh for ELO, run status, active-worker totals, detail, time, chi-square, and the retained SPSA data payload |
-| `/tests/live_elo/{id}` | GET | `tests_live_elo` | `tests_live_elo.html.j2` | Live Elo page + dual-scale gauge |
+| `/tests/live_elo/{id}` | GET | `tests_live_elo` | `tests_live_elo.html.j2` | Canonical live-ELO page; renders server-owned Open Graph metadata with a query-free canonical URL and a dedicated PNG `og:image`; live data still polls through the fragment endpoint |
+| `/tests/live_elo/{id}/preview.png` | GET | `live_elo_preview_image` | -- | Binary PNG used by the canonical live-ELO page's `og:image`; not a navigable HTML page and not an htmx fragment |
 | `/tests/stats/{id}` | GET | `tests_stats` | `tests_stats.html.j2` | HX: `tests_stats_content_fragment.html.j2`; active runs poll with the dedicated stats-page interval and visibility-aware refresh |
 | `/tests/tasks/{id}` | GET | `tests_tasks` | `tasks_content_fragment.html.j2` | Fragment-only; updates the scrolling task table body and refreshes fixed controls/pagination OOB, with server-side sorting for every visible task column, one combined worker/info search filter, and 25-row pagination |
 | `/tests/machines` | GET | `tests_machines` | `machines_fragment.html.j2` | Fragment-only, 10s cache |
@@ -176,6 +177,18 @@ Server behavior for htmx polling:
 
 The Live Elo page renders three Google gauges (LOS, LLR, Elo) and keeps the
 details table in sync through `/tests/live_elo_update/{id}` OOB swaps.
+
+Page-head metadata contract:
+
+- The full `/tests/live_elo/{id}` page owns `<title>`, Open Graph tags, and
+   the dedicated `og:image` URL.
+- The `og:image` asset is served by `/tests/live_elo/{id}/preview.png` as a
+   server-rendered PNG that summarizes the three gauges with horizontal bars.
+- The preview image keeps the Elo bar on the fixed `[-4, +4]` scale so the
+   shared image matches the page's default gauge mode instead of any
+   cookie-driven client toggle state.
+- The fragment-only `/tests/live_elo_update/{id}` endpoint never renders or
+   updates page-head metadata.
 
 The Elo gauge supports two display modes:
 

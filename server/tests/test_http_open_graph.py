@@ -2,7 +2,13 @@
 
 import unittest
 
+from fishtest.http.live_elo_preview import (
+    LIVE_ELO_PREVIEW_HEIGHT,
+    LIVE_ELO_PREVIEW_MIME_TYPE,
+    LIVE_ELO_PREVIEW_WIDTH,
+)
 from fishtest.http.open_graph import (
+    build_live_elo_open_graph,
     build_tests_view_open_graph,
     canonical_page_url,
     default_open_graph,
@@ -92,3 +98,47 @@ class OpenGraphTests(unittest.TestCase):
         self.assertIn("\n", open_graph["description"])
         self.assertNotIn("```", open_graph["description"])
         self.assertIsNone(theme_color)
+
+    def test_build_live_elo_open_graph_includes_preview_image(self):
+        run = {
+            "_id": "69d12ae19caf4559aa7ada3f",
+            "args": {},
+        }
+        live_elo_context = {
+            "LLR": 0.12,
+            "a": -2.94,
+            "b": 2.94,
+            "elo_value": 1.45,
+            "ci_lower": -0.23,
+            "ci_upper": 3.12,
+            "LOS": 61.5,
+            "games": 40,
+            "sprt_state": "accepted",
+        }
+
+        open_graph = build_live_elo_open_graph(
+            host_url="https://example.org/",
+            run=run,
+            page_title="SPRT new-branch vs master",
+            live_elo_context=live_elo_context,
+        )
+
+        self.assertEqual(
+            open_graph["title"],
+            "Live Elo - SPRT new-branch vs master | Stockfish Testing",
+        )
+        self.assertEqual(
+            open_graph["url"],
+            "https://example.org/tests/live_elo/69d12ae19caf4559aa7ada3f",
+        )
+        self.assertIn("Accepted snapshot.", open_graph["description"])
+        self.assertIn("LOS 61.5%", open_graph["description"])
+        image = open_graph["image"]
+        self.assertEqual(
+            image["url"],
+            "https://example.org/tests/live_elo/69d12ae19caf4559aa7ada3f/preview.png",
+        )
+        self.assertEqual(image["type"], LIVE_ELO_PREVIEW_MIME_TYPE)
+        self.assertEqual(image["width"], LIVE_ELO_PREVIEW_WIDTH)
+        self.assertEqual(image["height"], LIVE_ELO_PREVIEW_HEIGHT)
+        self.assertIn("Three horizontal live-Elo gauges", image["alt"])

@@ -52,7 +52,11 @@ from fishtest.http.dependencies import (
     get_userdb,
     get_workerdb,
 )
-from fishtest.http.open_graph import build_tests_view_open_graph
+from fishtest.http.live_elo_preview import render_live_elo_preview_png
+from fishtest.http.open_graph import (
+    build_live_elo_open_graph,
+    build_tests_view_open_graph,
+)
 from fishtest.http.settings import (
     ACTIONS_PAGE_SIZE,
     CONTRIBUTORS_MAX_ALL,
@@ -2840,8 +2844,32 @@ def tests_live_elo(request: _ViewContext) -> dict[str, Any]:
     if run is None or "sprt" not in run["args"]:
         raise StarletteHTTPException(status_code=404)
     context = _build_live_elo_context(run)
-    context["page_title"] = get_page_title(run)
+    page_title = get_page_title(run)
+    context["page_title"] = page_title
+    context["open_graph"] = build_live_elo_open_graph(
+        host_url=_host_url(request),
+        run=run,
+        page_title=page_title,
+        live_elo_context=context,
+    )
     return context
+
+
+def live_elo_preview_image(request: _ViewContext) -> Response:
+    run = request.rundb.get_run(request.matchdict["id"])
+    if run is None or "sprt" not in run["args"]:
+        raise StarletteHTTPException(status_code=404)
+
+    preview_image = render_live_elo_preview_png(
+        run=run,
+        page_title=get_page_title(run),
+        live_elo_context=_build_live_elo_context(run),
+    )
+    return Response(
+        content=preview_image,
+        media_type="image/png",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 def live_elo_update(request: _ViewContext) -> dict[str, Any]:
@@ -3754,6 +3782,7 @@ _VIEW_ROUTES: list[_ViewRoute] = [
         {"require_csrf": True, "request_method": "POST", "require_primary": True},
     ),
     (tests_live_elo, "/tests/live_elo/{id}", {"renderer": "tests_live_elo.html.j2"}),
+    (live_elo_preview_image, "/tests/live_elo/{id}/preview.png", {}),
     (
         live_elo_update,
         "/tests/live_elo_update/{id}",

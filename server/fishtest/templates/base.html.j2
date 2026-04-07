@@ -4,6 +4,7 @@
 {% set pending_users_count = pending_users_count if pending_users_count is defined else 0 %}
 {% set csrf_token = csrf_token if csrf_token is defined else "" %}
 {% set flash = flash if flash is defined else {"error": [], "warning": [], "info": []} %}
+{% set open_graph_image = open_graph.get('image') %}
 {% set home_url = urls.home %}
 {% set login_url = urls.login %}
 {% set signup_url = urls.signup %}
@@ -24,6 +25,13 @@
     <meta property="og:title" content="{{ open_graph['title'] }}">
     <meta property="og:description" content="{{ open_graph['description'] }}">
     <meta property="og:url" content="{{ open_graph['url'] }}">
+    {% if open_graph_image %}
+    <meta property="og:image" content="{{ open_graph_image['url'] }}">
+    <meta property="og:image:type" content="{{ open_graph_image['type'] }}">
+    <meta property="og:image:width" content="{{ open_graph_image['width'] }}">
+    <meta property="og:image:height" content="{{ open_graph_image['height'] }}">
+    <meta property="og:image:alt" content="{{ open_graph_image['alt'] }}">
+    {% endif %}
     {% if theme_color %}
     <meta name="theme-color" content="{{ theme_color }}">
     {% endif %}

@@ -73,7 +73,7 @@ Every template receives these keys from `build_template_context()`:
 | `request` | `Request` | Starlette request object (for `url_for`) |
 | `csrf_token` | string | CSRF token for forms and meta tags |
 | `current_user` | `{"username": str}` or `None` | Authenticated user |
-| `open_graph` | dict | Server-owned Open Graph fields rendered by `base.html.j2` |
+| `open_graph` | dict | Server-owned Open Graph fields rendered by `base.html.j2`, with optional nested image fields |
 | `theme` | string | `"dark"`, `"light"`, or empty (from cookie) |
 | `theme_color` | string or `None` | Optional `theme-color` meta value rendered by `base.html.j2` |
 | `pending_users_count` | int | Pending-user count used by the sidebar `Users` link |
@@ -88,16 +88,25 @@ Every template receives these keys from `build_template_context()`:
 Full-page handlers may override these keys:
 
 - `open_graph`: dictionary with `site_name`, `type`, `title`, `description`,
-  and `url`
+   and `url`; it may also include `image` with `url`, `type`, `width`,
+   `height`, and `alt`
 - `theme_color`: CSS color string or `None`
 
 For `/tests/view/{id}`, `open_graph['description']` is plain multi-line text so
 Discord link previews preserve the run summary layout, including pentanomial
 lines when present, without shipping literal backticks.
 
+For `/tests/live_elo/{id}`, `open_graph['image']` points at the server-rendered
+PNG route `/tests/live_elo/{id}/preview.png`. `base.html.j2` emits the
+structured `og:image`, `og:image:type`, `og:image:width`, `og:image:height`,
+and `og:image:alt` tags only when this nested image metadata is present.
+
 Fragment-only templates do not own page-head metadata. The `/tests/view/{id}`
 detail page follows this rule: the full page renders the head tags, while the
 live `/tests/view/{id}/detail` fragment updates body content only.
+
+The live-ELO page follows the same split: `/tests/live_elo/{id}` owns the head
+tags, while `/tests/live_elo_update/{id}` stays body-only.
 
 ### Navigation URLs (`urls` dict)
 
