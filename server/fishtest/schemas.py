@@ -826,8 +826,6 @@ runs_schema = intersect(
                                     "theta": float,
                                     "R?": unumber,
                                     "c": unumber,
-                                    "z?": float,
-                                    "v?": unumber,
                                 },
                                 ...,
                             ],

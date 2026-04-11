@@ -68,20 +68,18 @@ def _add_to_history(spsa, num_games, w_params, show_vals):
 
     if len(spsa["param_history"]) + 1 <= spsa["iter"] / period:
         summary = []
-        for param, w_param, show_val in zip(spsa["params"], w_params, show_vals):
+        for _param, w_param, show_val in zip(spsa["params"], w_params, show_vals):
             row = {"theta": show_val, "c": w_param["c"]}
             if "R" in w_param:
                 row["R"] = w_param["R"]
-            if "z" in param:
-                row["z"] = param["z"]
-            if "v" in param:
-                row["v"] = param["v"]
             summary.append(row)
         spsa["param_history"].append(summary)
 
 
 def _classic_param_update(param, w_param, result):
-    param["theta"] = _param_clip(param, w_param["R"] * w_param["c"] * result * w_param["flip"])
+    param["theta"] = _param_clip(
+        param, w_param["R"] * w_param["c"] * result * w_param["flip"]
+    )
     return param["theta"]
 
 
@@ -236,7 +234,9 @@ class SPSAHandler:
         result = spsa_results["wins"] - spsa_results["losses"]
         N = spsa_results["num_games"] // 2
         if N <= 0:
-            print(f"update_spsa_data: N=0 for {run_id}/{task_id}, skipping.", flush=True)
+            print(
+                f"update_spsa_data: N=0 for {run_id}/{task_id}, skipping.", flush=True
+            )
             return
 
         spsa["iter"] += N

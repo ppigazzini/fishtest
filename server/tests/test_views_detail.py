@@ -143,7 +143,7 @@ class TestTestsViewDetail(unittest.TestCase):
                     "r_end": 1.0e-03,
                 },
             ],
-            "param_history": [[{"theta": 12.0, "c": 1.5}]],
+            "param_history": [[{"theta": 12.0, "c": 1.5, "iter": 1}]],
         }
         self.rundb.buffer(run, priority=Prio.SAVE_NOW)
         return run_id
@@ -174,7 +174,7 @@ class TestTestsViewDetail(unittest.TestCase):
                     "v": 0.0,
                 },
             ],
-            "param_history": [[{"theta": 11.5, "c": 1.5, "z": 11.0, "v": 0.0}]],
+            "param_history": [[{"theta": 11.5, "c": 1.5}]],
         }
         self.rundb.buffer(run, priority=Prio.SAVE_NOW)
         return run_id
@@ -508,6 +508,10 @@ class TestTestsViewDetail(unittest.TestCase):
         )
         self.assertIn("ParamA", response.text)
         self.assertIn("iter: 3, lr: 0.00500, beta: 0.900", response.text)
+        self.assertIn('"theta": 12.5', response.text)
+        self.assertIn('"z": 12.0', response.text)
+        self.assertNotIn('"iter": 1', response.text)
+        self.assertNotIn('"plot_theta"', response.text)
         self.assertIn("<th>c</th>", response.text)
         self.assertNotIn("<th>c_end</th>", response.text)
         self.assertNotIn("<th>r_end</th>", response.text)
@@ -525,6 +529,11 @@ class TestTestsViewDetail(unittest.TestCase):
 
         self.assertIn("payloadText === lastRenderedPayloadText", script_source)
         self.assertIn("const scroller = getSPSAScrollContainer();", script_source)
+        self.assertIn("function getLivePointTheta(param)", script_source)
+        self.assertIn("iterValue > spsaHistory.length * period", script_source)
+        self.assertIn("getLivePlotCValue(spsaParams[i], iterValue)", script_source)
+        self.assertNotIn("plot_theta", script_source)
+        self.assertNotIn("historyRow?.[0]?.iter", script_source)
         self.assertNotIn('historyPlot.addEventListener("pointerenter"', script_source)
         self.assertNotIn('historyPlot.addEventListener("pointerleave"', script_source)
         self.assertNotIn("deferredRefreshPending", script_source)
