@@ -283,12 +283,45 @@ async function handleSPSA() {
     }
   }
 
+  function getLegacyHistorySampling(numIter, nParams) {
+    const samples = nParams < 100 ? 100 : nParams < 1000 ? 10000 / nParams : 1;
+    const period = numIter > 0 ? Math.max(numIter / samples, 1) : 0;
+    return { period };
+  }
+
+  function getLivePointTheta(param) {
+    const theta = asFiniteNumber(param?.theta, asFiniteNumber(param?.start, 0));
+    const beta1 = asFiniteNumber(spsaData?.sf_beta1, Number.NaN);
+    const z = asFiniteNumber(param?.z, Number.NaN);
+    if (!Number.isFinite(beta1) || beta1 <= 0 || !Number.isFinite(z)) {
+      return theta;
+    }
+
+    const livePointTheta = (theta - (1 - beta1) * z) / beta1;
+    const minValue = asFiniteNumber(param?.min, livePointTheta);
+    const maxValue = asFiniteNumber(param?.max, livePointTheta);
+    return Math.min(Math.max(livePointTheta, minValue), maxValue);
+  }
+
+  function getLivePlotCValue(param, iterValue) {
+    const cValue = asFiniteNumber(param?.c, Number.NaN);
+    if (!Number.isFinite(cValue)) {
+      return Number.NaN;
+    }
+
+    if (Number.isFinite(Number(spsaData?.sf_lr))) {
+      return cValue;
+    }
+
+    const gamma = asFiniteNumber(spsaData?.gamma, 0);
+    return cValue / Math.pow(iterValue + 1, gamma);
+  }
+
   function buildData(nextSmoothingFactor) {
     const spsaParams = spsaData.params;
     const spsaHistory = spsaData.param_history;
     const numIter = asFiniteNumber(spsaData.num_iter, 0);
     const iterValue = asFiniteNumber(spsaData.iter, 0);
-    const gamma = asFiniteNumber(spsaData.gamma, 0);
     const spsaIterRatio =
       numIter > 0 ? Math.min(Math.max(iterValue / numIter, 0), 1) : 0;
 
@@ -299,24 +332,28 @@ async function handleSPSA() {
         dt0.addColumn("number", spsaParams[i].name);
       }
 
-      const nParams = spsaParams.length;
-      const samples =
-        nParams < 100 ? 100 : nParams < 1000 ? 10000 / nParams : 1;
-      const period = numIter > 0 ? Math.max(numIter / samples, 1) : 0;
+      const { period } = getLegacyHistorySampling(numIter, spsaParams.length);
       const hasLivePoint =
         spsaHistory.length > 0 &&
         period > 0 &&
         iterValue > spsaHistory.length * period;
       const totalPoints = spsaHistory.length + (hasLivePoint ? 1 : 0);
+      const historyProgressValues = spsaHistory.map((_, index) =>
+        totalPoints > 0 ? ((index + 1) / totalPoints) * spsaIterRatio : 0,
+      );
 
       const lastValues = spsaParams.map((param) =>
         asFiniteNumber(param.start, asFiniteNumber(param.theta, 0)),
       );
       const unsmoothedData = [];
       for (let i = 0; i <= totalPoints; i += 1) {
-        const rowData = [
-          totalPoints > 0 ? (i / totalPoints) * spsaIterRatio : 0,
-        ];
+        let xValue = 0;
+        if (i > 0 && hasLivePoint && i === totalPoints) {
+          xValue = spsaIterRatio;
+        } else if (i > 0) {
+          xValue = historyProgressValues[i - 1] ?? 0;
+        }
+        const rowData = [xValue];
         for (let j = 0; j < spsaParams.length; j += 1) {
           if (i === 0) {
             rowData.push(lastValues[j]);
@@ -324,7 +361,7 @@ async function handleSPSA() {
           }
 
           if (hasLivePoint && i === totalPoints) {
-            rowData.push(asFiniteNumber(spsaParams[j].theta, lastValues[j]));
+            rowData.push(getLivePointTheta(spsaParams[j]));
             continue;
           }
 
@@ -394,7 +431,7 @@ async function handleSPSA() {
             const cValue =
               row <= spsaHistory.length
                 ? Number(spsaHistory[row - 1]?.[i]?.c)
-                : Number(spsaParams[i]?.c) / Math.pow(iterValue + 1, gamma);
+                : getLivePlotCValue(spsaParams[i], iterValue);
             if (!Number.isFinite(cValue) || cValue === 0) {
               return null;
             }

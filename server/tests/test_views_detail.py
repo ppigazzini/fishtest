@@ -177,13 +177,13 @@ class TestTestsViewDetail(unittest.TestCase):
                     "a": 0.0,
                     "a_end": 0.0,
                     "r_end": 0.0,
-                    "z": 12.5,
+                    "z": 12.0,
                     "v": 0.0,
                 },
             ],
             "param_history": [
-                [{"theta": 11.5, "c": 0.5, "z": 11.5, "v": 0.0}],
-                [{"theta": 12.0, "c": 0.5, "z": 12.0, "v": 0.0}],
+                [{"theta": 11.5, "c": 0.5}],
+                [{"theta": 12.0, "c": 0.5}],
             ],
         }
         self.rundb.buffer(run, priority=Prio.SAVE_NOW)
@@ -521,6 +521,10 @@ class TestTestsViewDetail(unittest.TestCase):
             "iter: 3, lr: 0.0025, beta1: 0.9, beta2: 0.999, eps: 1e-08",
             response.text,
         )
+        self.assertIn('"theta": 12.5', response.text)
+        self.assertIn('"z": 12.0', response.text)
+        self.assertNotIn('"iter": 1', response.text)
+        self.assertNotIn('"plot_theta"', response.text)
         self.assertIn("<th>c</th>", response.text)
         self.assertNotIn("<th>r_end</th>", response.text)
         self.assertNotIn("<title>", response.text)
@@ -537,6 +541,16 @@ class TestTestsViewDetail(unittest.TestCase):
 
         self.assertIn("payloadText === lastRenderedPayloadText", script_source)
         self.assertIn("const scroller = getSPSAScrollContainer();", script_source)
+        self.assertIn("function getLivePointTheta(param)", script_source)
+        self.assertIn(
+            "const { period } = getLegacyHistorySampling(numIter, spsaParams.length);",
+            script_source,
+        )
+        self.assertIn("iterValue > spsaHistory.length * period", script_source)
+        self.assertNotIn("historyRow?.[0]?.iter", script_source)
+        self.assertIn("spsaData?.sf_beta1", script_source)
+        self.assertIn("getLivePlotCValue(spsaParams[i], iterValue)", script_source)
+        self.assertNotIn("plot_theta", script_source)
         self.assertNotIn('historyPlot.addEventListener("pointerenter"', script_source)
         self.assertNotIn('historyPlot.addEventListener("pointerleave"', script_source)
         self.assertNotIn("deferredRefreshPending", script_source)

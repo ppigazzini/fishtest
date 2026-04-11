@@ -232,8 +232,6 @@ def _add_to_history(spsa, num_games, w_params, show_vals):
             {
                 "theta": show_val,
                 "c": w_param["c"],
-                "z": param.get("z", show_val),
-                "v": param.get("v", 0.0),
             }
             for param, w_param, show_val in zip(spsa["params"], w_params, show_vals)
         ]
