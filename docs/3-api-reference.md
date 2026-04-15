@@ -188,11 +188,24 @@ periodically to prevent the server from reclaiming the task.
 **Response**:
 ```json
 {
-  "w_params": [...],
-  "b_params": [...],
+  "task_alive": true,
+  "sig": 123456789,
+  "w_params": [
+    { "name": "Tempo", "value": 12.5, "c": 1.6, "flip": 1, "R": 0.08 }
+  ],
+  "b_params": [
+    { "name": "Tempo", "value": 9.5 }
+  ],
   "duration": 0.01
 }
 ```
+
+Response notes:
+
+- `w_params[i]` and `b_params[i]` describe the paired white/black probe for the same SPSA parameter.
+- `value` is the clipped parameter value that the worker should play for that side.
+- `R` is present only for classic SPSA. Schedule-free SGD workers receive the shared `c` and `flip` fields without a classic decay factor.
+- `sig` must be echoed back with the worker's SPSA result update so the server can verify the packed flip sequence.
 
 ---
 

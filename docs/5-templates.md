@@ -608,7 +608,8 @@ Behavior notes:
    through `run_tables_ctx`, including restored checkbox selections, filtered
    count text, and initial hide selectors.
 - `run_tables_ctx` is intentionally lightweight. Unfinished-run rows omit
-   `tasks`, `bad_tasks`, and `args.spsa.param_history`; task detail stays on
+   `tasks`, `bad_tasks`, and heavy SPSA state such as compact
+   `args.spsa.param_history`; task detail stays on
    the detail and tasks routes.
 - Notification button state is not part of `run_tables_ctx` because it is
    derived from browser-local follow state at page load time.
@@ -653,6 +654,7 @@ visually bounded by the active range.
 | `is_rerun` | bool |
 | `rescheduled_from` | string or None |
 | `form_action` | string |
+| `spsa_form_values` | dict (`algorithm`, `raw_params`, `sf_lr`, `sf_beta`) |
 | `tests_repo_value` | string |
 | `master_info` | dict or None |
 | `valid_books` | iterable |
@@ -676,6 +678,11 @@ Tests repository contract:
    form
 - trailing-slash input is accepted on submit, but persisted run data is
   canonicalized and validated as the slash-free form
+
+SPSA form contract:
+
+- `spsa_form_values` owns the visible SPSA input defaults for the shared run form.
+- Reruns reuse the stored raw parameter rows and preserve schedule-free `sf_lr` and `sf_beta` when they exist.
 
 ### `tests_stats.html.j2`
 
@@ -872,6 +879,7 @@ Rendered structure:
    exposing `param_names` plus server-shaped `chart_rows`; those chart rows
    fold together the start row, compact sampled history rows, and the current
    live point, with `c_values` present when `% c` mode can be rendered
+- `static/js/spsa.js` treats that payload as renderer-ready and does not rebuild optimizer history or live points in the browser
 - cookie-backed `% c` checkbox rendered from `spsa_percentage_checked`
 - `#spsa_history_scroll` retained scroll container
 - CSS-owned `#spsa_history_plot` shell for the fixed-size chart (Google Charts uses 1000x500; layout and scrolling handled by CSS and the scroll container)

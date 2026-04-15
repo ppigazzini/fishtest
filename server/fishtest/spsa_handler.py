@@ -62,27 +62,32 @@ def _generate_data(spsa, iter=None):
     return result
 
 
-def _add_to_history(spsa, num_games, w_params):
-    n_params = len(spsa["params"])
-    period = get_spsa_history_period(num_iter=num_games / 2, param_count=n_params)
-
-    if len(spsa["params"]) != len(w_params):
+def _add_to_history(spsa, num_games, w_params, show_vals):
+    if len(spsa["params"]) != len(w_params) or len(w_params) != len(show_vals):
         msg = (
             "SPSA history length mismatch: "
-            f"{len(spsa['params'])} params, {len(w_params)} worker params"
+            f"{len(spsa['params'])} params, {len(w_params)} worker params, "
+            f"{len(show_vals)} display values"
         )
         raise ValueError(msg)
 
+    period = get_spsa_history_period(
+        num_iter=num_games / 2,
+        param_count=len(spsa["params"]),
+    )
     if period <= 0:
         return
 
     if "param_history" not in spsa:
         spsa["param_history"] = []
+
     if len(spsa["param_history"]) + 1 <= spsa["iter"] / period:
-        summary = [
-            {"theta": spsa_param["theta"], "R": w_param["R"], "c": w_param["c"]}
-            for spsa_param, w_param in zip(spsa["params"], w_params)
-        ]
+        summary = []
+        for w_param, show_val in zip(w_params, show_vals):
+            row = {"theta": show_val, "c": w_param["c"]}
+            if "R" in w_param:
+                row["R"] = w_param["R"]
+            summary.append(row)
         spsa["param_history"].append(summary)
 
 
@@ -102,7 +107,6 @@ class SPSAHandler:
         task = run["tasks"][task_id]
         spsa = run["args"]["spsa"]
 
-        # Check if the worker is still working on this task.
         if not task["active"]:
             info = "request_spsa_data: task {}/{} is not active".format(run_id, task_id)
             print(info, flush=True)
@@ -110,13 +114,9 @@ class SPSAHandler:
 
         result = _generate_data(spsa)
         packed_flips = _pack_flips([w_param["flip"] for w_param in result["w_params"]])
-        task["spsa_params"] = {}
-        task["spsa_params"]["iter"] = spsa["iter"]
-        task["spsa_params"]["packed_flips"] = packed_flips
+        task["spsa_params"] = {"iter": spsa["iter"], "packed_flips": packed_flips}
         self.buffer(run)
-        # The signature defends against server crashes and worker bugs
-        sig = zlib.crc32(packed_flips)
-        result["sig"] = sig
+        result["sig"] = zlib.crc32(packed_flips)
         result["task_alive"] = True
         return result
 
@@ -129,7 +129,6 @@ class SPSAHandler:
         task = run["tasks"][task_id]
         spsa = run["args"]["spsa"]
 
-        # Catch some issues which may occur after a server crash
         if "spsa_params" not in task:
             print(
                 f"update_spsa_data: spsa_params not found for {run_id}/{task_id}. Skipping update...",
@@ -137,39 +136,39 @@ class SPSAHandler:
             )
             return
         task_spsa_params = task["spsa_params"]
-        # Make sure we cannot call update_spsa_data again with these data
         del task["spsa_params"]
 
         sig = spsa_results.get("sig", 0)
         if sig != zlib.crc32(task_spsa_params["packed_flips"]):
             print(
-                f"update_spsa_data: spsa_params for {run_id}/{task_id}",
-                "do not match the signature sent by the worker.",
-                "Skipping update...",
+                f"update_spsa_data: spsa_params for {run_id}/{task_id} do not match signature. Skipping update...",
                 flush=True,
             )
             return
 
-        # Reconstruct spsa data from the task data
         w_params = _generate_data(spsa, iter=task_spsa_params["iter"])["w_params"]
         flips = _unpack_flips(task_spsa_params["packed_flips"], length=len(w_params))
         for idx, w_param in enumerate(w_params):
             w_param["flip"] = flips[idx]
-            del w_param["value"]  # for safety!
+            del w_param["value"]
 
         result = spsa_results["wins"] - spsa_results["losses"]
         game_pairs = spsa_results["num_games"] // 2
-        spsa["iter"] += game_pairs
+        if game_pairs <= 0:
+            print(
+                f"update_spsa_data: N=0 for {run_id}/{task_id}, skipping.",
+                flush=True,
+            )
+            return
 
-        apply_spsa_result_updates(
+        spsa["iter"] += game_pairs
+        show_vals = apply_spsa_result_updates(
             spsa,
             w_params,
             result=result,
             game_pairs=game_pairs,
         )
-
-        _add_to_history(spsa, run["args"]["num_games"], w_params)
-
+        _add_to_history(spsa, run["args"]["num_games"], w_params, show_vals)
         self.buffer(run)
 
     def get_spsa_data(self, run_id):

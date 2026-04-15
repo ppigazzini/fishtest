@@ -6,6 +6,8 @@ from math import isfinite
 
 from fishtest.spsa_workflow import (
     CLASSIC_SPSA_ALGORITHM,
+    MIN_SPSA_SF_LR,
+    SF_SGD_SPSA_ALGORITHM,
     apply_spsa_result_updates,
     build_spsa_chart_payload,
     build_spsa_form_values,
@@ -15,30 +17,57 @@ from fishtest.spsa_workflow import (
 
 
 class SpsaWorkflowTests(unittest.TestCase):
-    def test_build_spsa_form_values_defaults_to_classic(self):
-        values = build_spsa_form_values(None)
+    def test_build_spsa_form_values_defaults_to_schedule_free_form(self):
+        values = build_spsa_form_values({})
 
-        self.assertEqual(values["algorithm"], CLASSIC_SPSA_ALGORITHM)
-        self.assertEqual(values["A"], 0.1)
-        self.assertEqual(values["alpha"], 0.602)
-        self.assertEqual(values["gamma"], 0.101)
+        self.assertEqual(values["algorithm"], SF_SGD_SPSA_ALGORITHM)
         self.assertEqual(values["raw_params"], "")
+        self.assertEqual(values["sf_lr"], 0.005)
+        self.assertEqual(values["sf_beta"], 0.9)
 
-    def test_build_spsa_form_values_uses_ratio_without_mutating_state(self):
-        spsa = {
-            "algorithm": CLASSIC_SPSA_ALGORITHM,
-            "A": 25,
-            "alpha": 0.602,
-            "gamma": 0.101,
-            "raw_params": "Tempo,1,0,2,0.5,0.1",
+    def test_build_spsa_state_sets_schedule_free_algorithm_and_params(self):
+        post = {
+            "spsa_algorithm": SF_SGD_SPSA_ALGORITHM,
+            "spsa_sf_lr": "0.005",
+            "spsa_sf_beta": "0.9",
+            "spsa_raw_params": "Tempo,1,0,2,0.5",
         }
 
-        values = build_spsa_form_values(spsa, num_games=500)
+        spsa = build_spsa_state(post, num_games=1000)
 
-        self.assertEqual(values["A"], 0.1)
-        self.assertEqual(spsa["A"], 25)
+        self.assertEqual(spsa["algorithm"], SF_SGD_SPSA_ALGORITHM)
+        self.assertEqual(spsa["num_iter"], 500)
+        self.assertEqual(spsa["params"][0]["theta"], 1.0)
+        self.assertEqual(spsa["params"][0]["z"], 1.0)
+        self.assertEqual(spsa["params"][0]["v"], 0.0)
 
-    def test_build_spsa_state_sets_classic_algorithm_and_params(self):
+    def test_build_spsa_state_accepts_minimum_schedule_free_learning_rate(self):
+        post = {
+            "spsa_algorithm": SF_SGD_SPSA_ALGORITHM,
+            "spsa_sf_lr": "1e-8",
+            "spsa_sf_beta": "0.9",
+            "spsa_raw_params": "Tempo,1,0,2,0.5",
+        }
+
+        spsa = build_spsa_state(post, num_games=1000)
+
+        self.assertEqual(spsa["sf_lr"], MIN_SPSA_SF_LR)
+
+    def test_build_spsa_state_rejects_too_small_schedule_free_learning_rate(self):
+        post = {
+            "spsa_algorithm": SF_SGD_SPSA_ALGORITHM,
+            "spsa_sf_lr": "9e-9",
+            "spsa_sf_beta": "0.9",
+            "spsa_raw_params": "Tempo,1,0,2,0.5",
+        }
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "SPSA learning rate must be between 1e-8 and 1",
+        ):
+            build_spsa_state(post, num_games=1000)
+
+    def test_build_spsa_state_supports_classic_algorithm(self):
         post = {
             "spsa_algorithm": CLASSIC_SPSA_ALGORITHM,
             "spsa_A": "0.1",
@@ -53,14 +82,14 @@ class SpsaWorkflowTests(unittest.TestCase):
         self.assertEqual(spsa["A"], 25)
         self.assertEqual(spsa["num_iter"], 250)
         self.assertEqual(spsa["params"][0]["theta"], 1.0)
+        self.assertNotIn("z", spsa["params"][0])
 
     def test_build_spsa_state_rejects_unknown_algorithm(self):
         post = {
             "spsa_algorithm": "unknown",
-            "spsa_A": "0.1",
-            "spsa_alpha": "0.602",
-            "spsa_gamma": "0.101",
-            "spsa_raw_params": "Tempo,1,0,2,0.5,0.1",
+            "spsa_sf_lr": "0.005",
+            "spsa_sf_beta": "0.9",
+            "spsa_raw_params": "Tempo,1,0,2,0.5",
         }
 
         with self.assertRaisesRegex(ValueError, "Unknown SPSA algorithm"):
@@ -106,6 +135,18 @@ class SpsaWorkflowTests(unittest.TestCase):
         self.assertAlmostEqual(worker_step["R"], expected_R)
         self.assertEqual(worker_step["flip"], 1)
 
+    def test_build_spsa_worker_step_uses_schedule_free_step_without_decay(self):
+        spsa = {
+            "algorithm": SF_SGD_SPSA_ALGORITHM,
+            "sf_lr": 0.005,
+            "sf_beta": 0.9,
+        }
+        param = {"c": 1.6}
+
+        worker_step = build_spsa_worker_step(spsa, param, iter_value=2, flip=-1)
+
+        self.assertEqual(worker_step, {"c": 1.6, "flip": -1})
+
     def test_apply_spsa_result_updates_preserves_classic_update_rule(self):
         spsa = {
             "algorithm": CLASSIC_SPSA_ALGORITHM,
@@ -127,13 +168,47 @@ class SpsaWorkflowTests(unittest.TestCase):
             game_pairs=10,
         )
 
-        self.assertIsNone(result)
+        self.assertEqual(result, [13.0])
         self.assertEqual(spsa["params"][0]["theta"], 13.0)
+
+    def test_apply_spsa_result_updates_updates_schedule_free_state(self):
+        spsa = {
+            "algorithm": SF_SGD_SPSA_ALGORITHM,
+            "iter": 4,
+            "sf_lr": 0.1,
+            "sf_beta": 0.0,
+            "sf_weight_sum": 0.0,
+            "params": [
+                {
+                    "theta": 10.0,
+                    "z": 10.0,
+                    "v": 0.0,
+                    "min": 0.0,
+                    "max": 20.0,
+                },
+            ],
+        }
+        w_params = [{"c": 2.0, "flip": 1}]
+
+        result = apply_spsa_result_updates(
+            spsa,
+            w_params,
+            result=3,
+            game_pairs=4,
+        )
+
+        self.assertAlmostEqual(spsa["sf_weight_sum"], 0.4)
+        self.assertAlmostEqual(spsa["params"][0]["theta"], 10.6)
+        self.assertAlmostEqual(spsa["params"][0]["z"], 10.6)
+        self.assertEqual(result, [10.6])
 
     def test_apply_spsa_result_updates_rejects_length_mismatch(self):
         spsa = {
-            "algorithm": CLASSIC_SPSA_ALGORITHM,
+            "algorithm": SF_SGD_SPSA_ALGORITHM,
             "iter": 4,
+            "sf_lr": 0.005,
+            "sf_beta": 0.9,
+            "sf_weight_sum": 0.0,
             "params": [
                 {
                     "theta": 10.0,
@@ -151,13 +226,14 @@ class SpsaWorkflowTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "length mismatch"):
             apply_spsa_result_updates(
                 spsa,
-                [{"R": 0.5, "c": 2.0, "flip": 1}],
+                [{"c": 0.5, "flip": 1}],
                 result=3,
                 game_pairs=10,
             )
 
     def test_build_spsa_chart_payload_returns_server_shaped_chart_rows(self):
         spsa = {
+            "algorithm": CLASSIC_SPSA_ALGORITHM,
             "iter": 2,
             "num_iter": 10,
             "A": 4,
@@ -328,13 +404,15 @@ class SpsaWorkflowTests(unittest.TestCase):
         self.assertAlmostEqual(payload["chart_rows"][2]["iter_ratio"], 2 * 20 / 250 / 3)
         self.assertAlmostEqual(payload["chart_rows"][3]["iter_ratio"], 20 / 250)
 
-    def test_build_spsa_chart_payload_ignores_non_list_history_samples(self):
+    def test_build_spsa_chart_payload_returns_schedule_free_chart_rows(
+        self,
+    ):
         spsa = {
-            "iter": 20,
-            "num_iter": 250,
-            "A": 4,
-            "alpha": 0.602,
-            "gamma": 0.101,
+            "algorithm": SF_SGD_SPSA_ALGORITHM,
+            "iter": 2,
+            "num_iter": 10,
+            "sf_lr": 0.005,
+            "sf_beta": 0.9,
             "params": [
                 {
                     "name": "ParamA",
@@ -342,23 +420,34 @@ class SpsaWorkflowTests(unittest.TestCase):
                     "start": 10,
                     "min": 0,
                     "max": 20,
-                    "c": 1.6,
-                    "c_end": 0.1,
-                    "a": 0.2,
-                    "r_end": 1.0e-03,
+                    "c": 1.5,
+                    "z": 12.0,
+                    "ignored": True,
                 },
             ],
             "param_history": [
-                {"iter": 2, "params": [{"theta": 12.0, "R": 0.08, "c": 1.5}]}
+                [{"theta": 11.5, "c": 1.5, "R": 0.5, "iter": 1}],
+                {"iter": 2, "params": [{"theta": 12.0, "c": 1.4}]},
             ],
         }
 
         payload = build_spsa_chart_payload(spsa)
 
+        self.assertEqual(payload["param_names"], ["ParamA"])
+        self.assertEqual(len(payload["chart_rows"]), 3)
         self.assertEqual(
-            payload["chart_rows"],
-            [{"iter_ratio": 0.0, "values": [10.0]}],
+            payload["chart_rows"][0],
+            {"iter_ratio": 0.0, "values": [10.0]},
         )
+        self.assertAlmostEqual(payload["chart_rows"][1]["iter_ratio"], 0.1)
+        self.assertEqual(payload["chart_rows"][1]["values"], [11.5])
+        self.assertEqual(payload["chart_rows"][1]["c_values"], [1.5])
+        self.assertAlmostEqual(payload["chart_rows"][2]["iter_ratio"], 0.2)
+        self.assertAlmostEqual(
+            payload["chart_rows"][2]["values"][0],
+            (12.5 - 0.1 * 12.0) / 0.9,
+        )
+        self.assertEqual(payload["chart_rows"][2]["c_values"], [1.5])
 
     def test_build_spsa_chart_payload_sanitizes_non_finite_numbers(self):
         spsa = {

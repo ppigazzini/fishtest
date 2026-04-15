@@ -2430,11 +2430,6 @@ def tests_run(request: _ViewContext) -> dict[str, Any] | RedirectResponse:
             raise StarletteHTTPException(status_code=404)
         run_args = copy.deepcopy(run["args"])
 
-    spsa_form = build_spsa_form_values(
-        run_args.get("spsa"),
-        num_games=run_args.get("num_games"),
-    )
-
     username = request.authenticated_userid
     u = request.userdb.get_user(username)
 
@@ -2454,6 +2449,7 @@ def tests_run(request: _ViewContext) -> dict[str, Any] | RedirectResponse:
     new_options_value = run_args.get("new_options", "Hash=16")
     base_options_value = run_args.get("base_options", "Hash=16")
     info_value = run_args.get("info", "")
+    spsa_form_values = build_spsa_form_values(run_args)
 
     return {
         "args": run_args,
@@ -2466,10 +2462,11 @@ def tests_run(request: _ViewContext) -> dict[str, Any] | RedirectResponse:
         "new_options_value": new_options_value,
         "base_options_value": base_options_value,
         "info_value": info_value,
-        "spsa_form": spsa_form,
+        "spsa_form_values": spsa_form_values,
         "test_book": test_book,
         "pt_book": pt_book,
         "master_info": master_info,
+        "create_form_num_games_constraints": CREATE_FORM_NUM_GAMES_CONSTRAINTS,
         "valid_books": request.rundb.books.keys(),
         "pt_info": request.rundb.pt_info,
         "setup": setup,
@@ -3400,6 +3397,7 @@ def _build_tests_view_detail_context(
         "approver": request.has_permission("approve_run"),
         "chi2": get_chi2(run["tasks"]),
         "document_size": len(bson.BSON.encode(run)),
+        "modify_form_num_games_constraints": MODIFY_FORM_NUM_GAMES_CONSTRAINTS,
         "spsa_data": request.rundb.spsa_handler.get_spsa_data(run_id),
         "spsa_percentage_checked": read_cookie_bool(
             request,

@@ -570,7 +570,6 @@ def validate_form(request: Any) -> dict[str, Any]:  # noqa: ANN401, C901, PLR091
             int(request.POST["num-games"]),
             constraints=CREATE_FORM_NUM_GAMES_CONSTRAINTS,
         )
-
         data["spsa"] = build_spsa_state(
             request.POST,
             num_games=data["num_games"],
