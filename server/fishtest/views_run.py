@@ -194,10 +194,12 @@ def validate_modify(  # noqa: PLR0911
     """Return None on success, or a RedirectResponse on validation failure."""
     from starlette.responses import RedirectResponse  # noqa: PLC0415
 
-    current_time = datetime.now(UTC) if now is None else now
+    if now is None:
+        now = datetime.now(UTC)
+
     if (
         "start_time" not in run
-        or (current_time - run["start_time"]).days > _RUN_MODIFY_MAX_AGE_DAYS
+        or (now - run["start_time"]).days > _RUN_MODIFY_MAX_AGE_DAYS
     ):
         request.session.flash("Run too old to be modified", "error")
         return RedirectResponse(url="/tests", status_code=302)

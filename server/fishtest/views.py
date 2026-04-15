@@ -2430,7 +2430,7 @@ def tests_run(request: _ViewContext) -> dict[str, Any] | RedirectResponse:
             raise StarletteHTTPException(status_code=404)
         run_args = copy.deepcopy(run["args"])
 
-    spsa_form = build_spsa_form_values(
+    spsa_form_values = build_spsa_form_values(
         run_args.get("spsa"),
         num_games=run_args.get("num_games"),
     )
@@ -2466,7 +2466,7 @@ def tests_run(request: _ViewContext) -> dict[str, Any] | RedirectResponse:
         "new_options_value": new_options_value,
         "base_options_value": base_options_value,
         "info_value": info_value,
-        "spsa_form": spsa_form,
+        "spsa_form_values": spsa_form_values,
         "test_book": test_book,
         "pt_book": pt_book,
         "master_info": master_info,

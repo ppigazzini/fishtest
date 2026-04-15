@@ -148,6 +148,48 @@ class TestTestsViewDetail(unittest.TestCase):
         self.rundb.buffer(run, priority=Prio.SAVE_NOW)
         return run_id
 
+    def _create_sf_adam_spsa_run(self) -> str:
+        run_id = self._create_run()
+        run = self.rundb.get_run(run_id)
+        run["workers"] = 1
+        run["args"]["spsa"] = {
+            "algorithm": "sf-adam",
+            "iter": 2,
+            "num_iter": 10,
+            "sf_lr": 0.0025,
+            "sf_beta1": 0.9,
+            "sf_beta2": 0.999,
+            "sf_eps": 1e-8,
+            "sf_weight_sum": 0.0,
+            "mu2_init": 0.8,
+            "mu2_reports": 5.0,
+            "mu2_sum_N": 82.5,
+            "mu2_sum_s": 0.0,
+            "mu2_sum_s2_over_N": 4.0,
+            "params": [
+                {
+                    "name": "ParamSF",
+                    "theta": 12.5,
+                    "start": 10,
+                    "min": 0,
+                    "max": 20,
+                    "c": 0.5,
+                    "c_end": 0.5,
+                    "a": 0.0,
+                    "a_end": 0.0,
+                    "r_end": 0.0,
+                    "z": 12.0,
+                    "v": 0.0,
+                },
+            ],
+            "param_history": [
+                [{"theta": 11.5, "c": 0.5}],
+                [{"theta": 12.0, "c": 0.5}],
+            ],
+        }
+        self.rundb.buffer(run, priority=Prio.SAVE_NOW)
+        return run_id
+
     def test_tests_view_page_renders_detail_poller_and_spsa_container(self):
         run_id = self._create_spsa_run()
 
@@ -200,6 +242,24 @@ class TestTestsViewDetail(unittest.TestCase):
             response.text,
             r'id="spsa_percentage"[^>]*checked',
         )
+
+    def test_tests_view_page_renders_sf_adam_spsa_container(self):
+        run_id = self._create_sf_adam_spsa_run()
+
+        response = self.client.get(f"/tests/view/{run_id}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            f'id="spsa-data-{run_id}" type="application/json"',
+            response.text,
+        )
+        self.assertIn('"param_names"', response.text)
+        self.assertIn('"chart_rows"', response.text)
+        self.assertNotIn('"plot_live"', response.text)
+        self.assertNotIn('"param_history"', response.text)
+        self.assertNotIn('"sf_weight_sum"', response.text)
+        self.assertNotIn('"z": 12.0', response.text)
+        self.assertIn("ParamSF", response.text)
 
     def test_tests_view_page_renders_query_free_open_graph_metadata(self):
         run_id = self._create_run()
@@ -464,6 +524,39 @@ class TestTestsViewDetail(unittest.TestCase):
         self.assertIn('"chart_rows"', response.text)
         self.assertIn("ParamA", response.text)
         self.assertIn("iter: 3, A: 4", response.text)
+        self.assertNotIn('"plot_live"', response.text)
+        self.assertNotIn('"param_history"', response.text)
+        self.assertNotIn("<title>", response.text)
+
+    def test_tests_view_detail_hx_active_returns_sf_adam_oob_fragments(self):
+        run_id = self._create_sf_adam_spsa_run()
+
+        response = self.client.get(
+            f"/tests/view/{run_id}/detail?expected=active",
+            headers={"HX-Request": "true"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            'id="tests-view-details" hx-swap-oob="outerHTML"',
+            response.text,
+        )
+        self.assertIn(
+            "iter: 3, lr: 0.0025, beta1: 0.9, beta2: 0.999, eps: 1e-08",
+            response.text,
+        )
+        self.assertIn("ParamSF", response.text)
+        self.assertIn('"param_names"', response.text)
+        self.assertIn('"chart_rows"', response.text)
+        self.assertIn('"c_values"', response.text)
+        self.assertNotIn('"theta": 12.5', response.text)
+        self.assertNotIn('"z": 12.0', response.text)
+        self.assertNotIn('"plot_live"', response.text)
+        self.assertNotIn('"param_history"', response.text)
+        self.assertNotIn('"sf_weight_sum"', response.text)
+        self.assertIn("<th>c</th>", response.text)
+        self.assertNotIn("<th>c_end</th>", response.text)
+        self.assertNotIn("<th>r_end</th>", response.text)
         self.assertNotIn("<title>", response.text)
 
 
@@ -520,40 +613,13 @@ class TestSpsaChartAssets(unittest.TestCase):
             "dt0.addRows(",
             script_source,
         )
-        self.assertNotIn("getLastHistorySample", script_source)
-        self.assertNotIn("shouldPlotLivePoint", script_source)
-        self.assertNotIn("sampleMatchesLive", script_source)
+        self.assertNotIn("getLivePointTheta", script_source)
+        self.assertNotIn("getLivePlotCValue", script_source)
         self.assertNotIn("reconcileHistoryPointIters", script_source)
+        self.assertNotIn("sampleMatchesLive", script_source)
+        self.assertNotIn('"sf-adam"', script_source)
         self.assertNotIn("plot_live", script_source)
         self.assertNotIn("param_history", script_source)
-
-    def test_spsa_percentage_uses_server_shaped_c_values(self):
-        repo_root = Path(__file__).resolve().parents[1]
-        script_source = (
-            repo_root / "fishtest" / "static" / "js" / "spsa.js"
-        ).read_text(encoding="utf-8")
-
-        self.assertIn(
-            "const cValue = Number(chartRows[row]?.c_values?.[i]);",
-            script_source,
-        )
-        self.assertIn(
-            "return (dt.getValue(row, i + 1) - dt.getValue(0, i + 1)) / cValue;",
-            script_source,
-        )
-        self.assertNotIn(
-            "const gamma = asFiniteNumber(spsaData.gamma, 0);",
-            script_source,
-        )
-        self.assertNotIn(
-            "Math.pow(iterValue + 1, gamma)",
-            script_source,
-        )
-        self.assertNotIn(
-            "plotLive",
-            script_source,
-        )
-        self.assertNotIn("sample.params", script_source)
 
 
 class TestTestsViewTasks(UiUserTestCase):

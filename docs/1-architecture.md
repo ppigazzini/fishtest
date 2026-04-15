@@ -36,8 +36,8 @@ server/
 |   |-- schemas.py           -- vtjson validation schemas
 |   |-- run_cache.py         -- In-memory run cache with dirty-page flush
 |   |-- lru_cache.py         -- Generic LRU cache
-|   |-- spsa_workflow.py     -- Pure classic SPSA lifecycle helpers
-|   |-- spsa_handler.py      -- SPSA worker orchestration, request/update flow, history buffering
+|   |-- spsa_workflow.py     -- Pure shared SPSA lifecycle helpers (classic + sf-adam)
+|   |-- spsa_handler.py      -- SPSA worker orchestration, request/update flow, compact history buffering
 |   |-- github_api.py        -- GitHub integration (commit metadata, branch resolution)
 |   |-- util.py              -- Shared utilities (formatting, validation helpers)
 |   |-- __init__.py          -- Minimal package init
@@ -55,11 +55,12 @@ dedicated test file under `server/tests/`. User-facing route-family UI tests
 reuse `ui_user_test_case.py` and stay grouped by route family or one focused
 UI motif.
 
-Classic SPSA server ownership is split deliberately. `spsa_workflow.py` holds
-the pure classic SPSA helpers reused by the run form, the detail page, and the
-worker lifecycle. `spsa_handler.py` stays attached to `RunDb` and owns the
-stateful worker request/update path, flip packing, buffering, and history
-timing.
+SPSA server ownership is split deliberately. `spsa_workflow.py` holds the pure
+shared SPSA helpers reused by the run form, the detail page, and the worker
+lifecycle for both classic SPSA and schedule-free Adam, including the
+server-shaped chart payload consumed by the detail page. `spsa_handler.py`
+stays attached to `RunDb` and owns the stateful worker request/update path,
+flip packing, and compact sampled history timing.
 
 ### HTTP support modules (`server/fishtest/http/`)
 

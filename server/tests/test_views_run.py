@@ -10,7 +10,16 @@ from starlette.responses import RedirectResponse
 from ui_user_test_case import UiUserTestCase
 
 from fishtest.run_cache import Prio
-from fishtest.spsa_workflow import parse_spsa_params
+from fishtest.spsa_workflow import (
+    CLASSIC_SPSA_ALGORITHM,
+    DEFAULT_SPSA_SF_BETA1,
+    DEFAULT_SPSA_SF_BETA2,
+    DEFAULT_SPSA_SF_EPS,
+    DEFAULT_SPSA_SF_LR,
+    SF_ADAM_SPSA_ALGORITHM,
+    build_spsa_form_values,
+    parse_spsa_params,
+)
 from fishtest.views_run import (
     _RUN_MODIFY_MAX_AGE_DAYS,
     can_modify_run,
@@ -31,7 +40,8 @@ BASE_REPO = "https://github.com/official-stockfish/Stockfish"
 BASE_SIGNATURE = "123456"
 BASE_SHA = "a" * 40
 NEW_SHA = "b" * 40
-SPSA_FIELD_COUNT = 6
+SPSA_SF_ADAM_FIELD_COUNT = 5
+SPSA_CLASSIC_FIELD_COUNT = 6
 
 
 class _SessionStub:
@@ -116,8 +126,9 @@ def _valid_post_data() -> dict[str, str]:
 
 
 class SpsaParsingTests(unittest.TestCase):
-    def test_parse_spsa_params_returns_structured_params(self):
+    def test_parse_spsa_params_returns_structured_classic_params(self):
         spsa = {
+            "algorithm": "classic",
             "raw_params": "Tempo,1,0,2,0.5,0.1",
             "num_iter": 100,
             "gamma": 0.101,
@@ -130,42 +141,119 @@ class SpsaParsingTests(unittest.TestCase):
         self.assertEqual(len(params), 1)
         self.assertEqual(params[0]["name"], "Tempo")
         self.assertEqual(params[0]["start"], 1.0)
+        self.assertEqual(params[0]["c_end"], 0.5)
+        self.assertEqual(params[0]["r_end"], 0.1)
+
+    def test_parse_spsa_params_supports_sf_adam_field_count(self):
+        spsa = {
+            "algorithm": SF_ADAM_SPSA_ALGORITHM,
+            "raw_params": "Tempo,1,0,2,0.5",
+            "num_iter": 100,
+        }
+
+        params = parse_spsa_params(spsa)
+
+        self.assertEqual(len(params), 1)
+        self.assertEqual(params[0]["name"], "Tempo")
+        self.assertEqual(params[0]["theta"], 1.0)
+        self.assertEqual(params[0]["c"], 0.5)
+        self.assertEqual(params[0]["c_end"], 0.5)
+        self.assertEqual(params[0]["r_end"], 0.0)
+        self.assertEqual(params[0]["a_end"], 0.0)
+        self.assertEqual(params[0]["a"], 0.0)
+        self.assertEqual(params[0]["z"], 1.0)
+        self.assertEqual(params[0]["v"], 0.0)
 
     def test_parse_spsa_params_rejects_wrong_field_count(self):
         spsa = {
-            "raw_params": "Tempo,1,0,2,0.5",
+            "algorithm": SF_ADAM_SPSA_ALGORITHM,
+            "raw_params": "Tempo,1,0,2",
             "num_iter": 100,
-            "gamma": 0.101,
-            "A": 25,
-            "alpha": 0.602,
         }
 
-        with self.assertRaisesRegex(ValueError, str(SPSA_FIELD_COUNT)):
+        with self.assertRaisesRegex(
+            ValueError,
+            f"{SPSA_SF_ADAM_FIELD_COUNT} or {SPSA_CLASSIC_FIELD_COUNT}",
+        ):
             parse_spsa_params(spsa)
 
-    def test_parse_spsa_params_rejects_non_finite_values(self):
+    def test_parse_spsa_params_rejects_start_outside_bounds(self):
         spsa = {
-            "raw_params": "Tempo,nan,0,2,0.5,0.1",
+            "algorithm": SF_ADAM_SPSA_ALGORITHM,
+            "raw_params": "Tempo,3,0,2,0.5",
             "num_iter": 100,
-            "gamma": 0.101,
-            "A": 25,
-            "alpha": 0.602,
         }
 
-        with self.assertRaisesRegex(ValueError, "line 1 field start"):
+        with self.assertRaisesRegex(ValueError, "start must be within"):
             parse_spsa_params(spsa)
 
-    def test_parse_spsa_params_rejects_non_positive_c_end(self):
+    def test_parse_spsa_params_rejects_non_positive_c(self):
         spsa = {
-            "raw_params": "Tempo,1,0,2,0,0.1",
+            "algorithm": SF_ADAM_SPSA_ALGORITHM,
+            "raw_params": "Tempo,1,0,2,0",
             "num_iter": 100,
-            "gamma": 0.101,
-            "A": 25,
-            "alpha": 0.602,
         }
 
-        with self.assertRaisesRegex(ValueError, "line 1 field c_end"):
+        with self.assertRaisesRegex(ValueError, "c must be > 0"):
             parse_spsa_params(spsa)
+
+    def test_parse_spsa_params_rejects_non_finite_numeric_values(self):
+        spsa = {
+            "algorithm": SF_ADAM_SPSA_ALGORITHM,
+            "raw_params": "Tempo,1,0,2,nan",
+            "num_iter": 100,
+        }
+
+        with self.assertRaisesRegex(ValueError, "finite number"):
+            parse_spsa_params(spsa)
+
+
+class SpsaFormValueTests(unittest.TestCase):
+    def test_build_spsa_form_values_uses_shared_defaults_for_new_form(self):
+        values = build_spsa_form_values(None)
+
+        self.assertEqual(values["algorithm"], SF_ADAM_SPSA_ALGORITHM)
+        self.assertEqual(values["sf_lr"], DEFAULT_SPSA_SF_LR)
+        self.assertEqual(values["sf_beta1"], DEFAULT_SPSA_SF_BETA1)
+        self.assertEqual(values["sf_beta2"], DEFAULT_SPSA_SF_BETA2)
+        self.assertEqual(values["sf_eps"], DEFAULT_SPSA_SF_EPS)
+
+    def test_build_spsa_form_values_defaults_for_classic_rerun(self):
+        values = build_spsa_form_values(
+            {
+                "algorithm": CLASSIC_SPSA_ALGORITHM,
+                "raw_params": "Tempo,1,0,2,0.5,0.1",
+                "A": 25,
+                "alpha": 0.602,
+                "gamma": 0.101,
+            },
+            num_games=500,
+        )
+
+        self.assertEqual(values["algorithm"], SF_ADAM_SPSA_ALGORITHM)
+        self.assertEqual(values["raw_params"], "Tempo,1,0,2,0.5,0.1")
+        self.assertEqual(values["sf_lr"], DEFAULT_SPSA_SF_LR)
+        self.assertEqual(values["sf_beta1"], DEFAULT_SPSA_SF_BETA1)
+        self.assertEqual(values["sf_beta2"], DEFAULT_SPSA_SF_BETA2)
+        self.assertEqual(values["sf_eps"], DEFAULT_SPSA_SF_EPS)
+
+    def test_build_spsa_form_values_prefills_existing_sf_adam_run(self):
+        values = build_spsa_form_values(
+            {
+                "algorithm": SF_ADAM_SPSA_ALGORITHM,
+                "raw_params": "Tempo,1,0,2,0.5",
+                "sf_lr": 0.01,
+                "sf_beta1": 0.8,
+                "sf_beta2": 0.95,
+                "sf_eps": 1e-6,
+            },
+        )
+
+        self.assertEqual(values["raw_params"], "Tempo,1,0,2,0.5")
+        self.assertEqual(values["sf_lr"], 0.01)
+        self.assertEqual(values["sf_beta1"], 0.8)
+        self.assertEqual(values["sf_beta2"], 0.95)
+        self.assertEqual(values["sf_eps"], 1e-6)
 
 
 class SanitizeOptionsTests(unittest.TestCase):
@@ -315,10 +403,11 @@ class ValidateFormTests(unittest.TestCase):
         post_data = _valid_post_data()
         post_data["stop_rule"] = "spsa"
         post_data["num-games"] = "1"
-        post_data["spsa_A"] = "0.1"
-        post_data["spsa_alpha"] = "0.602"
-        post_data["spsa_gamma"] = "0.101"
-        post_data["spsa_raw_params"] = "Tempo,1,0,2,0.5,0.1"
+        post_data["spsa_sf_lr"] = "0.0025"
+        post_data["spsa_sf_beta1"] = "0.9"
+        post_data["spsa_sf_beta2"] = "0.999"
+        post_data["spsa_sf_eps"] = "1e-8"
+        post_data["spsa_raw_params"] = "Tempo,1,0,2,0.5"
         request = _RequestStub(post_data=post_data)
 
         with (
@@ -337,6 +426,113 @@ class ValidateFormTests(unittest.TestCase):
             mock.patch("fishtest.views_run.get_nets", return_value=[]),
         ):
             with self.assertRaisesRegex(ValueError, "Number of games must be >= 1000"):
+                validate_form(request)
+
+    def test_validate_form_spsa_path_builds_sf_adam_state(self):
+        post_data = _valid_post_data()
+        post_data.update(
+            {
+                "stop_rule": "spsa",
+                "spsa_sf_lr": "0.0025",
+                "spsa_sf_beta1": "0.9",
+                "spsa_sf_beta2": "0.999",
+                "spsa_sf_eps": "1e-8",
+                "spsa_raw_params": "Tempo,1,0,2,0.5",
+            },
+        )
+        request = _RequestStub(post_data=post_data)
+
+        with (
+            mock.patch(
+                "fishtest.views_run.gh.normalize_repo", side_effect=lambda repo: repo
+            ),
+            mock.patch(
+                "fishtest.views_run.gh.parse_repo",
+                return_value=("official-stockfish", "Stockfish"),
+            ),
+            mock.patch("fishtest.views_run.gh.get_master_repo", return_value=BASE_REPO),
+            mock.patch(
+                "fishtest.views_run.get_sha",
+                side_effect=[(BASE_SHA, "base"), (NEW_SHA, "new")],
+            ),
+            mock.patch("fishtest.views_run.get_nets", return_value=[]),
+        ):
+            data = validate_form(request)
+
+        self.assertEqual(data["num_games"], int(BASE_NUM_GAMES))
+        self.assertEqual(data["spsa"]["algorithm"], SF_ADAM_SPSA_ALGORITHM)
+        self.assertEqual(data["spsa"]["sf_lr"], 0.0025)
+        self.assertEqual(data["spsa"]["sf_beta1"], 0.9)
+        self.assertEqual(data["spsa"]["sf_beta2"], 0.999)
+        self.assertEqual(data["spsa"]["sf_eps"], 1e-8)
+        self.assertEqual(data["spsa"]["sf_weight_sum"], 0.0)
+        self.assertEqual(data["spsa"]["num_iter"], int(BASE_NUM_GAMES) // 2)
+        self.assertEqual(data["spsa"]["params"][0]["c"], 0.5)
+        self.assertEqual(data["spsa"]["params"][0]["z"], 1.0)
+        self.assertEqual(data["spsa"]["params"][0]["v"], 0.0)
+
+    def test_validate_form_rejects_non_finite_sf_learning_rate(self):
+        post_data = _valid_post_data()
+        post_data.update(
+            {
+                "stop_rule": "spsa",
+                "spsa_sf_lr": "nan",
+                "spsa_sf_beta1": "0.9",
+                "spsa_sf_beta2": "0.999",
+                "spsa_sf_eps": "1e-8",
+                "spsa_raw_params": "Tempo,1,0,2,0.5",
+            },
+        )
+        request = _RequestStub(post_data=post_data)
+
+        with (
+            mock.patch(
+                "fishtest.views_run.gh.normalize_repo", side_effect=lambda repo: repo
+            ),
+            mock.patch(
+                "fishtest.views_run.gh.parse_repo",
+                return_value=("official-stockfish", "Stockfish"),
+            ),
+            mock.patch("fishtest.views_run.gh.get_master_repo", return_value=BASE_REPO),
+            mock.patch(
+                "fishtest.views_run.get_sha",
+                side_effect=[(BASE_SHA, "base"), (NEW_SHA, "new")],
+            ),
+            mock.patch("fishtest.views_run.get_nets", return_value=[]),
+        ):
+            with self.assertRaisesRegex(ValueError, "finite number"):
+                validate_form(request)
+
+    def test_validate_form_rejects_zero_eps_with_beta2_one(self):
+        post_data = _valid_post_data()
+        post_data.update(
+            {
+                "stop_rule": "spsa",
+                "spsa_sf_lr": "0.0025",
+                "spsa_sf_beta1": "0.9",
+                "spsa_sf_beta2": "1",
+                "spsa_sf_eps": "0",
+                "spsa_raw_params": "Tempo,1,0,2,0.5",
+            },
+        )
+        request = _RequestStub(post_data=post_data)
+
+        with (
+            mock.patch(
+                "fishtest.views_run.gh.normalize_repo", side_effect=lambda repo: repo
+            ),
+            mock.patch(
+                "fishtest.views_run.gh.parse_repo",
+                return_value=("official-stockfish", "Stockfish"),
+            ),
+            mock.patch("fishtest.views_run.gh.get_master_repo", return_value=BASE_REPO),
+            mock.patch(
+                "fishtest.views_run.get_sha",
+                side_effect=[(BASE_SHA, "base"), (NEW_SHA, "new")],
+            ),
+            mock.patch("fishtest.views_run.get_nets", return_value=[]),
+        ):
+            with self.assertRaisesRegex(ValueError, "epsilon must be > 0"):
                 validate_form(request)
 
     def test_validate_form_canonicalizes_tests_repo_and_updates_user(self):
@@ -398,18 +594,50 @@ class TemplateConstraintContractTests(unittest.TestCase):
             'step="{{ create_num_games_constraints.step }}"',
             template_source,
         )
-        self.assertIn(
-            "const numGamesMin = {{ create_num_games_constraints.min }};",
-            template_source,
-        )
-        self.assertIn(
-            "const numGamesStep = {{ create_num_games_constraints.step }};",
-            template_source,
-        )
         self.assertNotIn(
             'document.getElementById("num-games").value = 1000 * Math.round(s.num_games / 1000);',
             template_source,
         )
+
+    def test_tests_run_template_uses_sf_adam_inputs(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        template_source = (
+            repo_root / "fishtest" / "templates" / "tests_run.html.j2"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('name="spsa_sf_lr"', template_source)
+        self.assertIn('min="0.00000001"', template_source)
+        self.assertIn('step="any"', template_source)
+        self.assertIn('name="spsa_sf_beta1"', template_source)
+        self.assertIn('name="spsa_sf_beta2"', template_source)
+        self.assertIn('name="spsa_sf_eps"', template_source)
+        self.assertNotIn('name="spsa_A"', template_source)
+        self.assertNotIn('name="spsa_alpha"', template_source)
+        self.assertNotIn('name="spsa_gamma"', template_source)
+
+    def test_tests_run_template_uses_backend_spsa_form_values(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        template_source = (
+            repo_root / "fishtest" / "templates" / "tests_run.html.j2"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('value="{{ spsa_form_values.sf_lr }}"', template_source)
+        self.assertIn('value="{{ spsa_form_values.sf_beta1 }}"', template_source)
+        self.assertIn('value="{{ spsa_form_values.sf_beta2 }}"', template_source)
+        self.assertIn('value="{{ spsa_form_values.sf_eps }}"', template_source)
+        self.assertIn("{{ spsa_form_values.raw_params }}", template_source)
+        self.assertIn('value="{{ spsa_form_values.algorithm }}"', template_source)
+        self.assertNotIn("spsa_form[", template_source)
+
+    def test_tests_run_template_drops_classic_spsa_autoselect_ui(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        template_source = (
+            repo_root / "fishtest" / "templates" / "tests_run.html.j2"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn("static/js/spsa_new.js", template_source)
+        self.assertNotIn('id="autoselect"', template_source)
+        self.assertNotIn('id="autoselect-modal"', template_source)
 
     def test_tests_view_template_uses_shared_modify_num_games_constraints(self):
         repo_root = Path(__file__).resolve().parents[1]

@@ -155,10 +155,14 @@ Page-head metadata contract:
    fragment URL.
 
 For SPSA runs, the detail fragment updates the existing
-`#spsa-data-<run_id>` node in place. The page-owned `spsa.js` controller keeps
-the chart shell mounted, draws the chart at a fixed 1000x500 size inside the
-scrollable container, skips redraws when the embedded JSON payload is unchanged,
-and redraws changed payloads in place without replacing the chart shell.
+`#spsa-data-<run_id>` node in place. That embedded JSON payload carries only
+`param_names` plus server-shaped `chart_rows`, and the same payload contract is
+used for classic SPSA and schedule-free Adam. The server owns history
+sampling, live-point placement, and `% c` values; the page-owned `spsa.js`
+controller is therefore renderer-only. It keeps the chart shell mounted,
+draws the chart at a fixed 1000x500 size inside the scrollable container,
+skips redraws when the embedded JSON payload is unchanged, and redraws changed
+payloads in place without replacing the chart shell.
 The full `/tests/view/{id}` page also remembers the `% c` checkbox with a
 browser cookie, so the checkbox reopens in its previous mode while live detail
 polling continues to update only the embedded SPSA data node.
