@@ -176,7 +176,7 @@ class SpsaWorkflowTests(unittest.TestCase):
                     "r_end": 1.0e-03,
                 },
             ],
-            "param_history": [[{"theta": 12.0, "R": 0.08, "c": 1.5}]],
+            "param_history": [[{"theta": 12.0, "iter": 1}]],
         }
 
         payload = build_spsa_chart_payload(spsa)
@@ -194,7 +194,10 @@ class SpsaWorkflowTests(unittest.TestCase):
             {"iter_ratio": 0.0, "values": [10.0]},
         )
         self.assertEqual(payload["chart_rows"][1]["values"], [12.0])
-        self.assertEqual(payload["chart_rows"][1]["c_values"], [1.5])
+        self.assertAlmostEqual(
+            payload["chart_rows"][1]["c_values"][0],
+            1.6 / (2**0.101),
+        )
         self.assertEqual(payload["chart_rows"][2]["values"], [12.5])
         self.assertGreater(
             payload["chart_rows"][2]["iter_ratio"],
@@ -226,7 +229,7 @@ class SpsaWorkflowTests(unittest.TestCase):
                     "r_end": 1.0e-03,
                 },
             ],
-            "param_history": [[{"theta": 12.5, "R": 0.08, "c": live_c}]],
+            "param_history": [[{"theta": 12.5, "iter": 20}]],
         }
 
         payload = build_spsa_chart_payload(spsa)
@@ -236,7 +239,7 @@ class SpsaWorkflowTests(unittest.TestCase):
         self.assertEqual(payload["chart_rows"][-1]["values"], [12.5])
         self.assertEqual(payload["chart_rows"][-1]["c_values"], [live_c])
 
-    def test_build_spsa_chart_payload_recovers_sample_iters_from_c_values(self):
+    def test_build_spsa_chart_payload_uses_stored_history_iters(self):
         gamma = 0.101
         base_c = 1.6
         sample_iter_1 = 20
@@ -261,20 +264,8 @@ class SpsaWorkflowTests(unittest.TestCase):
                 },
             ],
             "param_history": [
-                [
-                    {
-                        "theta": 11.5,
-                        "R": 0.08,
-                        "c": base_c / ((sample_iter_1 + 1) ** gamma),
-                    }
-                ],
-                [
-                    {
-                        "theta": 12.0,
-                        "R": 0.08,
-                        "c": base_c / ((sample_iter_2 + 1) ** gamma),
-                    }
-                ],
+                [{"theta": 11.5, "iter": sample_iter_1}],
+                [{"theta": 12.0, "iter": sample_iter_2}],
             ],
         }
 
@@ -290,12 +281,16 @@ class SpsaWorkflowTests(unittest.TestCase):
             sample_iter_2 / 250,
         )
         self.assertAlmostEqual(
+            payload["chart_rows"][2]["c_values"][0],
+            base_c / ((sample_iter_2 + 1) ** gamma),
+        )
+        self.assertAlmostEqual(
             payload["chart_rows"][3]["iter_ratio"],
             201 / 250,
         )
         self.assertEqual(payload["chart_rows"][3]["values"], [12.5])
 
-    def test_build_spsa_chart_payload_falls_back_to_master_spacing_without_c(self):
+    def test_build_spsa_chart_payload_skips_samples_without_iter(self):
         spsa = {
             "iter": 20,
             "num_iter": 250,
@@ -316,17 +311,17 @@ class SpsaWorkflowTests(unittest.TestCase):
                 },
             ],
             "param_history": [
-                [{"theta": 11.0, "R": 0.08}],
-                [{"theta": 12.0, "R": 0.08}],
+                [{"theta": 11.0}],
+                [{"theta": 12.0, "iter": 10}],
             ],
         }
 
         payload = build_spsa_chart_payload(spsa)
 
-        self.assertEqual(len(payload["chart_rows"]), 4)
-        self.assertAlmostEqual(payload["chart_rows"][1]["iter_ratio"], 20 / 250 / 3)
-        self.assertAlmostEqual(payload["chart_rows"][2]["iter_ratio"], 2 * 20 / 250 / 3)
-        self.assertAlmostEqual(payload["chart_rows"][3]["iter_ratio"], 20 / 250)
+        self.assertEqual(len(payload["chart_rows"]), 3)
+        self.assertEqual(payload["chart_rows"][1]["values"], [12.0])
+        self.assertAlmostEqual(payload["chart_rows"][1]["iter_ratio"], 10 / 250)
+        self.assertAlmostEqual(payload["chart_rows"][2]["iter_ratio"], 20 / 250)
 
     def test_build_spsa_chart_payload_ignores_non_list_history_samples(self):
         spsa = {
@@ -348,9 +343,7 @@ class SpsaWorkflowTests(unittest.TestCase):
                     "r_end": 1.0e-03,
                 },
             ],
-            "param_history": [
-                {"iter": 2, "params": [{"theta": 12.0, "R": 0.08, "c": 1.5}]}
-            ],
+            "param_history": [{"iter": 2, "params": [{"theta": 12.0, "iter": 2}]}],
         }
 
         payload = build_spsa_chart_payload(spsa)
@@ -373,7 +366,7 @@ class SpsaWorkflowTests(unittest.TestCase):
                     "c": float("inf"),
                 },
             ],
-            "param_history": [[{"theta": float("nan"), "R": 0.08, "c": float("inf")}]],
+            "param_history": [[{"theta": float("nan"), "iter": float("inf")}]],
         }
 
         payload = build_spsa_chart_payload(spsa)

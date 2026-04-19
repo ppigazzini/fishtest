@@ -85,108 +85,78 @@ def _chart_sample_matches(
 
     return all(
         _chart_numbers_match(sample_param.get("theta"), live_param.get("theta"))
-        and _chart_numbers_match(sample_param.get("c"), live_param.get("c"))
         for sample_param, live_param in zip(sample, live_sample)
     )
 
 
-def _recover_chart_sample_iter(
-    sample: list[dict[str, float | None]],
+def _normalize_chart_sample_iter(value: object) -> float | None:
+    if isinstance(value, bool):
+        return None
+
+    number = _finite_float(value)
+    if number is None or number < 0:
+        return None
+
+    rounded = round(number)
+    if not isclose(number, rounded, rel_tol=0.0, abs_tol=1.0e-9):
+        return None
+
+    return float(rounded)
+
+
+def _normalize_chart_history_sample(
+    sample: object,
+    *,
+    iter_value: float,
+) -> tuple[float, list[dict[str, float | None]]] | None:
+    if not isinstance(sample, list):
+        return None
+
+    normalized_params: list[dict[str, float | None]] = []
+    sample_iters: list[float] = []
+    for sample_param in sample:
+        if not isinstance(sample_param, Mapping):
+            continue
+
+        normalized_params.append({"theta": _finite_float(sample_param.get("theta"))})
+        sample_iter = _normalize_chart_sample_iter(sample_param.get("iter"))
+        if sample_iter is not None:
+            sample_iters.append(sample_iter)
+
+    if not normalized_params or not sample_iters:
+        return None
+
+    sample_iters.sort()
+    sample_iter = sample_iters[len(sample_iters) // 2]
+    if iter_value > 0:
+        sample_iter = min(sample_iter, iter_value)
+
+    return sample_iter, normalized_params
+
+
+def _build_chart_sample_c_values(
     params: list[Mapping[str, Any]],
     *,
     gamma: float,
-) -> float | None:
-    if not isfinite(gamma) or gamma <= 0:
-        return None
-
-    recovered_iters: list[float] = []
-    for param, sample_param in zip(params, sample):
+    sample_iter: float,
+) -> list[float | None]:
+    iter_local = sample_iter + 1.0
+    c_values: list[float | None] = []
+    for param in params:
         base_c = _finite_float(param.get("c"))
-        sample_c = _finite_float(sample_param.get("c"))
-        if base_c is None or sample_c is None or base_c <= 0 or sample_c <= 0:
-            continue
-
-        iter_local = (base_c / sample_c) ** (1.0 / gamma)
-        if not isfinite(iter_local) or iter_local <= 0:
-            continue
-
-        recovered_iters.append(max(iter_local - 1.0, 0.0))
-
-    if not recovered_iters:
-        return None
-
-    recovered_iters.sort()
-    middle = len(recovered_iters) // 2
-    if len(recovered_iters) % 2:
-        return recovered_iters[middle]
-
-    return (recovered_iters[middle - 1] + recovered_iters[middle]) / 2.0
-
-
-def _build_master_fallback_history_iters(
-    history_len: int,
-    *,
-    iter_value: float,
-    num_iter: float,
-    has_live_point: bool,
-) -> list[float]:
-    total_points = history_len + int(has_live_point)
-    if total_points <= 0:
-        return []
-
-    final_iter_ratio = (
-        min(max(iter_value / num_iter, 0.0), 1.0) if num_iter > 0 else 0.0
-    )
-    return [
-        (index + 1) / total_points * final_iter_ratio * num_iter
-        for index in range(history_len)
-    ]
-
-
-def _build_chart_history_iters(
-    params: list[Mapping[str, Any]],
-    chart_history: list[list[dict[str, float | None]]],
-    *,
-    gamma: float,
-    iter_value: float,
-    num_iter: float,
-    has_live_point: bool,
-) -> list[float]:
-    recovered_history_iters: list[float] = []
-    for sample in chart_history:
-        sample_iter = _recover_chart_sample_iter(sample, params, gamma=gamma)
-        if sample_iter is None:
-            return _build_master_fallback_history_iters(
-                len(chart_history),
-                iter_value=iter_value,
-                num_iter=num_iter,
-                has_live_point=has_live_point,
-            )
-
-        if iter_value > 0:
-            sample_iter = min(max(sample_iter, 0.0), iter_value)
-        else:
-            sample_iter = max(sample_iter, 0.0)
-
-        if (
-            recovered_history_iters
-            and sample_iter + 1.0e-9 < recovered_history_iters[-1]
-        ):
-            return _build_master_fallback_history_iters(
-                len(chart_history),
-                iter_value=iter_value,
-                num_iter=num_iter,
-                has_live_point=has_live_point,
-            )
-
-        recovered_history_iters.append(sample_iter)
-
-    return recovered_history_iters
+        sample_c = None
+        if base_c is not None:
+            try:
+                sample_c = _finite_float(base_c / iter_local**gamma)
+            except ArithmeticError, OverflowError, ValueError:
+                sample_c = None
+        c_values.append(sample_c)
+    return c_values
 
 
 def _build_spsa_chart_rows(
     params: list[Mapping[str, Any]],
-    chart_history: list[list[dict[str, float | None]]],
+    chart_history: list[tuple[float, list[dict[str, float | None]]]],
     live_point: list[dict[str, float | None]],
     *,
     gamma: float,
@@ -207,27 +177,14 @@ def _build_spsa_chart_rows(
     if not chart_history:
         return rows
 
-    has_live_point = not _chart_sample_matches(chart_history[-1], live_point)
-    history_iters = _build_chart_history_iters(
-        params,
-        chart_history,
-        gamma=gamma,
-        iter_value=iter_value,
-        num_iter=num_iter,
-        has_live_point=has_live_point,
+    has_live_point = not (
+        _chart_numbers_match(chart_history[-1][0], iter_value)
+        and _chart_sample_matches(chart_history[-1][1], live_point)
     )
 
-    if (
-        history_iters
-        and iter_value > 0
-        and _chart_sample_matches(chart_history[-1], live_point)
-    ):
-        history_iters[-1] = iter_value
-
     current_values = start_values.copy()
-    for sample, sample_iter in zip(chart_history, history_iters):
+    for sample_iter, sample in chart_history:
         row_values: list[float] = []
-        c_values: list[float | None] = []
         for index, current_value in enumerate(current_values):
             sample_param = sample[index] if index < len(sample) else None
             next_value = (
@@ -239,11 +196,6 @@ def _build_spsa_chart_rows(
                 next_value if next_value is not None else current_value
             )
             row_values.append(current_values[index])
-            c_values.append(
-                _finite_float(sample_param.get("c"))
-                if sample_param is not None
-                else None
-            )
 
         rows.append(
             {
@@ -251,7 +203,11 @@ def _build_spsa_chart_rows(
                 if num_iter > 0
                 else 0.0,
                 "values": row_values,
-                "c_values": c_values,
+                "c_values": _build_chart_sample_c_values(
+                    params,
+                    gamma=gamma,
+                    sample_iter=sample_iter,
+                ),
             }
         )
 
@@ -559,27 +515,17 @@ def build_spsa_chart_payload(spsa: Mapping[str, Any] | None) -> dict[str, Any]:
         )
 
     param_history = spsa.get("param_history")
-    chart_history: list[list[dict[str, Any]]] = []
+    chart_history: list[tuple[float, list[dict[str, float | None]]]] = []
     if isinstance(param_history, list):
         for sample in param_history:
-            if not isinstance(sample, list):
-                continue
+            normalized_sample = _normalize_chart_history_sample(
+                sample,
+                iter_value=iter_value,
+            )
+            if normalized_sample is not None:
+                chart_history.append(normalized_sample)
 
-            normalized_params: list[dict[str, Any]] = []
-            for sample_param in sample:
-                if not isinstance(sample_param, Mapping):
-                    continue
-                normalized_params.append(
-                    {
-                        "theta": _finite_float(sample_param.get("theta")),
-                        "c": _finite_float(sample_param.get("c")),
-                    }
-                )
-
-            if not normalized_params:
-                continue
-
-            chart_history.append(normalized_params)
+    chart_history.sort(key=lambda sample: sample[0])
 
     return {
         "param_names": param_names,

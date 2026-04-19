@@ -143,7 +143,7 @@ class TestTestsViewDetail(unittest.TestCase):
                     "r_end": 1.0e-03,
                 },
             ],
-            "param_history": [[{"theta": 12.0, "R": 0.08, "c": 1.5}]],
+            "param_history": [[{"theta": 12.0, "iter": 1}]],
         }
         self.rundb.buffer(run, priority=Prio.SAVE_NOW)
         return run_id
@@ -429,8 +429,8 @@ class TestTestsViewDetail(unittest.TestCase):
                 },
             ],
             "param_history": [
-                [{"theta": 11.5, "R": 0.09, "c": 1.5}],
-                [{"theta": 12.0, "R": 0.08, "c": 1.4}],
+                [{"theta": 11.5, "iter": 1}],
+                [{"theta": 12.0, "iter": 2}],
             ],
         }
         self.rundb.buffer(run, priority=Prio.SAVE_NOW)

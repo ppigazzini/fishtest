@@ -62,16 +62,9 @@ def _generate_data(spsa, iter=None):
     return result
 
 
-def _add_to_history(spsa, num_games, w_params):
+def _add_to_history(spsa, num_games):
     n_params = len(spsa["params"])
-    period = get_spsa_history_period(num_iter=num_games / 2, param_count=n_params)
-
-    if len(spsa["params"]) != len(w_params):
-        msg = (
-            "SPSA history length mismatch: "
-            f"{len(spsa['params'])} params, {len(w_params)} worker params"
-        )
-        raise ValueError(msg)
+    period = get_spsa_history_period(num_iter=num_games // 2, param_count=n_params)
 
     if period <= 0:
         return
@@ -79,9 +72,10 @@ def _add_to_history(spsa, num_games, w_params):
     if "param_history" not in spsa:
         spsa["param_history"] = []
     if len(spsa["param_history"]) + 1 <= spsa["iter"] / period:
+        sample_iter = int(spsa["iter"])
         summary = [
-            {"theta": spsa_param["theta"], "R": w_param["R"], "c": w_param["c"]}
-            for spsa_param, w_param in zip(spsa["params"], w_params)
+            {"theta": spsa_param["theta"], "iter": sample_iter}
+            for spsa_param in spsa["params"]
         ]
         spsa["param_history"].append(summary)
 
@@ -168,7 +162,7 @@ class SPSAHandler:
             game_pairs=game_pairs,
         )
 
-        _add_to_history(spsa, run["args"]["num_games"], w_params)
+        _add_to_history(spsa, run["args"]["num_games"])
 
         self.buffer(run)
 

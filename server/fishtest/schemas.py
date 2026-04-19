@@ -817,7 +817,7 @@ runs_schema = intersect(
                     ],
                     "param_history?": [
                         [
-                            {"theta": float, "R": unumber, "c": unumber},
+                            {"theta": float, "iter": uint},
                             ...,
                         ],
                         ...,
