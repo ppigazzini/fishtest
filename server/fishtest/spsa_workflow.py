@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from math import floor, isclose, isfinite, log
+from math import isclose, isfinite, log
 from typing import Any
 
 CLASSIC_SPSA_ALGORITHM = "classic"
@@ -621,16 +621,6 @@ def _explicit_iters_are_rounded_master_fallback(
     )
 
 
-def _canonicalize_chart_sample_iter_for_c(
-    sample_iter: float,
-    *,
-    use_stored_sample_c: bool,
-) -> float:
-    if use_stored_sample_c:
-        return sample_iter
-    return float(int(floor(sample_iter + 0.5)))
-
-
 def _resolve_iter_chart_history_samples(
     param_history: object,
     *,
@@ -815,23 +805,10 @@ def _build_chart_sample_c_values(
     *,
     gamma: float,
     sample_iter: float,
-    use_stored_sample_c: bool,
 ) -> list[float | None]:
-    iter_local = (
-        _canonicalize_chart_sample_iter_for_c(
-            sample_iter,
-            use_stored_sample_c=use_stored_sample_c,
-        )
-        + 1.0
-    )
+    iter_local = sample_iter + 1.0
     c_values: list[float | None] = []
     for index, param in enumerate(params):
-        sample_param = sample[index] if index < len(sample) else None
-        sample_c = sample_param.get("c") if sample_param is not None else None
-        if use_stored_sample_c and sample_c is not None:
-            c_values.append(sample_c)
-            continue
-
         base_c = _finite_float(param.get("c"))
         sample_c = None
         if base_c is not None:
@@ -849,14 +826,12 @@ def _build_effective_chart_sample(
     *,
     gamma: float,
     sample_iter: float,
-    use_stored_sample_c: bool,
 ) -> list[dict[str, float | None]]:
     c_values = _build_chart_sample_c_values(
         params,
         sample,
         gamma=gamma,
         sample_iter=sample_iter,
-        use_stored_sample_c=use_stored_sample_c,
     )
     effective_sample: list[dict[str, float | None]] = []
     for index, param in enumerate(params):
@@ -880,7 +855,6 @@ def _build_spsa_chart_rows(
     gamma: float,
     iter_value: float,
     num_iter: float,
-    use_stored_sample_c: bool,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     start_values: list[float] = []
@@ -904,7 +878,6 @@ def _build_spsa_chart_rows(
                 chart_history[-1][1],
                 gamma=gamma,
                 sample_iter=chart_history[-1][0],
-                use_stored_sample_c=use_stored_sample_c,
             ),
             live_point,
         )
@@ -936,7 +909,6 @@ def _build_spsa_chart_rows(
                     sample,
                     gamma=gamma,
                     sample_iter=sample_iter,
-                    use_stored_sample_c=use_stored_sample_c,
                 ),
             }
         )
@@ -1243,7 +1215,6 @@ def build_spsa_chart_payload(spsa: Mapping[str, Any] | None) -> dict[str, Any]:
             chart_history[-1][1],
             gamma=gamma if gamma is not None else 0.0,
             sample_iter=chart_history[-1][0],
-            use_stored_sample_c=True,
         ),
         live_point,
     ):
@@ -1259,6 +1230,5 @@ def build_spsa_chart_payload(spsa: Mapping[str, Any] | None) -> dict[str, Any]:
             gamma=gamma if gamma is not None else 0.0,
             iter_value=iter_value,
             num_iter=num_iter if num_iter is not None else 0.0,
-            use_stored_sample_c=True,
         ),
     }
