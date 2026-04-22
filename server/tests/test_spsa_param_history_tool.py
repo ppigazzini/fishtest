@@ -123,7 +123,9 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         self.assertEqual(check.mismatched_values, 0)
         self.assertIsNone(check.first_mismatch)
 
-    def test_convert_history_c_to_iter_keeps_zero_iter_for_exact_base_c_sample(self):
+    def test_convert_history_c_to_iter_promotes_exact_base_c_sample_to_positive_iter(
+        self,
+    ):
         gamma = 0.101
         base_c = 26.09780750329488
         doc = {
@@ -146,7 +148,7 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         )
 
         assert converted is not None
-        self.assertEqual(converted[0][0]["iter"], 0)
+        self.assertEqual(converted[0][0]["iter"], 1)
 
         report = SPSA_PARAM_HISTORY_TOOL._build_history_conversion_report(
             doc,
@@ -156,7 +158,8 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
             chart_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_CHART_TOLERANCE,
         )
 
-        self.assertEqual(report.errors, [])
+        self.assertEqual(len(report.errors), 1)
+        self.assertIn("c-to-iter round-trip assertion failed", report.errors[0])
 
     def test_convert_history_c_to_iter_does_not_tail_align_sparse_exact_sample(self):
         gamma = 0.101
@@ -939,7 +942,7 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         }
 
         bad_history = [
-            [{"theta": 11.0, "iter": 0}],
+            [{"theta": 11.0, "iter": 1}],
             [{"theta": 12.0, "iter": 20}],
         ]
 
@@ -1119,7 +1122,7 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
             },
         }
         bad_history = [
-            [{"theta": 11.0, "iter": 0}],
+            [{"theta": 11.0, "iter": 1}],
             [{"theta": 12.0, "iter": 20}],
         ]
 
