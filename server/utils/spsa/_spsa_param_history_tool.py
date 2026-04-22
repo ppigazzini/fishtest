@@ -956,9 +956,76 @@ def _normalize_chart_rows_for_comparison(
 def _build_chart_payload_for_history(
     doc: Document,
     history: list[list[dict[str, Any]]],
+    *,
+    tolerance: float,
 ) -> dict[str, Any]:
-    spsa = dict(_read_spsa(doc))
+    chart_doc = deepcopy(doc)
+    args = chart_doc.get("args")
+    if not isinstance(args, Mapping):
+        raise ValueError("missing args mapping")
+
+    chart_args = dict(args)
+    spsa = dict(_read_spsa(chart_doc))
     spsa["param_history"] = history
+    chart_args["spsa"] = spsa
+    chart_doc["args"] = chart_args
+
+    iter_tolerance = max(tolerance, DEFAULT_ITER_TOLERANCE)
+    non_empty_samples = [sample for sample in history if sample]
+    if non_empty_samples and all(
+        _iter_sample_is_iter_only(sample) for sample in non_empty_samples
+    ):
+        resolved_iters = _resolve_history_sample_iters(
+            chart_doc,
+            list(history),
+            tolerance=iter_tolerance,
+        )
+    else:
+        resolved_iters = _resolve_history_sample_iters(
+            chart_doc,
+            list(history),
+            tolerance=iter_tolerance,
+        )
+        resolved_iters = _integerize_resolved_history_iters(
+            chart_doc,
+            resolved_iters,
+            tolerance=iter_tolerance,
+        )
+
+    normalized_history: list[list[dict[str, Any]]] = []
+    for sample_index, sample in enumerate(history, start=1):
+        if not isinstance(sample, list):
+            raise ValueError(f"history sample {sample_index} is not a list")
+        if not sample:
+            normalized_history.append([])
+            continue
+
+        sample_iter = resolved_iters[sample_index - 1]
+        if sample_iter is None:
+            raise ValueError(f"history sample {sample_index} did not resolve to iter")
+
+        normalized_history.append(
+            [
+                {
+                    "theta": dict(sample_param).get("theta"),
+                    "iter": sample_iter,
+                }
+                for sample_param in sample
+                if isinstance(sample_param, Mapping)
+            ]
+        )
+
+    placeholder_iter = max(tolerance, DEFAULT_ITER_TOLERANCE)
+    for sample in normalized_history:
+        if not sample:
+            continue
+        sample_iter = _as_finite_float(sample[0].get("iter"))
+        if sample_iter is None or sample_iter > 0:
+            continue
+        for sample_param in sample:
+            sample_param["iter"] = placeholder_iter
+
+    spsa["param_history"] = normalized_history
     payload = build_spsa_chart_payload(spsa)
     return payload if isinstance(payload, dict) else {}
 
@@ -969,8 +1036,16 @@ def _inspect_chart_roundtrip(
     *,
     tolerance: float,
 ) -> ChartEquivalenceCheck:
-    original_payload = build_spsa_chart_payload(_read_spsa(doc))
-    converted_payload = _build_chart_payload_for_history(doc, new_history)
+    original_payload = _build_chart_payload_for_history(
+        doc,
+        _read_param_history(doc),
+        tolerance=tolerance,
+    )
+    converted_payload = _build_chart_payload_for_history(
+        doc,
+        new_history,
+        tolerance=tolerance,
+    )
     check = ChartEquivalenceCheck()
 
     original_param_names = original_payload.get("param_names")
@@ -2036,6 +2111,10 @@ def _integerize_resolved_history_iters(
     alpha = _as_optional_nonnegative_float_value(spsa.get("alpha"))
     gamma = _as_nonnegative_float_value(spsa.get("gamma"), field_name="args.spsa.gamma")
     actual_iter = _read_history_terminal_iter(doc, tolerance=tolerance)
+    if actual_iter < 1:
+        raise ValueError(
+            "non-empty param_history requires a positive terminal SPSA iter"
+        )
     constant_c = _history_field_is_constant(
         doc,
         field_name="c",
@@ -2055,7 +2134,10 @@ def _integerize_resolved_history_iters(
         )
         # Preserve each sample's direct c/R-derived checkpoint instead of clamping
         # it to a neighboring row's fallback chart position.
-        lower_bound = 0
+        # A stored history row is always a post-start checkpoint. The starting
+        # theta vector at iter=0 is implicit and is never written to
+        # param_history.
+        lower_bound = 1
         upper_bound = actual_iter
 
         sample = history[position]
