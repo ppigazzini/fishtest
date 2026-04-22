@@ -631,6 +631,46 @@ def _canonicalize_chart_sample_iter_for_c(
     return float(int(floor(sample_iter + 0.5)))
 
 
+def _resolve_iter_chart_history_samples(
+    param_history: object,
+    *,
+    iter_value: float,
+) -> list[tuple[float, list[dict[str, float | None]]]]:
+    if not isinstance(param_history, list):
+        return []
+
+    chart_history: list[tuple[float, list[dict[str, float | None]]]] = []
+    for sample in param_history:
+        normalized_sample = _normalize_spsa_history_row(sample)
+        if normalized_sample is None:
+            continue
+
+        normalized_params, sample_iters = normalized_sample
+        if not sample_iters:
+            continue
+
+        sample_iters.sort()
+        sample_iter = sample_iters[len(sample_iters) // 2]
+        if iter_value > 0:
+            sample_iter = min(sample_iter, iter_value)
+        chart_history.append(
+            (
+                sample_iter,
+                [
+                    {
+                        "theta": sample_param.get("theta"),
+                        "c": None,
+                        "R": None,
+                    }
+                    for sample_param in normalized_params
+                ],
+            )
+        )
+
+    chart_history.sort(key=lambda sample: sample[0])
+    return chart_history
+
+
 def resolve_spsa_history_samples(
     param_history: object,
     *,
@@ -1177,8 +1217,6 @@ def build_spsa_chart_payload(spsa: Mapping[str, Any] | None) -> dict[str, Any]:
 
     _read_spsa_algorithm_name(spsa)
     iter_value = _finite_float(spsa.get("iter"), 0.0)
-    A = _finite_float(spsa.get("A"))
-    alpha = _finite_float(spsa.get("alpha"))
     gamma = _finite_float(spsa.get("gamma"), 0.0)
     num_iter = _finite_float(spsa.get("num_iter"), 0.0)
 
@@ -1195,21 +1233,9 @@ def build_spsa_chart_payload(spsa: Mapping[str, Any] | None) -> dict[str, Any]:
         iter_value=iter_value,
     )
 
-    param_history = spsa.get("param_history")
-    chart_history = resolve_spsa_history_samples(
-        param_history,
-        params=params,
-        A=A,
-        alpha=alpha,
-        gamma=gamma if gamma is not None else 0.0,
-        num_iter=num_iter if num_iter is not None else 0.0,
+    chart_history = _resolve_iter_chart_history_samples(
+        spsa.get("param_history"),
         iter_value=iter_value,
-    )
-
-    chart_history.sort(key=lambda sample: sample[0])
-    use_stored_sample_c = _chart_history_uses_stored_c(
-        chart_history,
-        gamma=gamma if gamma is not None else 0.0,
     )
     if chart_history and _chart_sample_matches(
         _build_effective_chart_sample(
@@ -1217,7 +1243,7 @@ def build_spsa_chart_payload(spsa: Mapping[str, Any] | None) -> dict[str, Any]:
             chart_history[-1][1],
             gamma=gamma if gamma is not None else 0.0,
             sample_iter=chart_history[-1][0],
-            use_stored_sample_c=use_stored_sample_c,
+            use_stored_sample_c=True,
         ),
         live_point,
     ):
@@ -1233,6 +1259,6 @@ def build_spsa_chart_payload(spsa: Mapping[str, Any] | None) -> dict[str, Any]:
             gamma=gamma if gamma is not None else 0.0,
             iter_value=iter_value,
             num_iter=num_iter if num_iter is not None else 0.0,
-            use_stored_sample_c=use_stored_sample_c,
+            use_stored_sample_c=True,
         ),
     }

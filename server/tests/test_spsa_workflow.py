@@ -239,7 +239,7 @@ class SpsaWorkflowTests(unittest.TestCase):
         self.assertEqual(payload["chart_rows"][-1]["values"], [12.5])
         self.assertEqual(payload["chart_rows"][-1]["c_values"], [live_c])
 
-    def test_build_spsa_chart_payload_recovers_legacy_c_history_positions(self):
+    def test_build_spsa_chart_payload_ignores_legacy_c_only_history_rows(self):
         gamma = 0.101
         base_c = 1.6
         sample_iter_1 = 20
@@ -273,24 +273,10 @@ class SpsaWorkflowTests(unittest.TestCase):
 
         payload = build_spsa_chart_payload(spsa)
 
-        self.assertEqual(len(payload["chart_rows"]), 4)
-        self.assertAlmostEqual(
-            payload["chart_rows"][1]["iter_ratio"],
-            sample_iter_1 / 250,
+        self.assertEqual(
+            payload["chart_rows"],
+            [{"iter_ratio": 0.0, "values": [10.0]}],
         )
-        self.assertAlmostEqual(
-            payload["chart_rows"][2]["iter_ratio"],
-            sample_iter_2 / 250,
-        )
-        self.assertAlmostEqual(
-            payload["chart_rows"][2]["c_values"][0],
-            sample_c_2,
-        )
-        self.assertAlmostEqual(
-            payload["chart_rows"][3]["iter_ratio"],
-            201 / 250,
-        )
-        self.assertEqual(payload["chart_rows"][3]["values"], [12.5])
 
     def test_build_spsa_chart_payload_accepts_estimated_float_iter_positions(self):
         spsa = {
@@ -327,7 +313,7 @@ class SpsaWorkflowTests(unittest.TestCase):
             1.6 / (3.5**0.101),
         )
 
-    def test_build_spsa_chart_payload_ignores_explicit_zero_iter_history_rows(self):
+    def test_build_spsa_chart_payload_drops_explicit_zero_iter_history_rows(self):
         spsa = {
             "iter": 20,
             "num_iter": 250,
@@ -354,11 +340,12 @@ class SpsaWorkflowTests(unittest.TestCase):
 
         payload = build_spsa_chart_payload(spsa)
 
-        self.assertEqual(len(payload["chart_rows"]), 3)
-        self.assertAlmostEqual(payload["chart_rows"][1]["iter_ratio"], 10 / 250)
-        self.assertAlmostEqual(payload["chart_rows"][2]["iter_ratio"], 20 / 250)
+        self.assertEqual(
+            payload["chart_rows"],
+            [{"iter_ratio": 0.0, "values": [10.0]}],
+        )
 
-    def test_build_spsa_chart_payload_prefers_master_fallback_for_rounded_iter_history(
+    def test_build_spsa_chart_payload_uses_explicit_iter_history_positions(
         self,
     ):
         spsa = {
@@ -389,10 +376,10 @@ class SpsaWorkflowTests(unittest.TestCase):
         payload = build_spsa_chart_payload(spsa)
 
         self.assertEqual(len(payload["chart_rows"]), 4)
-        self.assertAlmostEqual(payload["chart_rows"][1]["iter_ratio"], 20 / 250 / 3)
+        self.assertAlmostEqual(payload["chart_rows"][1]["iter_ratio"], 7 / 250)
         self.assertAlmostEqual(
             payload["chart_rows"][2]["iter_ratio"],
-            2 * 20 / 250 / 3,
+            13 / 250,
         )
         self.assertAlmostEqual(payload["chart_rows"][3]["iter_ratio"], 20 / 250)
 
@@ -434,7 +421,7 @@ class SpsaWorkflowTests(unittest.TestCase):
             payload["chart_rows"][2]["c_values"][0],
         )
 
-    def test_build_spsa_chart_payload_interpolates_unrecoverable_legacy_samples(self):
+    def test_build_spsa_chart_payload_ignores_legacy_history_rows_without_iter(self):
         spsa = {
             "iter": 20,
             "num_iter": 250,
@@ -462,15 +449,14 @@ class SpsaWorkflowTests(unittest.TestCase):
 
         payload = build_spsa_chart_payload(spsa)
 
-        self.assertEqual(len(payload["chart_rows"]), 4)
-        self.assertAlmostEqual(payload["chart_rows"][1]["iter_ratio"], 10 / 250)
-        self.assertAlmostEqual(
-            payload["chart_rows"][2]["iter_ratio"],
-            20 / 250,
+        self.assertEqual(
+            payload["chart_rows"],
+            [{"iter_ratio": 0.0, "values": [10.0]}],
         )
-        self.assertAlmostEqual(payload["chart_rows"][3]["iter_ratio"], 20 / 250)
 
-    def test_build_spsa_chart_payload_falls_back_to_sample_order_for_constant_c(self):
+    def test_build_spsa_chart_payload_ignores_constant_c_history_rows_without_iter(
+        self,
+    ):
         spsa = {
             "iter": 20,
             "num_iter": 250,
@@ -498,18 +484,12 @@ class SpsaWorkflowTests(unittest.TestCase):
 
         payload = build_spsa_chart_payload(spsa)
 
-        self.assertEqual(len(payload["chart_rows"]), 4)
-        self.assertEqual(payload["chart_rows"][1]["values"], [11.0])
-        self.assertEqual(payload["chart_rows"][1]["c_values"], [1.6])
-        self.assertEqual(payload["chart_rows"][2]["values"], [12.0])
-        self.assertAlmostEqual(payload["chart_rows"][1]["iter_ratio"], 20 / 250 / 3)
-        self.assertAlmostEqual(
-            payload["chart_rows"][2]["iter_ratio"],
-            2 * 20 / 250 / 3,
+        self.assertEqual(
+            payload["chart_rows"],
+            [{"iter_ratio": 0.0, "values": [10.0]}],
         )
-        self.assertAlmostEqual(payload["chart_rows"][3]["iter_ratio"], 20 / 250)
 
-    def test_build_spsa_chart_payload_recomputes_chart_only_constant_c_values(self):
+    def test_build_spsa_chart_payload_ignores_chart_only_constant_cr_rows(self):
         gamma = 0.101
         base_c = 7.59509630360077
         spsa = {
@@ -539,23 +519,12 @@ class SpsaWorkflowTests(unittest.TestCase):
 
         payload = build_spsa_chart_payload(spsa)
 
-        self.assertEqual(len(payload["chart_rows"]), 4)
-        first_history_row = payload["chart_rows"][1]
-        second_history_row = payload["chart_rows"][2]
-        first_history_iter = round(first_history_row["iter_ratio"] * 500)
-        second_history_iter = round(second_history_row["iter_ratio"] * 500)
-        self.assertNotAlmostEqual(first_history_row["c_values"][0], base_c)
-        self.assertNotAlmostEqual(second_history_row["c_values"][0], base_c)
-        self.assertAlmostEqual(
-            first_history_row["c_values"][0],
-            base_c / ((first_history_iter + 1) ** gamma),
-        )
-        self.assertAlmostEqual(
-            second_history_row["c_values"][0],
-            base_c / ((second_history_iter + 1) ** gamma),
+        self.assertEqual(
+            payload["chart_rows"],
+            [{"iter_ratio": 0.0, "values": [10.0]}],
         )
 
-    def test_build_spsa_chart_payload_recovers_legacy_r_history_positions_when_c_is_constant(
+    def test_build_spsa_chart_payload_ignores_legacy_r_history_rows_without_iter(
         self,
     ):
         base_c = 1.6
@@ -603,15 +572,10 @@ class SpsaWorkflowTests(unittest.TestCase):
 
         payload = build_spsa_chart_payload(spsa)
 
-        self.assertEqual(len(payload["chart_rows"]), 4)
-        self.assertAlmostEqual(
-            payload["chart_rows"][1]["iter_ratio"], sample_iter_1 / 250
+        self.assertEqual(
+            payload["chart_rows"],
+            [{"iter_ratio": 0.0, "values": [10.0]}],
         )
-        self.assertAlmostEqual(
-            payload["chart_rows"][2]["iter_ratio"], sample_iter_2 / 250
-        )
-        self.assertEqual(payload["chart_rows"][1]["c_values"], [base_c])
-        self.assertEqual(payload["chart_rows"][2]["c_values"], [base_c])
 
     def test_build_spsa_chart_payload_ignores_non_list_history_samples(self):
         spsa = {
