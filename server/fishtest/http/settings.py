@@ -64,6 +64,9 @@ UI_FORM_MAX_FILES: int = 2
 UI_FORM_MAX_FIELDS: int = 200
 UI_FORM_MAX_PART_SIZE_BYTES: int = 200 * 1024 * 1024
 
+TYPESENSE_ACTIONS_ALIAS: str = "actions_current"
+TYPESENSE_FINISHED_RUNS_ALIAS: str = "finished_runs_current"
+
 
 def env_int(name: str, *, default: int) -> int:
     """Parse an environment variable as an integer, with a fallback default."""
@@ -74,6 +77,64 @@ def env_int(name: str, *, default: int) -> int:
         return int(value)
     except ValueError:
         return default
+
+
+def env_bool(name: str, *, default: bool) -> bool:
+    """Parse an environment variable as a boolean, with a fallback default."""
+    value = os.environ.get(name, "").strip().lower()
+    if not value:
+        return default
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def env_str(name: str, *, default: str) -> str:
+    """Parse an environment variable as a trimmed string, with a fallback default."""
+    value = os.environ.get(name, "").strip()
+    return value or default
+
+
+@dataclass(frozen=True, slots=True)
+class TypesenseSettings:
+    """Derived feature flags and aliases for the Typesense read model."""
+
+    enabled: bool = False
+    actions_enabled: bool = False
+    finished_runs_enabled: bool = False
+    fallback_to_mongo: bool = True
+    actions_alias: str = TYPESENSE_ACTIONS_ALIAS
+    finished_runs_alias: str = TYPESENSE_FINISHED_RUNS_ALIAS
+
+    @classmethod
+    def from_env(cls) -> TypesenseSettings:
+        """Build Typesense settings from environment variables."""
+        enabled = env_bool("FISHTEST_TYPESENSE_ENABLED", default=False)
+        return cls(
+            enabled=enabled,
+            actions_enabled=env_bool(
+                "FISHTEST_TYPESENSE_ACTIONS_ENABLED",
+                default=enabled,
+            ),
+            finished_runs_enabled=env_bool(
+                "FISHTEST_TYPESENSE_FINISHED_RUNS_ENABLED",
+                default=enabled,
+            ),
+            fallback_to_mongo=env_bool(
+                "FISHTEST_TYPESENSE_FALLBACK_TO_MONGO",
+                default=True,
+            ),
+            actions_alias=env_str(
+                "FISHTEST_TYPESENSE_ACTIONS_ALIAS",
+                default=TYPESENSE_ACTIONS_ALIAS,
+            ),
+            finished_runs_alias=env_str(
+                "FISHTEST_TYPESENSE_FINISHED_RUNS_ALIAS",
+                default=TYPESENSE_FINISHED_RUNS_ALIAS,
+            ),
+        )
 
 
 def default_static_dir() -> Path:
@@ -94,6 +155,7 @@ class AppSettings:
     primary_port: int
     is_primary_instance: bool
     openapi_url: str | None = None
+    typesense: TypesenseSettings = TypesenseSettings()
 
     @classmethod
     def from_env(cls) -> AppSettings:
@@ -119,4 +181,5 @@ class AppSettings:
             primary_port=primary_port,
             is_primary_instance=is_primary_instance,
             openapi_url=openapi_url,
+            typesense=TypesenseSettings.from_env(),
         )

@@ -8,9 +8,12 @@ from fishtest.http.settings import (
     HTMX_INPUT_CHANGED_DELAY_MS,
     TASK_SEMAPHORE_SIZE,
     THREADPOOL_TOKENS,
+    TYPESENSE_ACTIONS_ALIAS,
+    TYPESENSE_FINISHED_RUNS_ALIAS,
     UI_STATE_COOKIE_MAX_AGE_SECONDS,
     AppSettings,
     default_static_dir,
+    env_bool,
     env_int,
 )
 
@@ -38,6 +41,17 @@ class SettingsContractTests(unittest.TestCase):
                 DEFAULT_ENV_VALUE,
             )
 
+    def test_env_bool_uses_default_for_blank_or_invalid_values(self):
+        with mock.patch.dict("os.environ", {"FISHTEST_SAMPLE_BOOL": ""}, clear=False):
+            self.assertTrue(env_bool("FISHTEST_SAMPLE_BOOL", default=True))
+
+        with mock.patch.dict(
+            "os.environ",
+            {"FISHTEST_SAMPLE_BOOL": "maybe"},
+            clear=False,
+        ):
+            self.assertFalse(env_bool("FISHTEST_SAMPLE_BOOL", default=False))
+
     def test_default_static_dir_uses_env_override(self):
         with mock.patch.dict(
             "os.environ",
@@ -60,6 +74,9 @@ class SettingsContractTests(unittest.TestCase):
                 "FISHTEST_PORT": "8001",
                 "FISHTEST_PRIMARY_PORT": "8000",
                 "OPENAPI_URL": CUSTOM_OPENAPI_URL,
+                "FISHTEST_TYPESENSE_ENABLED": "1",
+                "FISHTEST_TYPESENSE_FALLBACK_TO_MONGO": "0",
+                "FISHTEST_TYPESENSE_ACTIONS_ALIAS": "actions_shadow",
             },
             clear=True,
         ):
@@ -69,6 +86,36 @@ class SettingsContractTests(unittest.TestCase):
         self.assertEqual(settings.primary_port, 8000)
         self.assertFalse(settings.is_primary_instance)
         self.assertEqual(settings.openapi_url, CUSTOM_OPENAPI_URL)
+        self.assertTrue(settings.typesense.enabled)
+        self.assertTrue(settings.typesense.actions_enabled)
+        self.assertTrue(settings.typesense.finished_runs_enabled)
+        self.assertFalse(settings.typesense.fallback_to_mongo)
+        self.assertEqual(settings.typesense.actions_alias, "actions_shadow")
+        self.assertEqual(
+            settings.typesense.finished_runs_alias,
+            TYPESENSE_FINISHED_RUNS_ALIAS,
+        )
+
+    def test_app_settings_from_env_keeps_typesense_defaults_when_unset(self):
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "FISHTEST_PORT": "8000",
+                "FISHTEST_PRIMARY_PORT": "8000",
+            },
+            clear=True,
+        ):
+            settings = AppSettings.from_env()
+
+        self.assertFalse(settings.typesense.enabled)
+        self.assertFalse(settings.typesense.actions_enabled)
+        self.assertFalse(settings.typesense.finished_runs_enabled)
+        self.assertTrue(settings.typesense.fallback_to_mongo)
+        self.assertEqual(settings.typesense.actions_alias, TYPESENSE_ACTIONS_ALIAS)
+        self.assertEqual(
+            settings.typesense.finished_runs_alias,
+            TYPESENSE_FINISHED_RUNS_ALIAS,
+        )
 
     def test_runtime_limits_keep_headroom_for_http_work(self):
         self.assertGreater(THREADPOOL_TOKENS, TASK_SEMAPHORE_SIZE)
