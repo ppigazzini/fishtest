@@ -65,6 +65,10 @@ from fishtest.http.settings import (
     SESSION_REMEMBER_ME_MAX_AGE_SECONDS,
     TASKS_MAX_ALL,
     TASKS_PAGE_SIZE,
+    TYPESENSE_ACTIONS_ALIAS,
+    TYPESENSE_FINISHED_RUNS_ALIAS,
+    TYPESENSE_REINDEX_INTERVAL_SECONDS,
+    TYPESENSE_SYNC_INTERVAL_SECONDS,
     UI_FORM_MAX_FIELDS,
     UI_FORM_MAX_FILES,
     UI_FORM_MAX_PART_SIZE_BYTES,
@@ -1497,6 +1501,201 @@ def rate_limits_server(request: _ViewContext) -> Response:  # noqa: ARG001
         f'{server_rate_limit}<span id="server_reset" hx-swap-oob="innerHTML">'
         f"{server_reset}</span>",
     )
+
+
+def _typesense_status_timestamp_label(value: object) -> str:
+    if not isinstance(value, int | float) or float(value) <= 0:
+        return "Never"
+    return datetime.fromtimestamp(float(value), UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def _typesense_status_lag_label(value: object) -> str:
+    if not isinstance(value, int | float):
+        return "Unknown"
+    return f"{float(value):.1f}s"
+
+
+def _typesense_status_interval_label(seconds: int) -> str:
+    if seconds <= 0:
+        return "Disabled"
+    return f"{seconds}s"
+
+
+def _typesense_status_count(value: object) -> int:
+    return int(value) if isinstance(value, int | float) else 0
+
+
+def _build_typesense_status_row(
+    *,
+    service_config: dict[str, Any],
+    snapshot: dict[str, Any] | None,
+) -> dict[str, Any]:
+    live = dict(snapshot or {})
+    alias_value = str(live.get("alias") or service_config["alias"])
+    collection_name = str(live.get("collection_name") or "") or "Not initialized"
+    return {
+        "label": service_config["label"],
+        "route": str(live.get("route") or service_config["route"]),
+        "configured_label": "Yes" if service_config["configured"] else "No",
+        "enabled_label": "Typesense" if service_config["enabled"] else "MongoDB",
+        "shadow_reads_label": (
+            "On" if service_config["shadow_reads_enabled"] else "Off"
+        ),
+        "fallback_to_mongo_label": (
+            "On" if service_config["fallback_to_mongo"] else "Off"
+        ),
+        "alias": alias_value,
+        "collection_name": collection_name,
+        "indexed_lag_label": _typesense_status_lag_label(
+            live.get("indexed_lag_seconds"),
+        ),
+        "last_sync_completed_at_label": _typesense_status_timestamp_label(
+            live.get("last_sync_completed_at"),
+        ),
+        "last_reindex_completed_at_label": _typesense_status_timestamp_label(
+            live.get("last_reindex_completed_at"),
+        ),
+        "last_fallback_at_label": _typesense_status_timestamp_label(
+            live.get("last_fallback_at"),
+        ),
+        "last_backend_unavailable_at_label": _typesense_status_timestamp_label(
+            live.get("last_backend_unavailable_at"),
+        ),
+        "sync_interval_label": _typesense_status_interval_label(
+            int(
+                live.get("sync_interval_seconds")
+                or service_config["sync_interval_seconds"],
+            ),
+        ),
+        "reindex_interval_label": _typesense_status_interval_label(
+            int(
+                live.get("reindex_interval_seconds")
+                or service_config["reindex_interval_seconds"],
+            ),
+        ),
+        "sync_batches": _typesense_status_count(live.get("sync_batches")),
+        "synced_document_count": _typesense_status_count(
+            live.get("synced_document_count"),
+        ),
+        "alias_swap_count": _typesense_status_count(live.get("alias_swap_count")),
+        "fallback_count": _typesense_status_count(live.get("fallback_count")),
+        "backend_unavailable_count": _typesense_status_count(
+            live.get("backend_unavailable_count"),
+        ),
+        "count_mismatch_count": _typesense_status_count(
+            live.get("count_mismatch_count"),
+        ),
+        "result_mismatch_count": _typesense_status_count(
+            live.get("result_mismatch_count"),
+        ),
+        "last_error_label": str(live.get("last_error") or "None"),
+    }
+
+
+def _build_typesense_status_context(request: _ViewContext) -> dict[str, Any]:
+    app_settings = getattr(request.raw_request.app.state, "settings", None)
+    settings = getattr(app_settings, "typesense", None)
+
+    actions_service = request.actions_search_service
+    actions_snapshot = (
+        actions_service.status_snapshot() if actions_service is not None else None
+    )
+    finished_service = request.finished_runs_search_service
+    finished_snapshot = (
+        finished_service.status_snapshot() if finished_service is not None else None
+    )
+
+    actions_configured = bool(
+        actions_service is not None
+        or getattr(settings, "actions_service_enabled", False),
+    )
+    finished_configured = bool(
+        finished_service is not None
+        or getattr(settings, "finished_runs_service_enabled", False),
+    )
+
+    actions_config = {
+        "label": "Actions",
+        "route": "/actions",
+        "alias": getattr(settings, "actions_alias", TYPESENSE_ACTIONS_ALIAS),
+        "enabled": bool(getattr(settings, "actions_enabled", False)),
+        "shadow_reads_enabled": bool(
+            getattr(settings, "actions_shadow_reads_enabled", False),
+        ),
+        "fallback_to_mongo": bool(getattr(settings, "fallback_to_mongo", True)),
+        "sync_interval_seconds": int(
+            getattr(
+                settings,
+                "actions_sync_interval_seconds",
+                TYPESENSE_SYNC_INTERVAL_SECONDS,
+            ),
+        ),
+        "reindex_interval_seconds": int(
+            getattr(
+                settings,
+                "actions_reindex_interval_seconds",
+                TYPESENSE_REINDEX_INTERVAL_SECONDS,
+            ),
+        ),
+        "configured": actions_configured,
+    }
+    finished_config = {
+        "label": "Finished runs",
+        "route": "/tests/finished",
+        "alias": getattr(
+            settings,
+            "finished_runs_alias",
+            TYPESENSE_FINISHED_RUNS_ALIAS,
+        ),
+        "enabled": bool(getattr(settings, "finished_runs_enabled", False)),
+        "shadow_reads_enabled": bool(
+            getattr(settings, "finished_runs_shadow_reads_enabled", False),
+        ),
+        "fallback_to_mongo": bool(getattr(settings, "fallback_to_mongo", True)),
+        "sync_interval_seconds": int(
+            getattr(
+                settings,
+                "finished_runs_sync_interval_seconds",
+                TYPESENSE_SYNC_INTERVAL_SECONDS,
+            ),
+        ),
+        "reindex_interval_seconds": int(
+            getattr(
+                settings,
+                "finished_runs_reindex_interval_seconds",
+                TYPESENSE_REINDEX_INTERVAL_SECONDS,
+            ),
+        ),
+        "configured": finished_configured,
+    }
+
+    return {
+        "typesense_services": [
+            _build_typesense_status_row(
+                service_config=actions_config,
+                snapshot=actions_snapshot,
+            ),
+            _build_typesense_status_row(
+                service_config=finished_config,
+                snapshot=finished_snapshot,
+            ),
+        ],
+    }
+
+
+def typesense_status(request: _ViewContext) -> dict[str, Any] | Response:
+    _append_no_store_headers(request)
+    if not request.has_permission("approve_run"):
+        request.session.flash("You cannot view Typesense status", "error")
+        return home(request)
+    return _build_typesense_status_context(request)
+
+
+def typesense_status_server(request: _ViewContext) -> dict[str, Any] | Response:
+    _append_no_store_headers(request)
+    if not request.has_permission("approve_run"):
+        return HTMLResponse("", status_code=403)
+    return _build_typesense_status_context(request)
 
 
 def user_management_pending_count(request: _ViewContext) -> dict[str, Any]:  # noqa: ARG001
@@ -3759,6 +3958,16 @@ _VIEW_ROUTES: list[_ViewRoute] = [
     (sprt_calc, "/sprt_calc", {"renderer": "sprt_calc.html.j2"}),
     (rate_limits, "/rate_limits", {"renderer": "rate_limits.html.j2"}),
     (rate_limits_server, "/rate_limits/server", {}),
+    (
+        typesense_status,
+        "/typesense_status",
+        {"renderer": "typesense_status.html.j2"},
+    ),
+    (
+        typesense_status_server,
+        "/typesense_status/server",
+        {"renderer": "typesense_status_content_fragment.html.j2"},
+    ),
     (
         user_management_pending_count,
         "/user_management/pending_count",

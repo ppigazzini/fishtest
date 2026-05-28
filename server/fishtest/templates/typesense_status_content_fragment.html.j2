@@ -1,0 +1,60 @@
+<table id="typesense_status_table" class="table table-striped table-sm align-middle">
+  <caption class="visually-hidden">
+    Typesense backend status for the actions and finished-runs routes.
+  </caption>
+  <thead>
+    <tr>
+      <th scope="col">Route</th>
+      <th scope="col">Mode</th>
+      <th scope="col">Index</th>
+      <th scope="col">Sync</th>
+      <th scope="col">Counters</th>
+      <th scope="col">Last error</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for service in typesense_services %}
+      <tr>
+        <th scope="row">
+          {{ service.label }}
+          <div class="small text-body-secondary monospace">{{ service.route }}</div>
+        </th>
+        <td>
+          <div><strong>Configured:</strong> {{ service.configured_label }}</div>
+          <div><strong>Serve:</strong> {{ service.enabled_label }}</div>
+          <div><strong>Shadow reads:</strong> {{ service.shadow_reads_label }}</div>
+          <div><strong>Fallback:</strong> {{ service.fallback_to_mongo_label }}</div>
+        </td>
+        <td>
+          <div><strong>Alias:</strong> <span class="monospace">{{ service.alias }}</span></div>
+          <div><strong>Collection:</strong> <span class="monospace">{{ service.collection_name }}</span></div>
+        </td>
+        <td>
+          <div><strong>Lag:</strong> {{ service.indexed_lag_label }}</div>
+          <div><strong>Last sync:</strong> {{ service.last_sync_completed_at_label }}</div>
+          <div><strong>Last reindex:</strong> {{ service.last_reindex_completed_at_label }}</div>
+          <div><strong>Sync interval:</strong> {{ service.sync_interval_label }}</div>
+          <div><strong>Reindex interval:</strong> {{ service.reindex_interval_label }}</div>
+        </td>
+        <td>
+          <div><strong>Synced docs:</strong> {{ service.synced_document_count }}</div>
+          <div><strong>Sync batches:</strong> {{ service.sync_batches }}</div>
+          <div><strong>Alias swaps:</strong> {{ service.alias_swap_count }}</div>
+          <div><strong>Fallbacks:</strong> {{ service.fallback_count }}</div>
+          <div><strong>Backend unavailable:</strong> {{ service.backend_unavailable_count }}</div>
+          <div><strong>Count mismatches:</strong> {{ service.count_mismatch_count }}</div>
+          <div><strong>Result mismatches:</strong> {{ service.result_mismatch_count }}</div>
+        </td>
+        <td>
+          <div>{{ service.last_error_label }}</div>
+          <div class="small text-body-secondary">
+            Last backend failure: {{ service.last_backend_unavailable_at_label }}
+          </div>
+          <div class="small text-body-secondary">
+            Last fallback: {{ service.last_fallback_at_label }}
+          </div>
+        </td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>

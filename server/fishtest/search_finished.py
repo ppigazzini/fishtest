@@ -50,6 +50,10 @@ class FinishedRunsSearchService(Protocol):
         max_count: int | None = None,
     ) -> None: ...
 
+    def record_fallback(self) -> None: ...
+
+    def status_snapshot(self) -> dict[str, Any]: ...
+
 
 __all__ = [
     "FinishedRunsSearchService",

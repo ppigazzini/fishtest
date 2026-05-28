@@ -302,6 +302,7 @@ def build_template_context(
             "workers_blocked": "/workers/show",
             "sprt_calc": "/sprt_calc",
             "rate_limits": "/rate_limits",
+            "typesense_status": "/typesense_status",
             "api_rate_limit": "/api/rate_limit",
         },
     }

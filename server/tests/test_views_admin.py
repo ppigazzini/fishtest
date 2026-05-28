@@ -12,7 +12,16 @@ from fishtest.http.settings import (
     POLL_PENDING_USERS_NAV_S,
     POLL_RATE_LIMITS_GITHUB_S,
     POLL_RATE_LIMITS_SERVER_S,
+    POLL_TYPESENSE_STATUS_SERVER_S,
 )
+
+
+class _TypesenseStatusServiceStub:
+    def __init__(self, snapshot):
+        self._snapshot = dict(snapshot)
+
+    def status_snapshot(self):
+        return dict(self._snapshot)
 
 
 class TestAdminViews(UiUserTestCase):
@@ -315,6 +324,7 @@ class TestAdminViews(UiUserTestCase):
         response = self.client.get("/rate_limits")
         self.assertEqual(response.status_code, 200)
         self.assertIn('id="rate-limits-nav-link"', response.text)
+        self.assertIn('id="typesense-status-nav-link"', response.text)
         self.assertIn(
             f'data-poll-seconds="{POLL_RATE_LIMITS_GITHUB_S}"',
             response.text,
@@ -324,6 +334,104 @@ class TestAdminViews(UiUserTestCase):
             f'id="client_rate_limit" data-poll-seconds="{POLL_RATE_LIMITS_GITHUB_S}"',
             response.text,
         )
+
+    def test_typesense_status_requires_approver(self):
+        self._login_user()
+
+        response = self.client.get("/typesense_status", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("location"), "/tests")
+
+        fragment_response = self.client.get("/typesense_status/server")
+        self.assertEqual(fragment_response.status_code, 403)
+
+    def test_typesense_status_full_page_and_hx_fragment(self):
+        original_pending, original_groups = self._set_approver_state()
+        actions_snapshot = {
+            "route": "/actions",
+            "alias": "actions_current",
+            "collection_name": "actions_20260528164000",
+            "enabled": True,
+            "shadow_reads_enabled": True,
+            "fallback_to_mongo": True,
+            "sync_interval_seconds": 30,
+            "reindex_interval_seconds": 0,
+            "last_sync_completed_at": 1716914400.0,
+            "last_reindex_completed_at": 1716914460.0,
+            "last_fallback_at": 1716914520.0,
+            "last_backend_unavailable_at": 1716914580.0,
+            "sync_batches": 4,
+            "synced_document_count": 18,
+            "last_reindex_document_count": 18,
+            "alias_swap_count": 1,
+            "fallback_count": 2,
+            "backend_unavailable_count": 1,
+            "count_mismatch_count": 1,
+            "result_mismatch_count": 0,
+            "last_error": "actions backend timeout",
+            "indexed_lag_seconds": 10.5,
+        }
+        finished_snapshot = {
+            "route": "/tests/finished",
+            "alias": "finished_runs_current",
+            "collection_name": "finished_runs_20260528164000",
+            "enabled": False,
+            "shadow_reads_enabled": True,
+            "fallback_to_mongo": True,
+            "sync_interval_seconds": 45,
+            "reindex_interval_seconds": 3600,
+            "last_sync_completed_at": 1716914400.0,
+            "last_reindex_completed_at": None,
+            "last_fallback_at": None,
+            "last_backend_unavailable_at": None,
+            "sync_batches": 7,
+            "synced_document_count": 52,
+            "last_reindex_document_count": 0,
+            "alias_swap_count": 0,
+            "fallback_count": 0,
+            "backend_unavailable_count": 0,
+            "count_mismatch_count": 0,
+            "result_mismatch_count": 1,
+            "last_error": "",
+            "indexed_lag_seconds": 4.0,
+        }
+
+        try:
+            self._login_user()
+            self.client.app.state.actions_search_service = _TypesenseStatusServiceStub(
+                actions_snapshot,
+            )
+            self.client.app.state.finished_runs_search_service = (
+                _TypesenseStatusServiceStub(finished_snapshot)
+            )
+
+            full_response = self.client.get("/typesense_status")
+            self.assertEqual(full_response.status_code, 200)
+            self.assertIn("<!doctype html>", full_response.text.lower())
+            self.assertIn('id="typesense-status-nav-link"', full_response.text)
+            self.assertIn('id="typesense_status_table"', full_response.text)
+            self.assertIn('hx-get="/typesense_status/server"', full_response.text)
+            self.assertIn(
+                f'hx-trigger="load, every {POLL_TYPESENSE_STATUS_SERVER_S}s ',
+                full_response.text,
+            )
+            self.assertIn("actions_20260528164000", full_response.text)
+            self.assertIn("finished_runs_20260528164000", full_response.text)
+            self.assertIn("10.5s", full_response.text)
+            self.assertIn("actions backend timeout", full_response.text)
+
+            fragment_response = self.client.get("/typesense_status/server")
+            self.assertEqual(fragment_response.status_code, 200)
+            self.assertNotIn("<!doctype html>", fragment_response.text.lower())
+            self.assertIn('id="typesense_status_table"', fragment_response.text)
+            self.assertIn("Finished runs", fragment_response.text)
+            self.assertIn("Disabled", fragment_response.text)
+            self.assertIn("45s", fragment_response.text)
+            self.assertIn("3600s", fragment_response.text)
+        finally:
+            self._restore_approver_state(original_pending, original_groups)
+            self.client.app.state.actions_search_service = None
+            self.client.app.state.finished_runs_search_service = None
 
     def test_pending_users_nav_full_page_and_fragment_polling(self):
         pending_username = "TestPendingNavUser"

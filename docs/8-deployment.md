@@ -208,6 +208,8 @@ The route services now log the following operational events:
 Watch these application logs alongside the Typesense cluster endpoints from the
 production guide:
 
+- `/typesense_status` in the approver UI for the app-owned lag, sync, fallback,
+  mismatch, and alias-swap counters;
 - `/health` for availability;
 - `/metrics.json` for resource usage;
 - `/stats.json` for request rate and latency.

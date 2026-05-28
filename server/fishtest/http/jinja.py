@@ -33,6 +33,7 @@ from fishtest.http.settings import (
     POLL_TESTS_RUN_TABLES_S,
     POLL_TESTS_STATS_S,
     POLL_TESTS_VIEW_DETAIL_S,
+    POLL_TYPESENSE_STATUS_SERVER_S,
     UI_STATE_COOKIE_MAX_AGE_SECONDS,
 )
 from fishtest.util import get_tc_ratio as _get_tc_ratio
@@ -151,6 +152,7 @@ def default_environment() -> Environment:
             "pending_users_nav": POLL_PENDING_USERS_NAV_S,
             "rate_limits_github": POLL_RATE_LIMITS_GITHUB_S,
             "rate_limits_server": POLL_RATE_LIMITS_SERVER_S,
+            "typesense_status_server": POLL_TYPESENSE_STATUS_SERVER_S,
         },
         "htmx": {
             "input_changed_delay_ms": HTMX_INPUT_CHANGED_DELAY_MS,

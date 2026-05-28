@@ -30,6 +30,7 @@ POLL_LIVE_ELO_S: int = 10
 POLL_RATE_LIMITS_GITHUB_S: int = 10
 POLL_RATE_LIMITS_SERVER_S: int = 60
 POLL_PENDING_USERS_NAV_S: int = 10
+POLL_TYPESENSE_STATUS_SERVER_S: int = 30
 
 # htmx UI timing defaults.
 # Keep this generic so multiple pages can share one debounce baseline.

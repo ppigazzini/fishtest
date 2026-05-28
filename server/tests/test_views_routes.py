@@ -24,6 +24,8 @@ _GET_ONLY_ROUTES = {
     "/tests/user/{username}",
     "/tests/view/{id}",
     "/tests/view/{id}/detail",
+    "/typesense_status",
+    "/typesense_status/server",
     "/user_management",
     "/user_management/pending_count",
 }

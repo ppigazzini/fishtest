@@ -77,10 +77,12 @@ but generic `OPTIONS` is not part of the UI route contract and returns `405`.
 | `/sprt_calc` | GET | `sprt_calc` | `sprt_calc.html.j2` | |
 | `/rate_limits` | GET | `rate_limits` | `rate_limits.html.j2` | |
 | `/rate_limits/server` | GET | `rate_limits_server` | inline HTML response | Fragment-only |
+| `/typesense_status` | GET | `typesense_status` | `typesense_status.html.j2` | Approver-only page; polls `typesense_status_content_fragment.html.j2` while visible |
+| `/typesense_status/server` | GET | `typesense_status_server` | `typesense_status_content_fragment.html.j2` | Fragment-only; returns the live Typesense status table |
 
 ## Sidebar status links
 
-The sidebar contains two visibility-aware status links:
+The sidebar contains two visibility-aware status links and one operational link:
 
 - `Users` is rendered inside the stable `#pending-users-nav` wrapper in
    `base.html.j2`. Full pages include the current count server-side, and that
@@ -93,6 +95,10 @@ The sidebar contains two visibility-aware status links:
    row when that page is open, and `POLL_RATE_LIMITS_SERVER_S` for the
    `/rate_limits/server` htmx row. The sidebar link itself is rendered directly
    in `base.html.j2`.
+- `Typesense Status` is a direct sidebar navigation link. The page itself is
+   approver-only and mounts a visibility-aware htmx poll to
+   `/typesense_status/server`, which refreshes the server-owned runtime table
+   for the `/actions` and `/tests/finished` backends.
 
 Route notes:
 - **Fragment-only**: endpoint always returns a fragment template (no full page).
@@ -468,6 +474,9 @@ while letting low-risk UI preferences remain simple, readable browser state.
 - The sidebar `GitHub Rate Limits` link keeps its text fixed and reflects the
    browser-side GitHub client budget used by pages that read the token from
    local storage.
+- The sidebar `Typesense Status` link is plain navigation. The live status
+   table appears only on `/typesense_status`, and that page is limited to
+   approvers.
 - When the client budget falls below the current warning threshold, the link
    switches to the same red status styling used by the pending-users sidebar
    item.

@@ -1,0 +1,22 @@
+{% extends "base.html.j2" %}
+
+{% block title %}Typesense Status | Stockfish Testing{% endblock %}
+
+{% block body %}
+
+<div id="typesense_status_div">
+  <h2>Typesense Status</h2>
+  <p class="text-body-secondary">
+    This approver-only page shows the server-owned runtime status for the
+    `/actions` and `/tests/finished` Typesense backends.
+  </p>
+  <div
+    id="typesense-status-content"
+    hx-get="/typesense_status/server"
+    hx-trigger="load, every {{ poll.typesense_status_server }}s [document.visibilityState === 'visible'], visibilitychange[document.visibilityState === 'visible'] from:document"
+    hx-swap="innerHTML"
+  >
+    {% include "typesense_status_content_fragment.html.j2" %}
+  </div>
+</div>
+{% endblock %}
