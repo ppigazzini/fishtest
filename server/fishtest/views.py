@@ -463,6 +463,11 @@ class _ViewContext:
             "actions_search_service",
             getattr(request.app.state, "actions_search_service", None),
         )
+        self.finished_runs_search_service = getattr(
+            request.state,
+            "finished_runs_search_service",
+            getattr(request.app.state, "finished_runs_search_service", None),
+        )
 
     @property
     def authenticated_userid(self) -> str | None:

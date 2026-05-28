@@ -17,6 +17,7 @@ from fishtest.http.settings import (
     FINISHED_FILTER_MAX_COUNT_ANON,
     FINISHED_FILTER_MAX_COUNT_AUTH,
 )
+from fishtest.search_finished import FinishedRunsSearchUnavailableError
 from fishtest.views_helpers import (
     _DEFAULT_SORT_ORDER,
     _DEFAULT_TIME_SORT_FIELD,
@@ -245,6 +246,65 @@ def _finished_tab_query_string(  # noqa: PLR0913
     )
 
 
+def _finished_runs_search_service(request: Any) -> Any:  # noqa: ANN401
+    return getattr(request, "finished_runs_search_service", None)
+
+
+def _finished_search_service_enabled(service: Any) -> bool:  # noqa: ANN401
+    return bool(getattr(service, "enabled", False))
+
+
+def _finished_search_service_fallback_enabled(service: Any) -> bool:  # noqa: ANN401
+    return bool(getattr(service, "fallback_to_mongo", True))
+
+
+def _finished_search_service_shadow_reads_enabled(service: Any) -> bool:  # noqa: ANN401
+    return bool(getattr(service, "shadow_reads_enabled", False))
+
+
+def _get_finished_runs_with_backend(  # noqa: PLR0913
+    request: Any,  # noqa: ANN401
+    *,
+    username: str | None = None,
+    usernames: list[str] | None = None,
+    text: str | None = None,
+    success_only: bool = False,
+    yellow_only: bool = False,
+    ltc_only: bool = False,
+    skip: int = 0,
+    limit: int | None = None,
+    max_count: int | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    service = _finished_runs_search_service(request)
+    search_kwargs = {
+        "username": username,
+        "usernames": usernames,
+        "text": text,
+        "success_only": success_only,
+        "yellow_only": yellow_only,
+        "ltc_only": ltc_only,
+        "skip": skip,
+        "limit": limit,
+        "max_count": max_count,
+    }
+
+    if service is not None and _finished_search_service_enabled(service):
+        try:
+            return service.get_finished_runs(**search_kwargs)
+        except FinishedRunsSearchUnavailableError:
+            if not _finished_search_service_fallback_enabled(service):
+                raise
+
+    mongo_result = request.rundb.get_finished_runs(**search_kwargs)
+
+    if service is not None and _finished_search_service_shadow_reads_enabled(service):
+        shadow_compare = getattr(service, "shadow_compare", None)
+        if callable(shadow_compare):
+            shadow_compare(mongo_result=mongo_result, **search_kwargs)
+
+    return mongo_result
+
+
 def get_paginated_finished_runs(  # noqa: C901, PLR0912, PLR0915
     request: Any,  # noqa: ANN401
     *,
@@ -346,7 +406,8 @@ def get_paginated_finished_runs(  # noqa: C901, PLR0912, PLR0915
     elif username_query and matched_usernames and len(matched_usernames) > 1:
         ranked_finished_runs = _ranked_multi_username_merge(
             usernames=matched_usernames,
-            fetch_fn=lambda u, window, cap: request.rundb.get_finished_runs(
+            fetch_fn=lambda u, window, cap: _get_finished_runs_with_backend(
+                request,
                 username=u,
                 text=text,
                 success_only=success_only,
@@ -363,7 +424,8 @@ def get_paginated_finished_runs(  # noqa: C901, PLR0912, PLR0915
             max_count=max_count,
         )
         if ranked_finished_runs is None:
-            finished_runs, _ = request.rundb.get_finished_runs(
+            finished_runs, _ = _get_finished_runs_with_backend(
+                request,
                 username=username,
                 usernames=matched_usernames,
                 text=text,
@@ -393,7 +455,8 @@ def get_paginated_finished_runs(  # noqa: C901, PLR0912, PLR0915
         else:
             finished_runs, num_finished_runs = ranked_finished_runs
     else:
-        finished_runs, num_finished_runs = request.rundb.get_finished_runs(
+        finished_runs, num_finished_runs = _get_finished_runs_with_backend(
+            request,
             username=username,
             usernames=matched_usernames,
             text=text,

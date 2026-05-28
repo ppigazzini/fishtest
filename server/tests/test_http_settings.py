@@ -106,12 +106,14 @@ class SettingsContractTests(unittest.TestCase):
         self.assertFalse(settings.typesense.actions_enabled)
         self.assertTrue(settings.typesense.actions_shadow_reads_enabled)
         self.assertFalse(settings.typesense.finished_runs_enabled)
+        self.assertTrue(settings.typesense.finished_runs_shadow_reads_enabled)
         self.assertFalse(settings.typesense.fallback_to_mongo)
         self.assertEqual(settings.typesense.host, "http://localhost:8108")
         self.assertEqual(settings.typesense.api_key, "typesense-key")
         self.assertEqual(settings.typesense.actions_sync_batch_size, 125)
         self.assertEqual(settings.typesense.actions_sync_interval_seconds, 45)
         self.assertTrue(settings.typesense.actions_service_enabled)
+        self.assertTrue(settings.typesense.finished_runs_service_enabled)
         self.assertEqual(settings.typesense.actions_alias, "actions_shadow")
         self.assertEqual(
             settings.typesense.finished_runs_alias,
@@ -133,10 +135,12 @@ class SettingsContractTests(unittest.TestCase):
         self.assertFalse(settings.typesense.actions_enabled)
         self.assertFalse(settings.typesense.actions_shadow_reads_enabled)
         self.assertFalse(settings.typesense.finished_runs_enabled)
+        self.assertFalse(settings.typesense.finished_runs_shadow_reads_enabled)
         self.assertTrue(settings.typesense.fallback_to_mongo)
         self.assertEqual(settings.typesense.host, "")
         self.assertEqual(settings.typesense.api_key, "")
         self.assertFalse(settings.typesense.actions_service_enabled)
+        self.assertFalse(settings.typesense.finished_runs_service_enabled)
         self.assertEqual(settings.typesense.actions_alias, TYPESENSE_ACTIONS_ALIAS)
         self.assertEqual(
             settings.typesense.finished_runs_alias,

@@ -6,7 +6,7 @@
 |-----------|-----------------|---------|
 | Python | >= 3.14 | Runtime |
 | MongoDB | mongod service | Data store |
-| Typesense | 30.2 | Optional `/actions` search backend |
+| Typesense | 30.2 | Optional `/actions` and `/tests/finished` search backends |
 | nginx | -- | Reverse proxy, TLS, static files |
 | uv | -- | Python package manager |
 
@@ -26,6 +26,8 @@
 | `FISHTEST_TYPESENSE_ENABLED` | No | `0` | Enable the Typesense subsystem for sync and shadow reads |
 | `FISHTEST_TYPESENSE_ACTIONS_SHADOW_READS_ENABLED` | No | follows `FISHTEST_TYPESENSE_ENABLED` | Compare `/actions` Mongo results against Typesense while still serving Mongo |
 | `FISHTEST_TYPESENSE_ACTIONS_ENABLED` | No | `0` | Serve `/actions` from Typesense instead of MongoDB |
+| `FISHTEST_TYPESENSE_FINISHED_RUNS_SHADOW_READS_ENABLED` | No | follows `FISHTEST_TYPESENSE_ENABLED` | Compare `/tests/finished` Mongo results against Typesense while still serving Mongo |
+| `FISHTEST_TYPESENSE_FINISHED_RUNS_ENABLED` | No | `0` | Serve `/tests/finished` from Typesense instead of MongoDB |
 | `FISHTEST_TYPESENSE_FALLBACK_TO_MONGO` | No | `1` | Fall back to MongoDB when the Typesense `/actions` backend is unavailable |
 | `FISHTEST_TYPESENSE_HOST` | No | (empty) | Base URL for the Typesense HTTP API |
 | `FISHTEST_TYPESENSE_API_KEY` | No | (empty) | Server-side Typesense API key |
@@ -33,6 +35,9 @@
 | `FISHTEST_TYPESENSE_ACTIONS_ALIAS` | No | `actions_current` | Alias used for `/actions` searches and imports |
 | `FISHTEST_TYPESENSE_ACTIONS_SYNC_BATCH_SIZE` | No | `250` | MongoDB polling batch size for `/actions` bulk upserts |
 | `FISHTEST_TYPESENSE_ACTIONS_SYNC_INTERVAL_SECONDS` | No | `30` | Polling cadence for the `/actions` Typesense sync |
+| `FISHTEST_TYPESENSE_FINISHED_RUNS_ALIAS` | No | `finished_runs_current` | Alias used for `/tests/finished` searches and imports |
+| `FISHTEST_TYPESENSE_FINISHED_RUNS_SYNC_BATCH_SIZE` | No | `250` | MongoDB polling batch size for `/tests/finished` bulk upserts |
+| `FISHTEST_TYPESENSE_FINISHED_RUNS_SYNC_INTERVAL_SECONDS` | No | `30` | Polling cadence for the `/tests/finished` Typesense sync |
 | `OPENAPI_URL` | No | (empty) | Set to `/openapi.json` to enable `/docs` and `/redoc` (development-only) |
 | `UVICORN_WORKERS` | No | -- | Must be `1` on primary (enforced at startup) |
 | `WEB_CONCURRENCY` | No | -- | Fallback for `UVICORN_WORKERS` (checked if unset) |
@@ -50,7 +55,7 @@ backward compatibility.
 
 | Instance | Port | Responsibilities |
 |----------|------|------------------|
-| Primary | 8000 | Scheduler, GitHub integration, aggregated data, cache flush, worker API, optional Typesense `/actions` sync |
+| Primary | 8000 | Scheduler, GitHub integration, aggregated data, cache flush, worker API, optional Typesense `/actions` and `/tests/finished` sync |
 | Secondary | 8001 | UI traffic (`/tests` homepage) |
 | Secondary | 8002 | Read-only API, finished tests, contributors, static pages |
 | Secondary | 8003 | PGN uploads (`/api/upload_pgn`) -- 3 Uvicorn workers (production override) |
@@ -65,10 +70,11 @@ internal process manager distributes PGN upload requests across the workers.
 The extra workers absorb the long-tail latency of large PGN writes
 (p95 approx 30 s at peak load).
 
-When the optional Typesense `/actions` backend is enabled, the polling sync and
-initial backfill run only on the primary instance via the existing in-process
-scheduler. Keep `FISHTEST_TYPESENSE_ACTIONS_ENABLED=0` during the shadow-read
-phase so MongoDB remains the served path until parity is acceptable.
+When the optional Typesense `/actions` and `/tests/finished` backends are
+enabled, the polling sync and initial backfill run only on the primary instance
+via the existing in-process scheduler. Keep the route-specific serve flags at
+`0` during the shadow-read phase so MongoDB remains the served path until
+parity is acceptable.
 
 ## Starting the server
 
@@ -143,33 +149,42 @@ RestartSec=3
 WantedBy=multi-user.target
 ```
 
-### Optional Typesense `/actions` backend
+### Optional Typesense `/actions` and `/tests/finished` backends
 
-Add the following `Environment=` lines only when enabling the Phase 1
-Typesense `/actions` rollout:
+Add the following `Environment=` lines only when enabling the staged Typesense
+rollout for `/actions` and `/tests/finished`:
 
 ```ini
 Environment="FISHTEST_TYPESENSE_ENABLED=1"
 Environment="FISHTEST_TYPESENSE_ACTIONS_SHADOW_READS_ENABLED=1"
 Environment="FISHTEST_TYPESENSE_ACTIONS_ENABLED=0"
+Environment="FISHTEST_TYPESENSE_FINISHED_RUNS_SHADOW_READS_ENABLED=1"
+Environment="FISHTEST_TYPESENSE_FINISHED_RUNS_ENABLED=0"
 Environment="FISHTEST_TYPESENSE_FALLBACK_TO_MONGO=1"
 Environment="FISHTEST_TYPESENSE_HOST=http://127.0.0.1:8108"
 Environment="FISHTEST_TYPESENSE_API_KEY=CHANGE_ME"
 Environment="FISHTEST_TYPESENSE_ACTIONS_ALIAS=actions_current"
 Environment="FISHTEST_TYPESENSE_ACTIONS_SYNC_BATCH_SIZE=250"
 Environment="FISHTEST_TYPESENSE_ACTIONS_SYNC_INTERVAL_SECONDS=30"
+Environment="FISHTEST_TYPESENSE_FINISHED_RUNS_ALIAS=finished_runs_current"
+Environment="FISHTEST_TYPESENSE_FINISHED_RUNS_SYNC_BATCH_SIZE=250"
+Environment="FISHTEST_TYPESENSE_FINISHED_RUNS_SYNC_INTERVAL_SECONDS=30"
 ```
 
 Use this rollout order:
 
 1. Start Typesense and set `FISHTEST_TYPESENSE_ENABLED=1` plus the host and API key.
-2. Keep `FISHTEST_TYPESENSE_ACTIONS_ENABLED=0` so `/actions` stays Mongo-served.
-3. Leave `FISHTEST_TYPESENSE_ACTIONS_SHADOW_READS_ENABLED=1` while the primary
-    backfills the alias target and polls MongoDB for incremental updates.
-4. Switch `FISHTEST_TYPESENSE_ACTIONS_ENABLED=1` only after parity and latency
-    checks are acceptable.
+2. Keep `FISHTEST_TYPESENSE_ACTIONS_ENABLED=0` and
+    `FISHTEST_TYPESENSE_FINISHED_RUNS_ENABLED=0` so both routes stay
+    Mongo-served.
+3. Leave the route-specific shadow-read flags enabled while the primary
+    backfills the alias targets and polls MongoDB for incremental updates.
+4. Switch `FISHTEST_TYPESENSE_ACTIONS_ENABLED=1` only after `/actions` parity
+    and latency checks are acceptable.
+5. Switch `FISHTEST_TYPESENSE_FINISHED_RUNS_ENABLED=1` only after
+    `/tests/finished` parity and latency checks are acceptable.
 
-The server writes to the alias name, not to a hard-coded collection name. This
+The server writes to the alias names, not to hard-coded collection names. This
 supports alias-based reindexing without changing the application config.
 
 ### PGN upload worker override

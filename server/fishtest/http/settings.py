@@ -119,12 +119,15 @@ class TypesenseSettings:
     actions_enabled: bool = False
     actions_shadow_reads_enabled: bool = False
     finished_runs_enabled: bool = False
+    finished_runs_shadow_reads_enabled: bool = False
     fallback_to_mongo: bool = True
     host: str = ""
     api_key: str = ""
     timeout_seconds: float = TYPESENSE_TIMEOUT_SECONDS
     actions_sync_batch_size: int = TYPESENSE_SYNC_BATCH_SIZE
     actions_sync_interval_seconds: int = TYPESENSE_SYNC_INTERVAL_SECONDS
+    finished_runs_sync_batch_size: int = TYPESENSE_SYNC_BATCH_SIZE
+    finished_runs_sync_interval_seconds: int = TYPESENSE_SYNC_INTERVAL_SECONDS
     actions_alias: str = TYPESENSE_ACTIONS_ALIAS
     finished_runs_alias: str = TYPESENSE_FINISHED_RUNS_ALIAS
 
@@ -138,6 +141,19 @@ class TypesenseSettings:
                 self.enabled
                 or self.actions_enabled
                 or self.actions_shadow_reads_enabled
+            ),
+        )
+
+    @property
+    def finished_runs_service_enabled(self) -> bool:
+        """Return whether the `/tests/finished` subsystem should be active."""
+        return bool(
+            self.host
+            and self.api_key
+            and (
+                self.enabled
+                or self.finished_runs_enabled
+                or self.finished_runs_shadow_reads_enabled
             ),
         )
 
@@ -158,6 +174,10 @@ class TypesenseSettings:
             finished_runs_enabled=env_bool(
                 "FISHTEST_TYPESENSE_FINISHED_RUNS_ENABLED",
                 default=False,
+            ),
+            finished_runs_shadow_reads_enabled=env_bool(
+                "FISHTEST_TYPESENSE_FINISHED_RUNS_SHADOW_READS_ENABLED",
+                default=enabled,
             ),
             fallback_to_mongo=env_bool(
                 "FISHTEST_TYPESENSE_FALLBACK_TO_MONGO",
@@ -181,6 +201,14 @@ class TypesenseSettings:
             ),
             actions_sync_interval_seconds=env_int(
                 "FISHTEST_TYPESENSE_ACTIONS_SYNC_INTERVAL_SECONDS",
+                default=TYPESENSE_SYNC_INTERVAL_SECONDS,
+            ),
+            finished_runs_sync_batch_size=env_int(
+                "FISHTEST_TYPESENSE_FINISHED_RUNS_SYNC_BATCH_SIZE",
+                default=TYPESENSE_SYNC_BATCH_SIZE,
+            ),
+            finished_runs_sync_interval_seconds=env_int(
+                "FISHTEST_TYPESENSE_FINISHED_RUNS_SYNC_INTERVAL_SECONDS",
                 default=TYPESENSE_SYNC_INTERVAL_SECONDS,
             ),
             actions_alias=env_str(

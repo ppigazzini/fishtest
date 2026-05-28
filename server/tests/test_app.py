@@ -188,7 +188,7 @@ class TestHttpApp(unittest.TestCase):
             primary_port=8000,
             is_primary_instance=False,
             typesense=TypesenseSettings(
-                enabled=True,
+                enabled=False,
                 actions_shadow_reads_enabled=True,
                 host="http://localhost:8108",
                 api_key="typesense-key",
@@ -218,6 +218,57 @@ class TestHttpApp(unittest.TestCase):
 
                 with TestClient(app) as client:
                     self.assertIs(client.app.state.actions_search_service, service_stub)
+
+        service_stub.close.assert_called_once_with()
+
+    def test_create_app_attaches_finished_runs_search_service_when_configured(self):
+        import fishtest.app as app_module
+        from fishtest.http.settings import AppSettings, TypesenseSettings
+
+        _FastAPI, TestClient = test_support.require_fastapi()
+
+        async def _fake_run_in_threadpool(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        service_stub = mock.Mock()
+        settings = AppSettings(
+            port=8001,
+            primary_port=8000,
+            is_primary_instance=False,
+            typesense=TypesenseSettings(
+                enabled=False,
+                finished_runs_shadow_reads_enabled=True,
+                host="http://localhost:8108",
+                api_key="typesense-key",
+            ),
+        )
+
+        with mock.patch.dict("os.environ", {"FISHTEST_INSECURE_DEV": "1"}, clear=False):
+            with (
+                mock.patch.object(app_module, "RunDb", _RunDbStub),
+                mock.patch.object(
+                    app_module,
+                    "run_in_threadpool",
+                    _fake_run_in_threadpool,
+                ),
+                mock.patch.object(
+                    app_module.AppSettings,
+                    "from_env",
+                    return_value=settings,
+                ),
+                mock.patch.object(
+                    app_module,
+                    "_build_finished_runs_search_service",
+                    return_value=service_stub,
+                ),
+            ):
+                app = app_module.create_app()
+
+                with TestClient(app) as client:
+                    self.assertIs(
+                        client.app.state.finished_runs_search_service,
+                        service_stub,
+                    )
 
         service_stub.close.assert_called_once_with()
 

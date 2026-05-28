@@ -51,6 +51,7 @@ from fishtest.http.settings import (
 from fishtest.rundb import RunDb
 from fishtest.typesense_actions import TypesenseActionsService
 from fishtest.typesense_client import TypesenseClient, TypesenseClientConfig
+from fishtest.typesense_finished import TypesenseFinishedRunsService
 from fishtest.views import router as views_router
 
 if TYPE_CHECKING:
@@ -161,6 +162,33 @@ def _build_actions_search_service(
     )
 
 
+def _build_finished_runs_search_service(
+    settings: AppSettings,
+    rundb: RunDb,
+) -> TypesenseFinishedRunsService | None:
+    if not settings.typesense.finished_runs_service_enabled:
+        return None
+
+    client = TypesenseClient(
+        TypesenseClientConfig(
+            host=settings.typesense.host,
+            api_key=settings.typesense.api_key,
+            timeout_seconds=settings.typesense.timeout_seconds,
+        ),
+    )
+    return TypesenseFinishedRunsService(
+        client=client,
+        rundb=rundb,
+        kvstore=rundb.kvstore,
+        alias=settings.typesense.finished_runs_alias,
+        enabled=settings.typesense.finished_runs_enabled,
+        shadow_reads_enabled=settings.typesense.finished_runs_shadow_reads_enabled,
+        fallback_to_mongo=settings.typesense.fallback_to_mongo,
+        sync_batch_size=settings.typesense.finished_runs_sync_batch_size,
+        sync_interval_seconds=settings.typesense.finished_runs_sync_interval_seconds,
+    )
+
+
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     bootstrap_settings = AppSettings.from_env()
@@ -187,7 +215,12 @@ def create_app() -> FastAPI:
         app.state.workerdb = rundb.workerdb
 
         actions_search_service = _build_actions_search_service(settings, rundb)
+        finished_runs_search_service = _build_finished_runs_search_service(
+            settings,
+            rundb,
+        )
         app.state.actions_search_service = actions_search_service
+        app.state.finished_runs_search_service = finished_runs_search_service
 
         _install_sigusr1_thread_dump_handler()
 
@@ -208,12 +241,19 @@ def create_app() -> FastAPI:
                     actions_search_service.register_scheduler,
                     rundb.scheduler,
                 )
+            if finished_runs_search_service is not None:
+                await run_in_threadpool(
+                    finished_runs_search_service.register_scheduler,
+                    rundb.scheduler,
+                )
 
         try:
             yield
         finally:
             if actions_search_service is not None:
                 await run_in_threadpool(actions_search_service.close)
+            if finished_runs_search_service is not None:
+                await run_in_threadpool(finished_runs_search_service.close)
             await _shutdown_rundb(rundb)
 
     # OpenAPI docs are disabled in production (openapi_url defaults to None).
@@ -263,6 +303,7 @@ app = create_app()
 
 __all__ = [
     "_build_actions_search_service",
+    "_build_finished_runs_search_service",
     "app",
     "create_app",
 ]

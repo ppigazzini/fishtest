@@ -10,6 +10,7 @@ from fishtest.http.settings import (
     FINISHED_FILTER_MAX_COUNT_ANON,
     FINISHED_FILTER_MAX_COUNT_AUTH,
 )
+from fishtest.search_finished import FinishedRunsSearchUnavailableError
 from fishtest.views import get_paginated_finished_runs
 
 
@@ -110,6 +111,7 @@ class _FinishedRunsRequestStub:
         self._authenticated_userid = authenticated_userid
         self.host_url = host_url
         self.path = path
+        self.finished_runs_search_service = None
 
     @property
     def authenticated_userid(self):
@@ -118,6 +120,26 @@ class _FinishedRunsRequestStub:
     @property
     def path_url(self):
         return f"{self.host_url}{self.path}"
+
+
+class _FinishedRunsSearchServiceStub:
+    def __init__(self, *, rows=None, total=0, raise_unavailable=False):
+        self.enabled = True
+        self.fallback_to_mongo = True
+        self.shadow_reads_enabled = False
+        self.rows = list(rows or [])
+        self.total = total
+        self.raise_unavailable = raise_unavailable
+        self.last_kwargs = None
+
+    def get_finished_runs(self, **kwargs):
+        self.last_kwargs = kwargs
+        if self.raise_unavailable:
+            raise FinishedRunsSearchUnavailableError("typesense unavailable")
+        return list(self.rows), self.total
+
+    def shadow_compare(self, **kwargs):
+        _ = kwargs
 
 
 class TestFinishedView(unittest.TestCase):
@@ -306,6 +328,64 @@ class TestFinishedView(unittest.TestCase):
             redirect.headers.get("location"),
             "http://localhost/tests/finished?mode=search&sort=time&order=desc&user=Auth",
         )
+
+    def test_finished_view_uses_search_service_when_enabled(self):
+        request = _FinishedRunsRequestStub(
+            _FinishedRunsDbStub(),
+            _FinishedUsersStub([["TestFinishedAuthUser"]]),
+            params={"mode": "search", "text": '"branch search"'},
+            authenticated_userid="TestFinishedAuthUser",
+        )
+        request.finished_runs_search_service = _FinishedRunsSearchServiceStub(
+            rows=[
+                {
+                    "_id": "search-1",
+                    "args": {
+                        "username": "typesense-user",
+                        "info": "branch search",
+                    },
+                    "last_updated": datetime.now(UTC),
+                    "finished": True,
+                    "deleted": False,
+                }
+            ],
+            total=1,
+        )
+
+        result = get_paginated_finished_runs(request, search_mode=True)
+
+        result = cast(dict[str, Any], result)
+        self.assertEqual(result["num_finished_runs"], 1)
+        self.assertEqual(result["visible_finished_runs"], 1)
+        self.assertEqual(
+            result["finished_runs"][0]["args"]["username"],
+            "typesense-user",
+        )
+        self.assertIsNone(request.rundb.last_kwargs)
+        self.assertIsNotNone(request.finished_runs_search_service.last_kwargs)
+        self.assertEqual(
+            request.finished_runs_search_service.last_kwargs["text"],
+            '"branch search"',
+        )
+
+    def test_finished_view_falls_back_to_mongo_when_search_service_is_unavailable(
+        self,
+    ):
+        request = _FinishedRunsRequestStub(
+            _FinishedRunsDbStub(),
+            _FinishedUsersStub([["TestFinishedAuthUser"]]),
+            params={"mode": "search", "text": "branch"},
+            authenticated_userid="TestFinishedAuthUser",
+        )
+        request.finished_runs_search_service = _FinishedRunsSearchServiceStub(
+            raise_unavailable=True,
+        )
+
+        get_paginated_finished_runs(request, search_mode=True)
+
+        self.assertIsNotNone(request.rundb.last_kwargs)
+        self.assertIsNotNone(request.finished_runs_search_service.last_kwargs)
+        self.assertEqual(request.rundb.last_kwargs["text"], "branch")
 
     def test_finished_view_out_of_range_page_redirects_to_last_page(self):
         rundb = _CountFinishedRunsDbStub(total_count=5000)
