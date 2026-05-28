@@ -8,6 +8,8 @@ from types import SimpleNamespace
 
 from bson.objectid import ObjectId
 
+from fishtest.search_finished import FinishedRunsSearchUnavailableError
+from fishtest.typesense_client import TypesenseUnavailableError
 from fishtest.typesense_finished import (
     TypesenseFinishedRunsService,
     build_finished_runs_filter_by,
@@ -22,12 +24,20 @@ class _TypesenseClientStub:
         search_payloads=None,
         alias_info=None,
         collection_exists=False,
+        existing_collections=None,
+        search_exception=None,
     ):
         self.search_payloads = list(search_payloads or [])
         self.alias_info = alias_info
-        self.collection_exists = collection_exists
+        self.search_exception = search_exception
+        self.existing_collections = set(existing_collections or [])
+        if collection_exists and isinstance(alias_info, dict):
+            collection_name = str(alias_info.get("collection_name") or "")
+            if collection_name:
+                self.existing_collections.add(collection_name)
         self.search_calls = []
         self.created_schema = None
+        self.created_schemas = []
         self.upserted_aliases = []
         self.import_calls = []
         self.closed = False
@@ -36,6 +46,8 @@ class _TypesenseClientStub:
         self.closed = True
 
     def search(self, collection, search_params):
+        if self.search_exception is not None:
+            raise self.search_exception
         self.search_calls.append((collection, dict(search_params)))
         return self.search_payloads.pop(0)
 
@@ -47,16 +59,14 @@ class _TypesenseClientStub:
         return self.alias_info
 
     def get_collection(self, collection, *, allow_missing=False):
-        if self.collection_exists or (
-            self.created_schema is not None
-            and self.created_schema.get("name") == collection
-        ):
+        if collection in self.existing_collections:
             return {"name": collection}
         return None
 
     def create_collection(self, schema):
         self.created_schema = dict(schema)
-        self.collection_exists = True
+        self.created_schemas.append(dict(schema))
+        self.existing_collections.add(schema["name"])
         return {"name": schema["name"]}
 
     def upsert_alias(self, alias, collection_name):
@@ -98,9 +108,11 @@ class _RunsCollectionStub:
             docs = [
                 doc
                 for doc in docs
-                if float(doc.get("last_updated") or 0.0) > last_updated_clause
+                if _sort_last_updated_value(doc.get("last_updated"))
+                > last_updated_clause
                 or (
-                    float(doc.get("last_updated") or 0.0) == last_updated_clause
+                    _sort_last_updated_value(doc.get("last_updated"))
+                    == last_updated_clause
                     and doc["_id"] > object_id_clause
                 )
             ]
@@ -198,6 +210,7 @@ class TypesenseFinishedRunsServiceTests(unittest.TestCase):
             fallback_to_mongo=True,
             sync_batch_size=250,
             sync_interval_seconds=30,
+            reindex_interval_seconds=0,
         )
 
         rows, total = service.get_finished_runs(
@@ -251,6 +264,7 @@ class TypesenseFinishedRunsServiceTests(unittest.TestCase):
             fallback_to_mongo=True,
             sync_batch_size=2,
             sync_interval_seconds=30,
+            reindex_interval_seconds=0,
         )
 
         imported = service.sync_finished_runs_once()
@@ -302,6 +316,7 @@ class TypesenseFinishedRunsServiceTests(unittest.TestCase):
             fallback_to_mongo=True,
             sync_batch_size=2,
             sync_interval_seconds=45,
+            reindex_interval_seconds=0,
         )
 
         service.register_scheduler(scheduler)
@@ -312,6 +327,178 @@ class TypesenseFinishedRunsServiceTests(unittest.TestCase):
         self.assertEqual(scheduler.calls[0][2]["one_shot"], True)
         self.assertEqual(scheduler.calls[1][0], 45)
         self.assertEqual(scheduler.calls[1][2]["background"], True)
+
+    def test_register_scheduler_adds_optional_reindex_task(self):
+        client = _TypesenseClientStub()
+        scheduler = _SchedulerStub()
+        service = TypesenseFinishedRunsService(
+            client=client,
+            rundb=SimpleNamespace(runs=_RunsCollectionStub([]), ltc_lower_bound=20.0),
+            kvstore={},
+            alias="finished_runs_current",
+            enabled=False,
+            shadow_reads_enabled=True,
+            fallback_to_mongo=True,
+            sync_batch_size=2,
+            sync_interval_seconds=45,
+            reindex_interval_seconds=3600,
+        )
+
+        service.register_scheduler(scheduler)
+
+        self.assertEqual(len(scheduler.calls), 3)
+        self.assertEqual(scheduler.calls[2][0], 3600)
+        self.assertEqual(scheduler.calls[2][1], service.rebuild_index)
+
+    def test_get_finished_runs_tracks_backend_unavailable_count(self):
+        client = _TypesenseClientStub(
+            search_exception=TypesenseUnavailableError("typesense down"),
+        )
+        service = TypesenseFinishedRunsService(
+            client=client,
+            rundb=SimpleNamespace(runs=_RunsCollectionStub([]), ltc_lower_bound=20.0),
+            kvstore={},
+            alias="finished_runs_current",
+            enabled=True,
+            shadow_reads_enabled=False,
+            fallback_to_mongo=True,
+            sync_batch_size=250,
+            sync_interval_seconds=30,
+            reindex_interval_seconds=0,
+        )
+
+        with self.assertRaises(FinishedRunsSearchUnavailableError):
+            service.get_finished_runs(text="branch", limit=1)
+
+        snapshot = service.status_snapshot()
+        self.assertEqual(snapshot["backend_unavailable_count"], 1)
+        self.assertIn("typesense down", snapshot["last_error"])
+
+    def test_status_snapshot_tracks_fallbacks_and_shadow_mismatches(self):
+        search_run_id = ObjectId("64e74776a170cb1f26fa3930")
+        client = _TypesenseClientStub(
+            search_payloads=[
+                {
+                    "found": 1,
+                    "hits": [{"document": {"id": str(search_run_id)}}],
+                }
+            ],
+            alias_info={
+                "name": "finished_runs_current",
+                "collection_name": "finished_runs_20260528",
+            },
+            collection_exists=True,
+        )
+        service = TypesenseFinishedRunsService(
+            client=client,
+            rundb=SimpleNamespace(
+                runs=_RunsCollectionStub(
+                    [
+                        {
+                            "_id": search_run_id,
+                            "args": {
+                                "username": "typesense-user",
+                                "info": "branch search",
+                            },
+                            "last_updated": datetime.now(UTC),
+                            "finished": True,
+                            "deleted": False,
+                        }
+                    ]
+                ),
+                ltc_lower_bound=20.0,
+            ),
+            kvstore={},
+            alias="finished_runs_current",
+            enabled=False,
+            shadow_reads_enabled=True,
+            fallback_to_mongo=True,
+            sync_batch_size=250,
+            sync_interval_seconds=30,
+            reindex_interval_seconds=0,
+        )
+
+        service.record_fallback()
+        service.shadow_compare(
+            mongo_result=(
+                [
+                    {
+                        "_id": ObjectId("64e74776a170cb1f26fa3931"),
+                        "args": {"username": "mongo-user", "info": "branch search"},
+                        "last_updated": datetime.now(UTC),
+                        "finished": True,
+                        "deleted": False,
+                    }
+                ],
+                2,
+            ),
+            text="branch",
+            limit=1,
+        )
+
+        snapshot = service.status_snapshot()
+        self.assertEqual(snapshot["fallback_count"], 1)
+        self.assertEqual(snapshot["count_mismatch_count"], 1)
+        self.assertEqual(snapshot["result_mismatch_count"], 1)
+
+    def test_rebuild_index_creates_new_collection_and_swaps_alias(self):
+        old_collection = "finished_runs_20260528000000"
+        now = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
+        docs = [
+            {
+                "_id": ObjectId("64e74776a170cb1f26fa3930"),
+                "args": {"username": "alice", "info": "branch search"},
+                "finished": True,
+                "deleted": False,
+                "last_updated": now,
+                "tc_base": 30.0,
+            },
+            {
+                "_id": ObjectId("64e74776a170cb1f26fa3931"),
+                "args": {"username": "bob", "info": "ltc regression"},
+                "finished": True,
+                "deleted": False,
+                "last_updated": now.replace(second=1),
+                "tc_base": 60.0,
+            },
+        ]
+        kvstore = {"typesense.finished_runs.collection_name": old_collection}
+        client = _TypesenseClientStub(
+            alias_info={
+                "name": "finished_runs_current",
+                "collection_name": old_collection,
+            },
+            existing_collections={old_collection},
+        )
+        service = TypesenseFinishedRunsService(
+            client=client,
+            rundb=SimpleNamespace(
+                runs=_RunsCollectionStub(docs),
+                ltc_lower_bound=20.0,
+            ),
+            kvstore=kvstore,
+            alias="finished_runs_current",
+            enabled=False,
+            shadow_reads_enabled=True,
+            fallback_to_mongo=True,
+            sync_batch_size=2,
+            sync_interval_seconds=30,
+            reindex_interval_seconds=0,
+        )
+
+        imported = service.rebuild_index()
+
+        new_collection = client.upserted_aliases[-1][1]
+        snapshot = service.status_snapshot()
+        self.assertEqual(imported, 2)
+        self.assertNotEqual(new_collection, old_collection)
+        self.assertEqual(client.import_calls[0][0], new_collection)
+        self.assertEqual(
+            kvstore["typesense.finished_runs.collection_name"],
+            new_collection,
+        )
+        self.assertEqual(snapshot["alias_swap_count"], 1)
+        self.assertEqual(snapshot["last_reindex_document_count"], 2)
 
 
 if __name__ == "__main__":

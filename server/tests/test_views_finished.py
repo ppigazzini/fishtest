@@ -127,6 +127,7 @@ class _FinishedRunsSearchServiceStub:
         self.enabled = True
         self.fallback_to_mongo = True
         self.shadow_reads_enabled = False
+        self.fallback_calls = 0
         self.rows = list(rows or [])
         self.total = total
         self.raise_unavailable = raise_unavailable
@@ -140,6 +141,9 @@ class _FinishedRunsSearchServiceStub:
 
     def shadow_compare(self, **kwargs):
         _ = kwargs
+
+    def record_fallback(self):
+        self.fallback_calls += 1
 
 
 class TestFinishedView(unittest.TestCase):
@@ -386,6 +390,7 @@ class TestFinishedView(unittest.TestCase):
         self.assertIsNotNone(request.rundb.last_kwargs)
         self.assertIsNotNone(request.finished_runs_search_service.last_kwargs)
         self.assertEqual(request.rundb.last_kwargs["text"], "branch")
+        self.assertEqual(request.finished_runs_search_service.fallback_calls, 1)
 
     def test_finished_view_out_of_range_page_redirects_to_last_page(self):
         rundb = _CountFinishedRunsDbStub(total_count=5000)

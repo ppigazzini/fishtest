@@ -294,6 +294,9 @@ def _get_finished_runs_with_backend(  # noqa: PLR0913
         except FinishedRunsSearchUnavailableError:
             if not _finished_search_service_fallback_enabled(service):
                 raise
+            record_fallback = getattr(service, "record_fallback", None)
+            if callable(record_fallback):
+                record_fallback()
 
     mongo_result = request.rundb.get_finished_runs(**search_kwargs)
 

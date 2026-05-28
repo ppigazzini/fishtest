@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from bson.objectid import ObjectId
@@ -18,6 +18,7 @@ from fishtest.typesense_client import (
     TypesenseClient,
     TypesenseUnavailableError,
 )
+from fishtest.typesense_runtime import TypesenseRuntimeState
 
 if TYPE_CHECKING:
     from fishtest.actiondb import ActionDb
@@ -72,6 +73,7 @@ class TypesenseActionsService:
         fallback_to_mongo: bool,
         sync_batch_size: int,
         sync_interval_seconds: int,
+        reindex_interval_seconds: int,
     ) -> None:
         self._client = client
         self._actiondb = actiondb
@@ -82,8 +84,18 @@ class TypesenseActionsService:
         self.fallback_to_mongo = fallback_to_mongo
         self._sync_batch_size = max(1, sync_batch_size)
         self._sync_interval_seconds = max(1, sync_interval_seconds)
+        self._reindex_interval_seconds = max(0, reindex_interval_seconds)
         self._sync_lock = threading.Lock()
         self._scheduler_registered = False
+        self._runtime = TypesenseRuntimeState(
+            route="/actions",
+            alias=alias,
+            enabled=enabled,
+            shadow_reads_enabled=shadow_reads_enabled,
+            fallback_to_mongo=fallback_to_mongo,
+            sync_interval_seconds=self._sync_interval_seconds,
+            reindex_interval_seconds=self._reindex_interval_seconds,
+        )
 
     def close(self) -> None:
         """Close the underlying Typesense client."""
@@ -107,6 +119,14 @@ class TypesenseActionsService:
             min_delay=self._sync_interval_seconds,
             background=True,
         )
+        if self._reindex_interval_seconds > 0:
+            scheduler.create_task(
+                self._reindex_interval_seconds,
+                self.rebuild_index,
+                initial_delay=self._reindex_interval_seconds,
+                min_delay=self._reindex_interval_seconds,
+                background=True,
+            )
         self._scheduler_registered = True
 
     def backfill_actions(self) -> int:
@@ -121,22 +141,74 @@ class TypesenseActionsService:
     def sync_actions_once(self) -> int:
         """Poll MongoDB for the next batch of action documents and upsert them."""
         with self._sync_lock:
-            self.ensure_actions_collection()
-            batch = self._next_actions_batch()
+            collection_name = self.ensure_actions_collection()
+            state = self._load_sync_state()
+            batch = self._next_actions_batch_after(state)
             if not batch:
+                self._runtime.note_sync(
+                    imported_count=0,
+                    indexed_through=state.last_time,
+                    collection_name=collection_name,
+                )
                 return 0
 
             documents = [mongo_action_to_typesense_document(action) for action in batch]
             self._client.import_documents(self._alias, documents, action="upsert")
 
             last_action = batch[-1]
-            self._store_sync_state(
-                ActionsSyncState(
-                    last_time=float(last_action.get("time") or 0.0),
-                    last_id=str(last_action.get("_id") or ""),
-                ),
+            next_state = ActionsSyncState(
+                last_time=float(last_action.get("time") or 0.0),
+                last_id=str(last_action.get("_id") or ""),
+            )
+            self._store_sync_state(next_state)
+            self._runtime.note_sync(
+                imported_count=len(batch),
+                indexed_through=next_state.last_time,
+                collection_name=collection_name,
             )
             return len(batch)
+
+    def rebuild_index(self) -> int:
+        """Backfill a fresh collection and atomically move the alias to it."""
+        with self._sync_lock:
+            collection_name = self._fresh_actions_collection_name()
+            self._client.create_collection(actions_collection_schema(collection_name))
+
+            imported = 0
+            state = ActionsSyncState()
+            while True:
+                batch = self._next_actions_batch_after(state)
+                if not batch:
+                    break
+                documents = [
+                    mongo_action_to_typesense_document(action) for action in batch
+                ]
+                self._client.import_documents(
+                    collection_name, documents, action="upsert"
+                )
+                imported += len(batch)
+                last_action = batch[-1]
+                state = ActionsSyncState(
+                    last_time=float(last_action.get("time") or 0.0),
+                    last_id=str(last_action.get("_id") or ""),
+                )
+
+            self._client.upsert_alias(self._alias, collection_name)
+            self._kvstore[_ACTIONS_SYNC_COLLECTION_KEY] = collection_name
+            self._store_sync_state(state)
+            snapshot = self._runtime.note_reindex(
+                imported_count=imported,
+                indexed_through=state.last_time,
+                collection_name=collection_name,
+            )
+            logger.info(
+                "Typesense /actions reindex complete: collection=%s alias_swap_count=%s indexed_lag_seconds=%s imported=%s",
+                collection_name,
+                snapshot["alias_swap_count"],
+                snapshot["indexed_lag_seconds"],
+                imported,
+            )
+            return imported
 
     def get_actions(  # noqa: PLR0913
         self,
@@ -191,6 +263,12 @@ class TypesenseActionsService:
             total = min(found, max_count) if max_count is not None else found
             return [typesense_hit_to_action(hit) for hit in hits], total
         except (TypesenseUnavailableError, TypesenseApiError) as exc:
+            snapshot = self._runtime.note_backend_unavailable(exc)
+            logger.warning(
+                "Typesense /actions backend unavailable: backend_unavailable_count=%s error=%s",
+                snapshot["backend_unavailable_count"],
+                snapshot["last_error"],
+            )
             raise ActionsSearchUnavailableError(str(exc)) from exc
 
     def shadow_compare(  # noqa: PLR0913
@@ -226,11 +304,19 @@ class TypesenseActionsService:
         mongo_rows, mongo_total = mongo_result
         mongo_ids = [str(row.get("_id") or "") for row in mongo_rows]
         search_ids = [str(row.get("_id") or "") for row in search_rows]
-        if mongo_total != search_total or mongo_ids != search_ids:
+        count_mismatch = mongo_total != search_total
+        result_mismatch = mongo_ids != search_ids
+        if count_mismatch or result_mismatch:
+            snapshot = self._runtime.note_shadow_mismatch(
+                count_mismatch=count_mismatch,
+                result_mismatch=result_mismatch,
+            )
             logger.warning(
-                "Typesense /actions shadow mismatch: mongo_total=%s search_total=%s params=%s",
+                "Typesense /actions shadow mismatch: mongo_total=%s search_total=%s count_mismatch_count=%s result_mismatch_count=%s params=%s",
                 mongo_total,
                 search_total,
+                snapshot["count_mismatch_count"],
+                snapshot["result_mismatch_count"],
                 {
                     "username": username,
                     "usernames": usernames,
@@ -246,6 +332,18 @@ class TypesenseActionsService:
                 },
             )
 
+    def record_fallback(self) -> None:
+        """Record a request that fell back to MongoDB."""
+        snapshot = self._runtime.note_fallback()
+        logger.warning(
+            "Typesense /actions fallback to MongoDB: fallback_count=%s",
+            snapshot["fallback_count"],
+        )
+
+    def status_snapshot(self) -> dict[str, Any]:
+        """Return operational counters and current sync lag."""
+        return self._runtime.snapshot()
+
     def ensure_actions_collection(self) -> str:
         """Ensure the current `/actions` alias resolves to a live collection."""
         alias_info = self._client.get_alias(self._alias, allow_missing=True)
@@ -253,6 +351,7 @@ class TypesenseActionsService:
             collection_name = str(alias_info.get("collection_name") or "")
             if collection_name:
                 self._kvstore[_ACTIONS_SYNC_COLLECTION_KEY] = collection_name
+                self._runtime.note_collection(collection_name)
                 return collection_name
 
         stored_collection = self._kvstore.get(_ACTIONS_SYNC_COLLECTION_KEY, "")
@@ -263,10 +362,12 @@ class TypesenseActionsService:
             self._client.create_collection(actions_collection_schema(collection_name))
         self._client.upsert_alias(self._alias, collection_name)
         self._kvstore[_ACTIONS_SYNC_COLLECTION_KEY] = collection_name
+        self._runtime.note_collection(collection_name)
         return collection_name
 
-    def _next_actions_batch(self) -> list[dict[str, Any]]:
-        state = self._load_sync_state()
+    def _next_actions_batch_after(
+        self, state: ActionsSyncState
+    ) -> list[dict[str, Any]]:
         query: dict[str, Any] = {}
         if state.last_time is not None and state.last_id:
             query = {
@@ -282,6 +383,16 @@ class TypesenseActionsService:
         cursor = cursor.sort([("time", ASCENDING), ("_id", ASCENDING)])
         cursor = cursor.limit(self._sync_batch_size)
         return list(cursor)
+
+    def _fresh_actions_collection_name(self) -> str:
+        base_time = datetime.now(UTC)
+        for offset_seconds in range(120):
+            candidate = timestamped_actions_collection_name(
+                base_time + timedelta(seconds=offset_seconds),
+            )
+            if self._client.get_collection(candidate, allow_missing=True) is None:
+                return candidate
+        return f"{timestamped_actions_collection_name(base_time)}_reindex"
 
     def _load_sync_state(self) -> ActionsSyncState:
         return ActionsSyncState.from_value(

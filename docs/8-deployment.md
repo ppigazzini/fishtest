@@ -35,9 +35,11 @@
 | `FISHTEST_TYPESENSE_ACTIONS_ALIAS` | No | `actions_current` | Alias used for `/actions` searches and imports |
 | `FISHTEST_TYPESENSE_ACTIONS_SYNC_BATCH_SIZE` | No | `250` | MongoDB polling batch size for `/actions` bulk upserts |
 | `FISHTEST_TYPESENSE_ACTIONS_SYNC_INTERVAL_SECONDS` | No | `30` | Polling cadence for the `/actions` Typesense sync |
+| `FISHTEST_TYPESENSE_ACTIONS_REINDEX_INTERVAL_SECONDS` | No | `0` | Optional periodic full reindex cadence for `/actions`; `0` disables it |
 | `FISHTEST_TYPESENSE_FINISHED_RUNS_ALIAS` | No | `finished_runs_current` | Alias used for `/tests/finished` searches and imports |
 | `FISHTEST_TYPESENSE_FINISHED_RUNS_SYNC_BATCH_SIZE` | No | `250` | MongoDB polling batch size for `/tests/finished` bulk upserts |
 | `FISHTEST_TYPESENSE_FINISHED_RUNS_SYNC_INTERVAL_SECONDS` | No | `30` | Polling cadence for the `/tests/finished` Typesense sync |
+| `FISHTEST_TYPESENSE_FINISHED_RUNS_REINDEX_INTERVAL_SECONDS` | No | `0` | Optional periodic full reindex cadence for `/tests/finished`; `0` disables it |
 | `OPENAPI_URL` | No | (empty) | Set to `/openapi.json` to enable `/docs` and `/redoc` (development-only) |
 | `UVICORN_WORKERS` | No | -- | Must be `1` on primary (enforced at startup) |
 | `WEB_CONCURRENCY` | No | -- | Fallback for `UVICORN_WORKERS` (checked if unset) |
@@ -55,7 +57,7 @@ backward compatibility.
 
 | Instance | Port | Responsibilities |
 |----------|------|------------------|
-| Primary | 8000 | Scheduler, GitHub integration, aggregated data, cache flush, worker API, optional Typesense `/actions` and `/tests/finished` sync |
+| Primary | 8000 | Scheduler, GitHub integration, aggregated data, cache flush, worker API, optional Typesense `/actions` and `/tests/finished` sync and periodic reindex |
 | Secondary | 8001 | UI traffic (`/tests` homepage) |
 | Secondary | 8002 | Read-only API, finished tests, contributors, static pages |
 | Secondary | 8003 | PGN uploads (`/api/upload_pgn`) -- 3 Uvicorn workers (production override) |
@@ -71,10 +73,10 @@ The extra workers absorb the long-tail latency of large PGN writes
 (p95 approx 30 s at peak load).
 
 When the optional Typesense `/actions` and `/tests/finished` backends are
-enabled, the polling sync and initial backfill run only on the primary instance
-via the existing in-process scheduler. Keep the route-specific serve flags at
-`0` during the shadow-read phase so MongoDB remains the served path until
-parity is acceptable.
+enabled, the polling sync, initial backfill, and optional periodic full reindex
+run only on the primary instance via the existing in-process scheduler. Keep
+the route-specific serve flags at `0` during the shadow-read phase so MongoDB
+remains the served path until parity is acceptable.
 
 ## Starting the server
 
@@ -166,9 +168,11 @@ Environment="FISHTEST_TYPESENSE_API_KEY=CHANGE_ME"
 Environment="FISHTEST_TYPESENSE_ACTIONS_ALIAS=actions_current"
 Environment="FISHTEST_TYPESENSE_ACTIONS_SYNC_BATCH_SIZE=250"
 Environment="FISHTEST_TYPESENSE_ACTIONS_SYNC_INTERVAL_SECONDS=30"
+Environment="FISHTEST_TYPESENSE_ACTIONS_REINDEX_INTERVAL_SECONDS=0"
 Environment="FISHTEST_TYPESENSE_FINISHED_RUNS_ALIAS=finished_runs_current"
 Environment="FISHTEST_TYPESENSE_FINISHED_RUNS_SYNC_BATCH_SIZE=250"
 Environment="FISHTEST_TYPESENSE_FINISHED_RUNS_SYNC_INTERVAL_SECONDS=30"
+Environment="FISHTEST_TYPESENSE_FINISHED_RUNS_REINDEX_INTERVAL_SECONDS=0"
 ```
 
 Use this rollout order:
@@ -183,9 +187,30 @@ Use this rollout order:
     and latency checks are acceptable.
 5. Switch `FISHTEST_TYPESENSE_FINISHED_RUNS_ENABLED=1` only after
     `/tests/finished` parity and latency checks are acceptable.
+6. Keep both reindex intervals at `0` during the initial rollout, then enable a
+   route-specific interval only after the alias-backed reindex path has been
+   rehearsed successfully on the primary instance.
 
 The server writes to the alias names, not to hard-coded collection names. This
 supports alias-based reindexing without changing the application config.
+
+The route services now log the following operational events:
+
+- `Typesense /actions backend unavailable`
+- `Typesense /actions fallback to MongoDB`
+- `Typesense /actions shadow mismatch`
+- `Typesense /actions reindex complete`
+- `Typesense /tests/finished backend unavailable`
+- `Typesense /tests/finished fallback to MongoDB`
+- `Typesense /tests/finished shadow mismatch`
+- `Typesense /tests/finished reindex complete`
+
+Watch these application logs alongside the Typesense cluster endpoints from the
+production guide:
+
+- `/health` for availability;
+- `/metrics.json` for resource usage;
+- `/stats.json` for request rate and latency.
 
 ### PGN upload worker override
 

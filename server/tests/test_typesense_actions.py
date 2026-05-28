@@ -7,22 +7,36 @@ from types import SimpleNamespace
 
 from bson.objectid import ObjectId
 
+from fishtest.search_actions import ActionsSearchUnavailableError
 from fishtest.typesense_actions import (
     TypesenseActionsService,
     build_actions_filter_by,
     mongo_action_to_typesense_document,
 )
+from fishtest.typesense_client import TypesenseUnavailableError
 
 
 class _TypesenseClientStub:
     def __init__(
-        self, *, search_payloads=None, alias_info=None, collection_exists=False
+        self,
+        *,
+        search_payloads=None,
+        alias_info=None,
+        collection_exists=False,
+        existing_collections=None,
+        search_exception=None,
     ):
         self.search_payloads = list(search_payloads or [])
         self.alias_info = alias_info
-        self.collection_exists = collection_exists
+        self.search_exception = search_exception
+        self.existing_collections = set(existing_collections or [])
+        if collection_exists and isinstance(alias_info, dict):
+            collection_name = str(alias_info.get("collection_name") or "")
+            if collection_name:
+                self.existing_collections.add(collection_name)
         self.search_calls = []
         self.created_schema = None
+        self.created_schemas = []
         self.upserted_aliases = []
         self.import_calls = []
         self.closed = False
@@ -31,6 +45,8 @@ class _TypesenseClientStub:
         self.closed = True
 
     def search(self, collection, search_params):
+        if self.search_exception is not None:
+            raise self.search_exception
         self.search_calls.append((collection, dict(search_params)))
         return self.search_payloads.pop(0)
 
@@ -42,16 +58,14 @@ class _TypesenseClientStub:
         return self.alias_info
 
     def get_collection(self, collection, *, allow_missing=False):
-        if self.collection_exists or (
-            self.created_schema is not None
-            and self.created_schema.get("name") == collection
-        ):
+        if collection in self.existing_collections:
             return {"name": collection}
         return None
 
     def create_collection(self, schema):
         self.created_schema = dict(schema)
-        self.collection_exists = True
+        self.created_schemas.append(dict(schema))
+        self.existing_collections.add(schema["name"])
         return {"name": schema["name"]}
 
     def upsert_alias(self, alias, collection_name):
@@ -156,6 +170,7 @@ class TypesenseActionsServiceTests(unittest.TestCase):
             fallback_to_mongo=True,
             sync_batch_size=250,
             sync_interval_seconds=30,
+            reindex_interval_seconds=0,
         )
 
         rows, total = service.get_actions(text='"branch search"', limit=25, skip=0)
@@ -197,6 +212,7 @@ class TypesenseActionsServiceTests(unittest.TestCase):
             fallback_to_mongo=True,
             sync_batch_size=2,
             sync_interval_seconds=30,
+            reindex_interval_seconds=0,
         )
 
         imported = service.sync_actions_once()
@@ -241,6 +257,7 @@ class TypesenseActionsServiceTests(unittest.TestCase):
             fallback_to_mongo=True,
             sync_batch_size=2,
             sync_interval_seconds=45,
+            reindex_interval_seconds=0,
         )
 
         service.register_scheduler(scheduler)
@@ -251,6 +268,150 @@ class TypesenseActionsServiceTests(unittest.TestCase):
         self.assertEqual(scheduler.calls[0][2]["one_shot"], True)
         self.assertEqual(scheduler.calls[1][0], 45)
         self.assertEqual(scheduler.calls[1][2]["background"], True)
+
+    def test_register_scheduler_adds_optional_reindex_task(self):
+        client = _TypesenseClientStub()
+        scheduler = _SchedulerStub()
+        service = TypesenseActionsService(
+            client=client,
+            actiondb=SimpleNamespace(actions=_ActionCollectionStub([])),
+            kvstore={},
+            alias="actions_current",
+            enabled=False,
+            shadow_reads_enabled=True,
+            fallback_to_mongo=True,
+            sync_batch_size=2,
+            sync_interval_seconds=45,
+            reindex_interval_seconds=3600,
+        )
+
+        service.register_scheduler(scheduler)
+
+        self.assertEqual(len(scheduler.calls), 3)
+        self.assertEqual(scheduler.calls[2][0], 3600)
+        self.assertEqual(scheduler.calls[2][1], service.rebuild_index)
+
+    def test_get_actions_tracks_backend_unavailable_count(self):
+        client = _TypesenseClientStub(
+            search_exception=TypesenseUnavailableError("typesense down"),
+        )
+        service = TypesenseActionsService(
+            client=client,
+            actiondb=SimpleNamespace(actions=_ActionCollectionStub([])),
+            kvstore={},
+            alias="actions_current",
+            enabled=True,
+            shadow_reads_enabled=False,
+            fallback_to_mongo=True,
+            sync_batch_size=250,
+            sync_interval_seconds=30,
+            reindex_interval_seconds=0,
+        )
+
+        with self.assertRaises(ActionsSearchUnavailableError):
+            service.get_actions(text="branch", limit=1)
+
+        snapshot = service.status_snapshot()
+        self.assertEqual(snapshot["backend_unavailable_count"], 1)
+        self.assertIn("typesense down", snapshot["last_error"])
+
+    def test_status_snapshot_tracks_fallbacks_and_shadow_mismatches(self):
+        client = _TypesenseClientStub(
+            search_payloads=[
+                {
+                    "found": 1,
+                    "hits": [
+                        {
+                            "document": {
+                                "id": "search-2",
+                                "time": 123.0,
+                                "action": "new_run",
+                                "username": "typesense-user",
+                            }
+                        }
+                    ],
+                }
+            ],
+            alias_info={
+                "name": "actions_current",
+                "collection_name": "actions_20260528",
+            },
+            collection_exists=True,
+        )
+        service = TypesenseActionsService(
+            client=client,
+            actiondb=SimpleNamespace(actions=_ActionCollectionStub([])),
+            kvstore={},
+            alias="actions_current",
+            enabled=False,
+            shadow_reads_enabled=True,
+            fallback_to_mongo=True,
+            sync_batch_size=250,
+            sync_interval_seconds=30,
+            reindex_interval_seconds=0,
+        )
+
+        service.record_fallback()
+        service.shadow_compare(
+            mongo_result=(
+                [
+                    {"_id": "mongo-1", "time": 120.0},
+                ],
+                2,
+            ),
+            text="branch",
+            limit=1,
+        )
+
+        snapshot = service.status_snapshot()
+        self.assertEqual(snapshot["fallback_count"], 1)
+        self.assertEqual(snapshot["count_mismatch_count"], 1)
+        self.assertEqual(snapshot["result_mismatch_count"], 1)
+
+    def test_rebuild_index_creates_new_collection_and_swaps_alias(self):
+        old_collection = "actions_20260528000000"
+        docs = [
+            {
+                "_id": ObjectId("64e74776a170cb1f26fa3930"),
+                "time": 10.0,
+                "action": "new_run",
+                "username": "alice",
+            },
+            {
+                "_id": ObjectId("64e74776a170cb1f26fa3931"),
+                "time": 11.0,
+                "action": "upload_nn",
+                "username": "bob",
+            },
+        ]
+        kvstore = {"typesense.actions.collection_name": old_collection}
+        client = _TypesenseClientStub(
+            alias_info={"name": "actions_current", "collection_name": old_collection},
+            existing_collections={old_collection},
+        )
+        service = TypesenseActionsService(
+            client=client,
+            actiondb=SimpleNamespace(actions=_ActionCollectionStub(docs)),
+            kvstore=kvstore,
+            alias="actions_current",
+            enabled=False,
+            shadow_reads_enabled=True,
+            fallback_to_mongo=True,
+            sync_batch_size=2,
+            sync_interval_seconds=30,
+            reindex_interval_seconds=0,
+        )
+
+        imported = service.rebuild_index()
+
+        new_collection = client.upserted_aliases[-1][1]
+        snapshot = service.status_snapshot()
+        self.assertEqual(imported, 2)
+        self.assertNotEqual(new_collection, old_collection)
+        self.assertEqual(client.import_calls[0][0], new_collection)
+        self.assertEqual(kvstore["typesense.actions.collection_name"], new_collection)
+        self.assertEqual(snapshot["alias_swap_count"], 1)
+        self.assertEqual(snapshot["last_reindex_document_count"], 2)
 
 
 if __name__ == "__main__":

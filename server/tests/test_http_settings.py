@@ -112,6 +112,8 @@ class SettingsContractTests(unittest.TestCase):
         self.assertEqual(settings.typesense.api_key, "typesense-key")
         self.assertEqual(settings.typesense.actions_sync_batch_size, 125)
         self.assertEqual(settings.typesense.actions_sync_interval_seconds, 45)
+        self.assertEqual(settings.typesense.actions_reindex_interval_seconds, 0)
+        self.assertEqual(settings.typesense.finished_runs_reindex_interval_seconds, 0)
         self.assertTrue(settings.typesense.actions_service_enabled)
         self.assertTrue(settings.typesense.finished_runs_service_enabled)
         self.assertEqual(settings.typesense.actions_alias, "actions_shadow")
@@ -141,6 +143,8 @@ class SettingsContractTests(unittest.TestCase):
         self.assertEqual(settings.typesense.api_key, "")
         self.assertFalse(settings.typesense.actions_service_enabled)
         self.assertFalse(settings.typesense.finished_runs_service_enabled)
+        self.assertEqual(settings.typesense.actions_reindex_interval_seconds, 0)
+        self.assertEqual(settings.typesense.finished_runs_reindex_interval_seconds, 0)
         self.assertEqual(settings.typesense.actions_alias, TYPESENSE_ACTIONS_ALIAS)
         self.assertEqual(
             settings.typesense.finished_runs_alias,

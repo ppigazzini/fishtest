@@ -139,6 +139,7 @@ class _ActionsSearchServiceStub:
         self.enabled = True
         self.fallback_to_mongo = True
         self.shadow_reads_enabled = False
+        self.fallback_calls = 0
         self.rows = list(rows or [])
         self.total = total
         self.raise_unavailable = raise_unavailable
@@ -152,6 +153,9 @@ class _ActionsSearchServiceStub:
 
     def shadow_compare(self, **kwargs):
         _ = kwargs
+
+    def record_fallback(self):
+        self.fallback_calls += 1
 
 
 class TestActionsViewMaxCount(unittest.TestCase):
@@ -318,6 +322,7 @@ class TestActionsViewMaxCount(unittest.TestCase):
         self.assertIsNotNone(request.actiondb.last_kwargs)
         self.assertIsNotNone(request.actions_search_service.last_kwargs)
         self.assertEqual(request.actiondb.last_kwargs["text"], "branch")
+        self.assertEqual(request.actions_search_service.fallback_calls, 1)
 
     def test_actions_username_filter_refreshes_cached_usernames_on_miss(self):
         request = _GlueRequestStub(

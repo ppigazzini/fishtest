@@ -68,6 +68,7 @@ TYPESENSE_ACTIONS_ALIAS: str = "actions_current"
 TYPESENSE_FINISHED_RUNS_ALIAS: str = "finished_runs_current"
 TYPESENSE_SYNC_BATCH_SIZE: int = 250
 TYPESENSE_SYNC_INTERVAL_SECONDS: int = 30
+TYPESENSE_REINDEX_INTERVAL_SECONDS: int = 0
 TYPESENSE_TIMEOUT_SECONDS: float = 15.0
 
 
@@ -126,8 +127,10 @@ class TypesenseSettings:
     timeout_seconds: float = TYPESENSE_TIMEOUT_SECONDS
     actions_sync_batch_size: int = TYPESENSE_SYNC_BATCH_SIZE
     actions_sync_interval_seconds: int = TYPESENSE_SYNC_INTERVAL_SECONDS
+    actions_reindex_interval_seconds: int = TYPESENSE_REINDEX_INTERVAL_SECONDS
     finished_runs_sync_batch_size: int = TYPESENSE_SYNC_BATCH_SIZE
     finished_runs_sync_interval_seconds: int = TYPESENSE_SYNC_INTERVAL_SECONDS
+    finished_runs_reindex_interval_seconds: int = TYPESENSE_REINDEX_INTERVAL_SECONDS
     actions_alias: str = TYPESENSE_ACTIONS_ALIAS
     finished_runs_alias: str = TYPESENSE_FINISHED_RUNS_ALIAS
 
@@ -203,6 +206,10 @@ class TypesenseSettings:
                 "FISHTEST_TYPESENSE_ACTIONS_SYNC_INTERVAL_SECONDS",
                 default=TYPESENSE_SYNC_INTERVAL_SECONDS,
             ),
+            actions_reindex_interval_seconds=env_int(
+                "FISHTEST_TYPESENSE_ACTIONS_REINDEX_INTERVAL_SECONDS",
+                default=TYPESENSE_REINDEX_INTERVAL_SECONDS,
+            ),
             finished_runs_sync_batch_size=env_int(
                 "FISHTEST_TYPESENSE_FINISHED_RUNS_SYNC_BATCH_SIZE",
                 default=TYPESENSE_SYNC_BATCH_SIZE,
@@ -210,6 +217,10 @@ class TypesenseSettings:
             finished_runs_sync_interval_seconds=env_int(
                 "FISHTEST_TYPESENSE_FINISHED_RUNS_SYNC_INTERVAL_SECONDS",
                 default=TYPESENSE_SYNC_INTERVAL_SECONDS,
+            ),
+            finished_runs_reindex_interval_seconds=env_int(
+                "FISHTEST_TYPESENSE_FINISHED_RUNS_REINDEX_INTERVAL_SECONDS",
+                default=TYPESENSE_REINDEX_INTERVAL_SECONDS,
             ),
             actions_alias=env_str(
                 "FISHTEST_TYPESENSE_ACTIONS_ALIAS",

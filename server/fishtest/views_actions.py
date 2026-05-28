@@ -372,6 +372,9 @@ def _get_actions_with_backend(  # noqa: PLR0913
         except ActionsSearchUnavailableError:
             if not _search_service_fallback_enabled(service):
                 raise
+            record_fallback = getattr(service, "record_fallback", None)
+            if callable(record_fallback):
+                record_fallback()
 
     mongo_result = request.actiondb.get_actions(**search_kwargs)
 

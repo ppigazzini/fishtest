@@ -159,6 +159,7 @@ def _build_actions_search_service(
         fallback_to_mongo=settings.typesense.fallback_to_mongo,
         sync_batch_size=settings.typesense.actions_sync_batch_size,
         sync_interval_seconds=settings.typesense.actions_sync_interval_seconds,
+        reindex_interval_seconds=settings.typesense.actions_reindex_interval_seconds,
     )
 
 
@@ -186,6 +187,7 @@ def _build_finished_runs_search_service(
         fallback_to_mongo=settings.typesense.fallback_to_mongo,
         sync_batch_size=settings.typesense.finished_runs_sync_batch_size,
         sync_interval_seconds=settings.typesense.finished_runs_sync_interval_seconds,
+        reindex_interval_seconds=settings.typesense.finished_runs_reindex_interval_seconds,
     )
 
 
