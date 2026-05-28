@@ -123,7 +123,15 @@ class _FinishedRunsRequestStub:
 
 
 class _FinishedRunsSearchServiceStub:
-    def __init__(self, *, rows=None, total=0, raise_unavailable=False):
+    def __init__(
+        self,
+        *,
+        rows=None,
+        total=0,
+        raise_unavailable=False,
+        tab_counts=None,
+        tab_counts_raise_unavailable=False,
+    ):
         self.enabled = True
         self.fallback_to_mongo = True
         self.shadow_reads_enabled = False
@@ -131,7 +139,10 @@ class _FinishedRunsSearchServiceStub:
         self.rows = list(rows or [])
         self.total = total
         self.raise_unavailable = raise_unavailable
+        self.tab_counts = dict(tab_counts or {})
+        self.tab_counts_raise_unavailable = tab_counts_raise_unavailable
         self.last_kwargs = None
+        self.tab_count_calls = 0
 
     def get_finished_runs(self, **kwargs):
         self.last_kwargs = kwargs
@@ -144,6 +155,12 @@ class _FinishedRunsSearchServiceStub:
 
     def record_fallback(self):
         self.fallback_calls += 1
+
+    def get_finished_runs_tab_counts(self):
+        self.tab_count_calls += 1
+        if self.tab_counts_raise_unavailable:
+            raise FinishedRunsSearchUnavailableError("typesense tab counts unavailable")
+        return dict(self.tab_counts)
 
 
 class TestFinishedView(unittest.TestCase):
@@ -239,6 +256,62 @@ class TestFinishedView(unittest.TestCase):
         get_paginated_finished_runs(request)
 
         self.assertIsNone(self._last_kwargs(rundb)["max_count"])
+
+    def test_finished_view_navigation_adds_tab_counts_when_search_service_is_enabled(
+        self,
+    ):
+        rundb = _FinishedRunsDbStub()
+        request = _FinishedRunsRequestStub(
+            rundb,
+            _FinishedUsersStub([["TestFinishedAuthUser"]]),
+            path="/tests/finished",
+        )
+        request.finished_runs_search_service = _FinishedRunsSearchServiceStub(
+            tab_counts={"all": 12, "green": 5, "yellow": 3, "ltc": 4},
+        )
+
+        result = cast(dict[str, Any], get_paginated_finished_runs(request))
+
+        labels = [tab["label"] for tab in result["filters"]["tab_options"]]
+        self.assertEqual(labels, ["All (12)", "Green (5)", "Yellow (3)", "LTC (4)"])
+        self.assertEqual(request.finished_runs_search_service.tab_count_calls, 1)
+
+    def test_finished_view_navigation_omits_tab_counts_when_unavailable(self):
+        rundb = _FinishedRunsDbStub()
+        request = _FinishedRunsRequestStub(
+            rundb,
+            _FinishedUsersStub([["TestFinishedAuthUser"]]),
+            path="/tests/finished",
+        )
+        request.finished_runs_search_service = _FinishedRunsSearchServiceStub(
+            tab_counts_raise_unavailable=True,
+        )
+
+        result = cast(dict[str, Any], get_paginated_finished_runs(request))
+
+        labels = [tab["label"] for tab in result["filters"]["tab_options"]]
+        self.assertEqual(labels, ["All", "Green", "Yellow", "LTC"])
+
+    def test_finished_view_search_mode_does_not_request_tab_counts(self):
+        rundb = _FinishedRunsDbStub()
+        request = _FinishedRunsRequestStub(
+            rundb,
+            _FinishedUsersStub([["TestFinishedAuthUser"]]),
+            params={"mode": "search", "text": "branch"},
+            authenticated_userid="TestFinishedAuthUser",
+            path="/tests/finished",
+        )
+        request.finished_runs_search_service = _FinishedRunsSearchServiceStub(
+            tab_counts={"all": 12, "green": 5, "yellow": 3, "ltc": 4},
+        )
+
+        result = cast(
+            dict[str, Any], get_paginated_finished_runs(request, search_mode=True)
+        )
+
+        labels = [tab["label"] for tab in result["filters"]["tab_options"]]
+        self.assertEqual(labels, ["All", "Green", "Yellow", "LTC"])
+        self.assertEqual(request.finished_runs_search_service.tab_count_calls, 0)
 
     def test_finished_view_navigation_redirects_filters_to_search_page(self):
         rundb = _FinishedRunsDbStub()

@@ -457,6 +457,41 @@ class TestHttpBoundary(unittest.TestCase):
         self.assertNotIn(">Yellow<", response.text)
         self.assertNotIn(">LTC<", response.text)
 
+    def test_tests_finished_navigation_mode_renders_best_effort_tab_counts(self):
+        app = self._build_app(include_views=True)
+        client = self.TestClient(app)
+
+        class _FinishedTabCountsStub:
+            enabled = True
+            fallback_to_mongo = True
+            shadow_reads_enabled = False
+
+            def get_finished_runs(self, **kwargs):
+                _ = kwargs
+                return [], 0
+
+            def shadow_compare(self, **kwargs):
+                _ = kwargs
+
+            def record_fallback(self):
+                return None
+
+            def status_snapshot(self):
+                return {}
+
+            def get_finished_runs_tab_counts(self):
+                return {"all": 12, "green": 5, "yellow": 3, "ltc": 4}
+
+        client.app.state.finished_runs_search_service = _FinishedTabCountsStub()
+
+        response = client.get("/tests/finished?success_only=1")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(">All (12)<", response.text)
+        self.assertIn(">Green (5)<", response.text)
+        self.assertIn(">Yellow (3)<", response.text)
+        self.assertIn(">LTC (4)<", response.text)
+
     def test_tests_finished_search_mode_username_and_text_filters(self):
         app = self._build_app(include_views=True)
         client = self.TestClient(app)

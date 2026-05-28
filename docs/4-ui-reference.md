@@ -839,6 +839,11 @@ Behavior notes:
    stays aligned with the actions page.
 - htmx tab clicks refresh the results target directly and refresh the tab strip
   out of band so the active-tab styling stays aligned with the pushed URL.
+- In navigation mode, the existing `All`, `Green`, `Yellow`, and `LTC` tabs can
+   show additive best-effort counts when the optional `/tests/finished`
+   Typesense backend is enabled. Those counts do not change the current result
+   query, and the labels fall back to the plain tab names when counts are
+   unavailable.
 - The username input auto-submits on debounced input and native search clear
    events.
 - The run-info text-search input auto-submits on debounced input and native
@@ -866,5 +871,7 @@ Behavior notes:
 - The summary line reports both the visible row count on the current page and
    the total matching finished-run count.  Deleted runs are excluded from both
    the displayed rows and the total count.
+- Search mode keeps the existing standalone search form contract and does not
+  render or count the navigation tabs.
 - Oversized `max_count` values are clamped to MongoDB's signed 64-bit integer
    range before they reach pymongo.

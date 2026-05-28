@@ -54,6 +54,8 @@ class FinishedRunsSearchService(Protocol):
 
     def status_snapshot(self) -> dict[str, Any]: ...
 
+    def get_finished_runs_tab_counts(self) -> dict[str, int]: ...
+
 
 __all__ = [
     "FinishedRunsSearchService",

@@ -14,7 +14,13 @@
 {% set yellows_url = base_url ~ yellow_query_string %}
 {% set ltc_url = base_url ~ ltc_query_string %}
 
-<a class="btn btn-sm btn-light border tests-filter-tab {{ 'active' if not success_only and not yellow_only and not ltc_only else '' }}" href="{{ all_url }}" hx-get="{{ all_url }}" hx-target="#{{ hx_target }}" hx-push-url="true" hx-swap="innerHTML">All</a>
-<a class="btn btn-sm btn-light border tests-filter-tab {{ 'active' if success_only else '' }}" href="{{ greens_url }}" hx-get="{{ greens_url }}" hx-target="#{{ hx_target }}" hx-push-url="true" hx-swap="innerHTML">Green</a>
-<a class="btn btn-sm btn-light border tests-filter-tab {{ 'active' if yellow_only else '' }}" href="{{ yellows_url }}" hx-get="{{ yellows_url }}" hx-target="#{{ hx_target }}" hx-push-url="true" hx-swap="innerHTML">Yellow</a>
-<a class="btn btn-sm btn-light border tests-filter-tab {{ 'active' if ltc_only else '' }}" href="{{ ltc_url }}" hx-get="{{ ltc_url }}" hx-target="#{{ hx_target }}" hx-push-url="true" hx-swap="innerHTML">LTC</a>
+{% set tab_options = filters.tab_options | default([
+	{'label': 'All', 'active': (not success_only and not yellow_only and not ltc_only), 'url': all_url},
+	{'label': 'Green', 'active': success_only, 'url': greens_url},
+	{'label': 'Yellow', 'active': yellow_only, 'url': yellows_url},
+	{'label': 'LTC', 'active': ltc_only, 'url': ltc_url},
+]) %}
+
+{% for tab in tab_options %}
+	<a class="btn btn-sm btn-light border tests-filter-tab {{ 'active' if tab.active else '' }}" href="{{ tab.url }}" hx-get="{{ tab.url }}" hx-target="#{{ hx_target }}" hx-push-url="true" hx-swap="innerHTML">{{ tab.label }}</a>
+{% endfor %}

@@ -47,6 +47,7 @@ _FINISHED_RUNS_SYNC_PROJECTION = {
     "tc_base": 1,
 }
 _MAX_SEARCH_PAGE_SIZE = 250
+_FINISHED_TAB_FACET_MAX_VALUES = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -372,6 +373,34 @@ class TypesenseFinishedRunsService:
         """Return operational counters and current sync lag."""
         return self._runtime.snapshot()
 
+    def get_finished_runs_tab_counts(self) -> dict[str, int]:
+        """Return additive counts for the `/tests/finished` navigation tabs."""
+        try:
+            self.ensure_finished_runs_collection()
+            base_payload = self._client.search(
+                self._alias,
+                build_finished_runs_tab_counts_params(),
+            )
+            ltc_payload = self._client.search(
+                self._alias,
+                build_finished_runs_count_params(
+                    ltc_only=True,
+                    ltc_lower_bound=self._ltc_lower_bound,
+                ),
+            )
+            return finished_runs_tab_counts_from_payloads(
+                base_payload=base_payload,
+                ltc_payload=ltc_payload,
+            )
+        except (TypesenseUnavailableError, TypesenseApiError) as exc:
+            snapshot = self._runtime.note_backend_unavailable(exc)
+            logger.warning(
+                "Typesense /tests/finished backend unavailable: backend_unavailable_count=%s error=%s",
+                snapshot["backend_unavailable_count"],
+                snapshot["last_error"],
+            )
+            raise FinishedRunsSearchUnavailableError(str(exc)) from exc
+
     def ensure_finished_runs_collection(self) -> str:
         """Ensure the current `/tests/finished` alias resolves to a collection."""
         alias_info = self._client.get_alias(self._alias, allow_missing=True)
@@ -572,6 +601,49 @@ def build_finished_runs_search_params(
     return params
 
 
+def build_finished_runs_count_params(
+    *,
+    success_only: bool = False,
+    yellow_only: bool = False,
+    ltc_only: bool = False,
+    ltc_lower_bound: float,
+) -> dict[str, Any]:
+    """Build a count-only Typesense query for `/tests/finished`."""
+    params: dict[str, Any] = {
+        "q": "*",
+        "query_by": "args.info",
+        "per_page": 0,
+        "prefix": "false",
+        "num_typos": "0",
+        "drop_tokens_threshold": 0,
+        "typo_tokens_threshold": 0,
+        "split_join_tokens": "off",
+        "exhaustive_search": "true",
+    }
+    filters = build_finished_runs_filter_by(
+        success_only=success_only,
+        yellow_only=yellow_only,
+        ltc_only=ltc_only,
+        ltc_lower_bound=ltc_lower_bound,
+    )
+    if filters:
+        params["filter_by"] = filters
+    return params
+
+
+def build_finished_runs_tab_counts_params() -> dict[str, Any]:
+    """Build a facet query for `/tests/finished` navigation-tab counts."""
+    params = build_finished_runs_count_params(ltc_lower_bound=0.0)
+    params.update(
+        {
+            "facet_by": "is_green,is_yellow",
+            "facet_strategy": "exhaustive",
+            "max_facet_values": _FINISHED_TAB_FACET_MAX_VALUES,
+        }
+    )
+    return params
+
+
 def build_finished_runs_filter_by(
     *,
     username: str | None = None,
@@ -612,11 +684,50 @@ def _quote_typesense_value(value: str) -> str:
     return f"`{escaped}`"
 
 
+def _finished_boolean_facet_true_count(
+    payload: dict[str, Any],
+    *,
+    field_name: str,
+) -> int:
+    for facet in payload.get("facet_counts") or []:
+        if str(facet.get("field_name") or "") != field_name:
+            continue
+        for item in facet.get("counts") or []:
+            value = str(item.get("value") or "").lower()
+            if value == "true":
+                return int(item.get("count") or 0)
+        return 0
+    return 0
+
+
+def finished_runs_tab_counts_from_payloads(
+    *,
+    base_payload: dict[str, Any],
+    ltc_payload: dict[str, Any],
+) -> dict[str, int]:
+    """Extract navigation-tab counts from Typesense search payloads."""
+    return {
+        "all": int(base_payload.get("found") or 0),
+        "green": _finished_boolean_facet_true_count(
+            base_payload,
+            field_name="is_green",
+        ),
+        "yellow": _finished_boolean_facet_true_count(
+            base_payload,
+            field_name="is_yellow",
+        ),
+        "ltc": int(ltc_payload.get("found") or 0),
+    }
+
+
 __all__ = [
     "FinishedRunsSyncState",
     "TypesenseFinishedRunsService",
+    "build_finished_runs_count_params",
     "build_finished_runs_filter_by",
     "build_finished_runs_search_params",
+    "build_finished_runs_tab_counts_params",
+    "finished_runs_tab_counts_from_payloads",
     "finished_runs_collection_schema",
     "mongo_finished_run_to_typesense_document",
     "timestamped_finished_runs_collection_name",

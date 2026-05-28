@@ -37,6 +37,12 @@ from fishtest.views_helpers import (
 
 _FINISHED_MAX_COUNT_QUERY_PARAM = "max_count"
 _FINISHED_SEARCH_MODE = "search"
+_FINISHED_TAB_OPTIONS = (
+    ("all", "All", None, "all_query_string"),
+    ("green", "Green", "success_only", "green_query_string"),
+    ("yellow", "Yellow", "yellow_only", "yellow_query_string"),
+    ("ltc", "LTC", "ltc_only", "ltc_query_string"),
+)
 
 
 def _matching_finished_usernames(
@@ -262,6 +268,63 @@ def _finished_search_service_shadow_reads_enabled(service: Any) -> bool:  # noqa
     return bool(getattr(service, "shadow_reads_enabled", False))
 
 
+def _get_finished_navigation_tab_counts(
+    request: Any,  # noqa: ANN401
+    *,
+    username: str,
+    search_mode: bool,
+) -> dict[str, int] | None:
+    if search_mode or username or not _path_url(request).endswith("/tests/finished"):
+        return None
+
+    service = _finished_runs_search_service(request)
+    if service is None or not _finished_search_service_enabled(service):
+        return None
+
+    get_finished_runs_tab_counts = getattr(
+        service,
+        "get_finished_runs_tab_counts",
+        None,
+    )
+    if not callable(get_finished_runs_tab_counts):
+        return None
+
+    try:
+        return get_finished_runs_tab_counts()
+    except FinishedRunsSearchUnavailableError:
+        return None
+
+
+def _finished_tab_label(label: str, count: int | None) -> str:
+    if count is None:
+        return label
+    return f"{label} ({count})"
+
+
+def _build_finished_tab_options(
+    filters: dict[str, Any],
+    *,
+    counts: dict[str, int] | None,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "label": _finished_tab_label(
+                label,
+                None if counts is None else counts.get(key),
+            ),
+            "active": (
+                not filters["success_only"]
+                and not filters["yellow_only"]
+                and not filters["ltc_only"]
+                if flag is None
+                else bool(filters[flag])
+            ),
+            "url": f"/tests/finished{filters[query_key]}",
+        }
+        for key, label, flag, query_key in _FINISHED_TAB_OPTIONS
+    ]
+
+
 def _get_finished_runs_with_backend(  # noqa: PLR0913
     request: Any,  # noqa: ANN401
     *,
@@ -402,6 +465,11 @@ def get_paginated_finished_runs(  # noqa: C901, PLR0912, PLR0915
         filters_active=filters_active,
     )
     exposed_max_count = max_count if search_mode else None
+    navigation_tab_counts = _get_finished_navigation_tab_counts(
+        request,
+        username=username,
+        search_mode=search_mode,
+    )
 
     if username_query and not matched_usernames:
         finished_runs = []
@@ -502,7 +570,7 @@ def get_paginated_finished_runs(  # noqa: C901, PLR0912, PLR0915
     if page_idx == 0:
         failed_runs = [run for run in finished_runs if run.get("failed")]
 
-    filters = {
+    filters: dict[str, Any] = {
         "success_only": bool(success_only),
         "yellow_only": bool(yellow_only),
         "ltc_only": bool(ltc_only),
@@ -554,6 +622,10 @@ def get_paginated_finished_runs(  # noqa: C901, PLR0912, PLR0915
             sort_order=sort_order,
         ),
     }
+    filters["tab_options"] = _build_finished_tab_options(
+        filters,
+        counts=navigation_tab_counts,
+    )
     title_suffix = ""
     if not search_mode and filters["success_only"]:
         title_suffix = " - Greens"

@@ -12,7 +12,10 @@ from fishtest.search_finished import FinishedRunsSearchUnavailableError
 from fishtest.typesense_client import TypesenseUnavailableError
 from fishtest.typesense_finished import (
     TypesenseFinishedRunsService,
+    build_finished_runs_count_params,
     build_finished_runs_filter_by,
+    build_finished_runs_tab_counts_params,
+    finished_runs_tab_counts_from_payloads,
     mongo_finished_run_to_typesense_document,
 )
 
@@ -228,6 +231,91 @@ class TypesenseFinishedRunsServiceTests(unittest.TestCase):
             client.search_calls[0][1]["sort_by"],
             "last_updated:desc,_text_match:desc",
         )
+
+    def test_build_finished_runs_count_params_keeps_count_only_contract(self):
+        params = build_finished_runs_count_params(
+            success_only=True,
+            ltc_lower_bound=20.0,
+        )
+
+        self.assertEqual(params["q"], "*")
+        self.assertEqual(params["query_by"], "args.info")
+        self.assertEqual(params["per_page"], 0)
+        self.assertIn("is_green:=true", params["filter_by"])
+
+    def test_build_finished_runs_tab_counts_params_uses_status_facets(self):
+        params = build_finished_runs_tab_counts_params()
+
+        self.assertEqual(params["facet_by"], "is_green,is_yellow")
+        self.assertEqual(params["facet_strategy"], "exhaustive")
+        self.assertEqual(params["per_page"], 0)
+        self.assertIn("finished:=true", params["filter_by"])
+        self.assertIn("deleted:=false", params["filter_by"])
+
+    def test_finished_runs_tab_counts_from_payloads_extracts_counts(self):
+        counts = finished_runs_tab_counts_from_payloads(
+            base_payload={
+                "found": 12,
+                "facet_counts": [
+                    {
+                        "field_name": "is_green",
+                        "counts": [{"value": "true", "count": 5}],
+                    },
+                    {
+                        "field_name": "is_yellow",
+                        "counts": [{"value": "true", "count": 3}],
+                    },
+                ],
+            },
+            ltc_payload={"found": 4},
+        )
+
+        self.assertEqual(counts, {"all": 12, "green": 5, "yellow": 3, "ltc": 4})
+
+    def test_get_finished_runs_tab_counts_uses_alias(self):
+        client = _TypesenseClientStub(
+            search_payloads=[
+                {
+                    "found": 12,
+                    "facet_counts": [
+                        {
+                            "field_name": "is_green",
+                            "counts": [{"value": "true", "count": 5}],
+                        },
+                        {
+                            "field_name": "is_yellow",
+                            "counts": [{"value": "true", "count": 3}],
+                        },
+                    ],
+                    "hits": [],
+                },
+                {"found": 4, "facet_counts": [], "hits": []},
+            ],
+            alias_info={
+                "name": "finished_runs_current",
+                "collection_name": "finished_runs_20260528",
+            },
+            collection_exists=True,
+        )
+        service = TypesenseFinishedRunsService(
+            client=client,
+            rundb=SimpleNamespace(runs=_RunsCollectionStub([]), ltc_lower_bound=20.0),
+            kvstore={},
+            alias="finished_runs_current",
+            enabled=True,
+            shadow_reads_enabled=False,
+            fallback_to_mongo=True,
+            sync_batch_size=250,
+            sync_interval_seconds=30,
+            reindex_interval_seconds=0,
+        )
+
+        counts = service.get_finished_runs_tab_counts()
+
+        self.assertEqual(counts, {"all": 12, "green": 5, "yellow": 3, "ltc": 4})
+        self.assertEqual(client.search_calls[0][0], "finished_runs_current")
+        self.assertEqual(client.search_calls[0][1]["facet_by"], "is_green,is_yellow")
+        self.assertIn("tc_base:>=20.0", client.search_calls[1][1]["filter_by"])
 
     def test_sync_finished_runs_once_imports_batch_and_persists_watermark(self):
         now = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
