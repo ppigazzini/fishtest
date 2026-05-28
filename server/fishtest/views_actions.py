@@ -42,6 +42,52 @@ _ACTIONS_SORT_LABELS = {
     "target": "Target",
     "comment": "Comment",
 }
+_ACTION_FILTER_OPTIONS = (
+    {"value": "", "label": "All", "class_name": ""},
+    {"value": "new_run", "label": "New Run", "class_name": ""},
+    {"value": "approve_run", "label": "Approve Run", "class_name": ""},
+    {"value": "modify_run", "label": "Modify Run", "class_name": ""},
+    {"value": "stop_run", "label": "Stop Run", "class_name": ""},
+    {"value": "delete_run", "label": "Delete Run", "class_name": ""},
+    {"value": "purge_run", "label": "Purge Run", "class_name": ""},
+    {"value": "finished_run", "label": "Finished Runs", "class_name": ""},
+    {"value": "block_user", "label": "Block/Unblock User", "class_name": ""},
+    {
+        "value": "block_worker",
+        "label": "Block/Unblock Worker",
+        "class_name": "",
+    },
+    {"value": "accept_user", "label": "Accept User", "class_name": ""},
+    {"value": "upload_nn", "label": "Upload NN file", "class_name": ""},
+    {"value": "failed_task", "label": "Failed Tasks", "class_name": ""},
+    {
+        "value": "crash_or_time",
+        "label": "Crashes or Time losses",
+        "class_name": "",
+    },
+    {"value": "log_message", "label": "Log Messages", "class_name": ""},
+    {"value": "worker_log", "label": "Worker Logs", "class_name": ""},
+    {
+        "value": "dead_task",
+        "label": "Dead Tasks",
+        "class_name": "grayedoutoption",
+    },
+    {
+        "value": "system_event",
+        "label": "System Events",
+        "class_name": "grayedoutoption",
+    },
+)
+_ACTIONS_DEFAULT_EXCLUDED_RAW_VALUES = frozenset(
+    {
+        "system_event",
+        "update_stats",
+        "dead_task",
+    },
+)
+_ACTIONS_GROUPED_FACET_VALUES = {
+    "system_event": ("system_event", "update_stats"),
+}
 
 
 def _effective_actions_max_count(
@@ -340,6 +386,78 @@ def _search_service_shadow_reads_enabled(service: Any) -> bool:  # noqa: ANN401
     return bool(getattr(service, "shadow_reads_enabled", False))
 
 
+def _get_action_filter_facet_counts(
+    request: Any,  # noqa: ANN401
+    *,
+    matched_usernames: list[str],
+    filters: dict[str, Any],
+) -> tuple[dict[str, int] | None, int | None]:
+    service = _actions_search_service(request)
+    if service is None or not _search_service_enabled(service):
+        return None, None
+
+    username = str(filters.get("username") or "")
+    if username and not matched_usernames:
+        return {}, 0
+
+    get_action_facet_counts = getattr(service, "get_action_facet_counts", None)
+    if not callable(get_action_facet_counts):
+        return None, None
+
+    try:
+        return get_action_facet_counts(
+            usernames=matched_usernames if username else None,
+            text=str(filters.get("text") or "") or None,
+            utc_before=filters.get("utc_before"),
+            run_id=str(filters.get("run_id") or "") or None,
+        )
+    except ActionsSearchUnavailableError:
+        return None, None
+
+
+def _action_filter_label(label: str, count: int | None) -> str:
+    if count is None:
+        return label
+    return f"{label} ({count})"
+
+
+def _build_action_filter_options(
+    *,
+    selected_action: str,
+    raw_action_counts: dict[str, int] | None,
+    raw_total_count: int | None,
+) -> list[dict[str, Any]]:
+    option_counts: dict[str, int | None] = {
+        str(option["value"]): None for option in _ACTION_FILTER_OPTIONS
+    }
+
+    if raw_action_counts is not None and raw_total_count is not None:
+        excluded_total = sum(
+            raw_action_counts.get(value, 0)
+            for value in _ACTIONS_DEFAULT_EXCLUDED_RAW_VALUES
+        )
+        option_counts[""] = max(0, raw_total_count - excluded_total)
+        for option in _ACTION_FILTER_OPTIONS[1:]:
+            value = str(option["value"])
+            raw_values = _ACTIONS_GROUPED_FACET_VALUES.get(value, (value,))
+            option_counts[value] = sum(
+                raw_action_counts.get(name, 0) for name in raw_values
+            )
+
+    return [
+        {
+            "value": str(option["value"]),
+            "label": _action_filter_label(
+                str(option["label"]),
+                option_counts[str(option["value"])],
+            ),
+            "selected": str(option["value"]) == selected_action,
+            "class_name": str(option["class_name"]),
+        }
+        for option in _ACTION_FILTER_OPTIONS
+    ]
+
+
 def _get_actions_with_backend(  # noqa: PLR0913
     request: Any,  # noqa: ANN401
     *,
@@ -426,7 +544,18 @@ def actions(  # noqa: PLR0915
         is_authenticated=is_authenticated,
         max_count=max_count,
     )
+    facet_filters = {
+        "username": username,
+        "text": text,
+        "utc_before": before,
+        "run_id": run_id,
+    }
     matched_usernames = _matching_action_usernames(request.actiondb, username)
+    action_facet_counts, action_facet_total = _get_action_filter_facet_counts(
+        request,
+        matched_usernames=matched_usernames,
+        filters=facet_filters,
+    )
     username_priority = (
         _username_priority_map(matched_usernames)
         if username and len(matched_usernames) > 1
@@ -614,6 +743,11 @@ def actions(  # noqa: PLR0915
             order_param=order_param,
             sorted_count=num_actions,
             scope_cap=sort_scope_max_count,
+        ),
+        "action_filter_options": _build_action_filter_options(
+            selected_action=search_action,
+            raw_action_counts=action_facet_counts,
+            raw_total_count=action_facet_total,
         ),
         "filters": {
             "action": search_action,

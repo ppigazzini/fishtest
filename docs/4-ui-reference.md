@@ -64,7 +64,7 @@ but generic `OPTIONS` is not part of the UI route contract and returns `405`.
 | `/tests/live_elo_update/{id}` | GET | `live_elo_update` | `live_elo_fragment.html.j2` | Fragment-only (OOB) |
 | `/tests/finished` | GET | `tests_finished` | `tests_finished.html.j2` | HX: `tests_finished_content_fragment` |
 | `/tests/user/{username}` | GET | `tests_user` | `tests_user.html.j2` | HX: `tests_user_content_fragment`; page 1 live run tables poll the same route via `?live=run_tables` |
-| `/actions` | GET | `actions` | `actions.html.j2` | Full page plus htmx content fragment; full-page responses render route-specific Open Graph metadata that preserves the current query string in `og:url` and summarizes the first visible action row |
+| `/actions` | GET | `actions` | `actions.html.j2` | Full page plus htmx content fragment; full-page responses render route-specific Open Graph metadata that preserves the current query string in `og:url` and summarizes the first visible action row; when the optional Typesense `/actions` backend is enabled, the action selector can show additive facet counts |
 | `/contributors` | GET | `contributors` | `contributors.html.j2` | HX: `contributors_content_fragment`; paginated (100/page) |
 | `/contributors/monthly` | GET | `contributors_monthly` | `contributors.html.j2` | HX: `contributors_content_fragment`; paginated (100/page) |
 | `/user/{username}` | GET, POST | `user` | `user.html.j2` | CSRF |
@@ -780,6 +780,11 @@ Behavior notes:
 - htmx requests target `#actions-content` and keep URL state via
    `hx-push-url="true"`.
 - The visible filters auto-submit on select change and search/input events.
+- When the optional Typesense `/actions` backend is enabled and healthy, the
+   action selector appends additive counts for the current text, username,
+   run, and time-cursor filter context. These counts do not change the main
+   result semantics and fall back to plain labels when the backend is disabled
+   or unavailable.
 - The username field follows the same pattern as the other username filters in
    the UI: it is a plain `<input type="search">` in the main `/actions` GET
    form.

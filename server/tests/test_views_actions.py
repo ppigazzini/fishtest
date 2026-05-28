@@ -135,7 +135,16 @@ class _FakeUserDb:
 
 
 class _ActionsSearchServiceStub:
-    def __init__(self, *, rows=None, total=0, raise_unavailable=False):
+    def __init__(
+        self,
+        *,
+        rows=None,
+        total=0,
+        raise_unavailable=False,
+        facet_counts=None,
+        facet_total=0,
+        facet_raise_unavailable=False,
+    ):
         self.enabled = True
         self.fallback_to_mongo = True
         self.shadow_reads_enabled = False
@@ -143,7 +152,11 @@ class _ActionsSearchServiceStub:
         self.rows = list(rows or [])
         self.total = total
         self.raise_unavailable = raise_unavailable
+        self.facet_counts = dict(facet_counts or {})
+        self.facet_total = facet_total
+        self.facet_raise_unavailable = facet_raise_unavailable
         self.last_kwargs = None
+        self.last_facet_kwargs = None
 
     def get_actions(self, **kwargs):
         self.last_kwargs = kwargs
@@ -153,6 +166,12 @@ class _ActionsSearchServiceStub:
 
     def shadow_compare(self, **kwargs):
         _ = kwargs
+
+    def get_action_facet_counts(self, **kwargs):
+        self.last_facet_kwargs = kwargs
+        if self.facet_raise_unavailable:
+            raise ActionsSearchUnavailableError("typesense facets unavailable")
+        return dict(self.facet_counts), self.facet_total
 
     def record_fallback(self):
         self.fallback_calls += 1
@@ -324,6 +343,67 @@ class TestActionsViewMaxCount(unittest.TestCase):
         self.assertEqual(request.actiondb.last_kwargs["text"], "branch")
         self.assertEqual(request.actions_search_service.fallback_calls, 1)
 
+    def test_actions_adds_action_facet_counts_when_search_service_is_enabled(self):
+        request = _GlueRequestStub(
+            params={"text": "branch"},
+            authenticated_userid="TestActionsViewer",
+        )
+        request.actions_search_service = _ActionsSearchServiceStub(
+            facet_counts={
+                "new_run": 5,
+                "system_event": 2,
+                "update_stats": 1,
+                "dead_task": 4,
+            },
+            facet_total=20,
+        )
+
+        result = actions_view(request)
+
+        labels = {
+            option["value"]: option["label"]
+            for option in result["action_filter_options"]
+        }
+        self.assertEqual(labels[""], "All (13)")
+        self.assertEqual(labels["new_run"], "New Run (5)")
+        self.assertEqual(labels["system_event"], "System Events (3)")
+        self.assertEqual(labels["dead_task"], "Dead Tasks (4)")
+        self.assertIsNotNone(request.actions_search_service.last_facet_kwargs)
+        self.assertEqual(
+            request.actions_search_service.last_facet_kwargs["text"], "branch"
+        )
+
+    def test_actions_omits_action_facet_counts_when_facet_query_is_unavailable(self):
+        request = _GlueRequestStub(
+            params={"text": '"branch search"'},
+            authenticated_userid="TestActionsViewer",
+        )
+        request.actions_search_service = _ActionsSearchServiceStub(
+            rows=[
+                {
+                    "_id": "search-1",
+                    "action": "new_run",
+                    "username": "typesense-user",
+                    "run_id": "64e74776a170cb1f26fa3930",
+                    "run": "typesense-run",
+                    "message": "from search backend",
+                    "time": datetime.now(UTC).timestamp(),
+                }
+            ],
+            total=1,
+            facet_raise_unavailable=True,
+        )
+
+        result = actions_view(request)
+
+        labels = {
+            option["value"]: option["label"]
+            for option in result["action_filter_options"]
+        }
+        self.assertEqual(labels[""], "All")
+        self.assertEqual(labels["new_run"], "New Run")
+        self.assertEqual(result["actions"][0]["username"], "typesense-user")
+
     def test_actions_username_filter_refreshes_cached_usernames_on_miss(self):
         request = _GlueRequestStub(
             params={"user": "TestFreshActionUser"},
@@ -485,6 +565,26 @@ class TestActionsViews(unittest.TestCase):
         self.assertEqual(fragment_response.status_code, 200)
         self.assertIn("Bestmove warning", fragment_response.text)
         self.assertNotIn("Generic server log", fragment_response.text)
+
+    def test_actions_form_renders_typesense_action_facet_counts(self):
+        self.client.app.state.actions_search_service = _ActionsSearchServiceStub(
+            facet_counts={
+                "new_run": 5,
+                "system_event": 2,
+                "update_stats": 1,
+                "dead_task": 4,
+            },
+            facet_total=20,
+        )
+        try:
+            response = self.client.get("/actions?text=branch")
+        finally:
+            self.client.app.state.actions_search_service = None
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("All (13)", response.text)
+        self.assertIn("New Run (5)", response.text)
+        self.assertIn("System Events (3)", response.text)
 
     def test_actions_full_page_renders_query_preserving_open_graph_preview(self):
         event_time = datetime(2026, 4, 8, 19, 5, 44, tzinfo=UTC).timestamp()

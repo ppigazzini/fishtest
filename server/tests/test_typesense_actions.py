@@ -10,6 +10,8 @@ from bson.objectid import ObjectId
 from fishtest.search_actions import ActionsSearchUnavailableError
 from fishtest.typesense_actions import (
     TypesenseActionsService,
+    action_facet_counts_from_payload,
+    build_action_facet_params,
     build_actions_filter_by,
     mongo_action_to_typesense_document,
 )
@@ -183,6 +185,91 @@ class TypesenseActionsServiceTests(unittest.TestCase):
         self.assertEqual(
             client.search_calls[0][1]["sort_by"], "time:desc,_text_match:desc"
         )
+
+    def test_build_action_facet_params_uses_raw_action_facets(self):
+        params = build_action_facet_params(
+            usernames=["alice", "bob"],
+            text='"branch search"',
+            utc_before=42.0,
+            run_id="64e74776a170cb1f26fa3930",
+        )
+
+        self.assertEqual(params["facet_by"], "action")
+        self.assertEqual(params["facet_strategy"], "exhaustive")
+        self.assertEqual(params["per_page"], 0)
+        self.assertEqual(params["q"], '"branch search"')
+        self.assertIn("username:=[`alice`, `bob`]", params["filter_by"])
+        self.assertIn("time:<=42.0", params["filter_by"])
+        self.assertIn("run_id:=`64e74776a170cb1f26fa3930`", params["filter_by"])
+        self.assertNotIn("action:!=`system_event`", params["filter_by"])
+
+    def test_action_facet_counts_from_payload_reads_action_counts(self):
+        counts = action_facet_counts_from_payload(
+            {
+                "facet_counts": [
+                    {
+                        "field_name": "action",
+                        "counts": [
+                            {"value": "new_run", "count": 5},
+                            {"value": "update_stats", "count": 2},
+                        ],
+                    }
+                ]
+            }
+        )
+
+        self.assertEqual(counts, {"new_run": 5, "update_stats": 2})
+
+    def test_get_action_facet_counts_uses_alias_and_returns_total(self):
+        client = _TypesenseClientStub(
+            search_payloads=[
+                {
+                    "found": 20,
+                    "facet_counts": [
+                        {
+                            "field_name": "action",
+                            "counts": [
+                                {"value": "new_run", "count": 5},
+                                {"value": "system_event", "count": 2},
+                                {"value": "update_stats", "count": 3},
+                                {"value": "dead_task", "count": 4},
+                            ],
+                        }
+                    ],
+                    "hits": [],
+                }
+            ],
+            alias_info={
+                "name": "actions_current",
+                "collection_name": "actions_20260528",
+            },
+            collection_exists=True,
+        )
+        service = TypesenseActionsService(
+            client=client,
+            actiondb=SimpleNamespace(actions=_ActionCollectionStub([])),
+            kvstore={},
+            alias="actions_current",
+            enabled=True,
+            shadow_reads_enabled=False,
+            fallback_to_mongo=True,
+            sync_batch_size=250,
+            sync_interval_seconds=30,
+            reindex_interval_seconds=0,
+        )
+
+        counts, total = service.get_action_facet_counts(
+            usernames=["alice", "bob"],
+            text='"branch search"',
+            utc_before=42.0,
+            run_id="64e74776a170cb1f26fa3930",
+        )
+
+        self.assertEqual(total, 20)
+        self.assertEqual(counts["new_run"], 5)
+        self.assertEqual(counts["update_stats"], 3)
+        self.assertEqual(client.search_calls[0][0], "actions_current")
+        self.assertEqual(client.search_calls[0][1]["facet_by"], "action")
 
     def test_sync_actions_once_imports_batch_and_persists_watermark(self):
         docs = [

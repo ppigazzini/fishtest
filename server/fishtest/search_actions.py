@@ -53,6 +53,16 @@ class ActionsSearchService(Protocol):
 
     def status_snapshot(self) -> dict[str, Any]: ...
 
+    def get_action_facet_counts(
+        self,
+        *,
+        username: str | None = None,
+        usernames: list[str] | None = None,
+        text: str | None = None,
+        utc_before: float | None = None,
+        run_id: str | None = None,
+    ) -> tuple[dict[str, int], int]: ...
+
 
 __all__ = [
     "ActionsSearchService",

@@ -31,6 +31,12 @@ logger = logging.getLogger(__name__)
 _ACTIONS_SYNC_COLLECTION_KEY = "typesense.actions.collection_name"
 _ACTIONS_SYNC_STATE_KEY = "typesense.actions.sync_state"
 _MAX_SEARCH_PAGE_SIZE = 250
+_ACTION_FACET_MAX_VALUES = 32
+_DEFAULT_EXCLUDED_ACTIONS = (
+    "system_event",
+    "update_stats",
+    "dead_task",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -344,6 +350,40 @@ class TypesenseActionsService:
         """Return operational counters and current sync lag."""
         return self._runtime.snapshot()
 
+    def get_action_facet_counts(
+        self,
+        *,
+        username: str | None = None,
+        usernames: list[str] | None = None,
+        text: str | None = None,
+        utc_before: float | None = None,
+        run_id: str | None = None,
+    ) -> tuple[dict[str, int], int]:
+        """Return raw action facet counts for the current `/actions` query."""
+        try:
+            self.ensure_actions_collection()
+            payload = self._client.search(
+                self._alias,
+                build_action_facet_params(
+                    username=username,
+                    usernames=usernames,
+                    text=text,
+                    utc_before=utc_before,
+                    run_id=run_id,
+                ),
+            )
+            return action_facet_counts_from_payload(payload), int(
+                payload.get("found") or 0,
+            )
+        except (TypesenseUnavailableError, TypesenseApiError) as exc:
+            snapshot = self._runtime.note_backend_unavailable(exc)
+            logger.warning(
+                "Typesense /actions backend unavailable: backend_unavailable_count=%s error=%s",
+                snapshot["backend_unavailable_count"],
+                snapshot["last_error"],
+            )
+            raise ActionsSearchUnavailableError(str(exc)) from exc
+
     def ensure_actions_collection(self) -> str:
         """Ensure the current `/actions` alias resolves to a live collection."""
         alias_info = self._client.get_alias(self._alias, allow_missing=True)
@@ -491,6 +531,43 @@ def build_actions_search_params(  # noqa: PLR0913
     return params
 
 
+def build_action_facet_params(
+    *,
+    username: str | None = None,
+    usernames: list[str] | None = None,
+    text: str | None = None,
+    utc_before: float | None = None,
+    run_id: str | None = None,
+) -> dict[str, Any]:
+    """Build a raw action facet query for the current `/actions` search."""
+    query_fields = ",".join(ACTIONS_SEARCH_CONTRACT.query_fields)
+    field_count = len(ACTIONS_SEARCH_CONTRACT.query_fields)
+    filters = build_actions_filter_by(
+        username=username,
+        usernames=usernames,
+        utc_before=utc_before,
+        run_id=run_id,
+        exclude_default_actions=False,
+    )
+    params: dict[str, Any] = {
+        "q": text or "*",
+        "query_by": query_fields,
+        "facet_by": "action",
+        "facet_strategy": "exhaustive",
+        "max_facet_values": _ACTION_FACET_MAX_VALUES,
+        "per_page": 0,
+        "prefix": ",".join("false" for _ in range(field_count)),
+        "num_typos": ",".join("0" for _ in range(field_count)),
+        "drop_tokens_threshold": 0,
+        "typo_tokens_threshold": 0,
+        "split_join_tokens": "off",
+        "exhaustive_search": "true",
+    }
+    if filters:
+        params["filter_by"] = filters
+    return params
+
+
 def build_actions_filter_by(  # noqa: PLR0913
     *,
     username: str | None = None,
@@ -498,6 +575,7 @@ def build_actions_filter_by(  # noqa: PLR0913
     action: str | None = None,
     utc_before: float | None = None,
     run_id: str | None = None,
+    exclude_default_actions: bool = True,
 ) -> str:
     """Build the exact-match Typesense filter clause for `/actions`."""
     clauses: list[str] = []
@@ -514,13 +592,10 @@ def build_actions_filter_by(  # noqa: PLR0913
             )
         else:
             clauses.append(f"action:={_quote_typesense_value(action)}")
-    else:
+    elif exclude_default_actions:
         clauses.extend(
-            [
-                "action:!=`system_event`",
-                "action:!=`update_stats`",
-                "action:!=`dead_task`",
-            ],
+            f"action:!={_quote_typesense_value(name)}"
+            for name in _DEFAULT_EXCLUDED_ACTIONS
         )
 
     if utc_before is not None:
@@ -536,10 +611,27 @@ def _quote_typesense_value(value: str) -> str:
     return f"`{escaped}`"
 
 
+def action_facet_counts_from_payload(payload: dict[str, Any]) -> dict[str, int]:
+    """Extract raw per-action facet counts from a Typesense search payload."""
+    for facet in payload.get("facet_counts") or []:
+        if str(facet.get("field_name") or "") != "action":
+            continue
+        counts: dict[str, int] = {}
+        for item in facet.get("counts") or []:
+            value = str(item.get("value") or "")
+            if not value:
+                continue
+            counts[value] = int(item.get("count") or 0)
+        return counts
+    return {}
+
+
 __all__ = [
     "ActionsSyncState",
     "TypesenseActionsService",
+    "action_facet_counts_from_payload",
     "actions_collection_schema",
+    "build_action_facet_params",
     "build_actions_filter_by",
     "build_actions_search_params",
     "mongo_action_to_typesense_document",
