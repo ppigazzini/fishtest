@@ -458,6 +458,12 @@ class _ViewContext:
             self.actiondb = context["actiondb"]
             self.workerdb = context["workerdb"]
 
+        self.actions_search_service = getattr(
+            request.state,
+            "actions_search_service",
+            getattr(request.app.state, "actions_search_service", None),
+        )
+
     @property
     def authenticated_userid(self) -> str | None:
         return authenticated_user(self.session)

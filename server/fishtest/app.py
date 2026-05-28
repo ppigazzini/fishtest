@@ -49,6 +49,8 @@ from fishtest.http.settings import (
     default_static_dir,
 )
 from fishtest.rundb import RunDb
+from fishtest.typesense_actions import TypesenseActionsService
+from fishtest.typesense_client import TypesenseClient, TypesenseClientConfig
 from fishtest.views import router as views_router
 
 if TYPE_CHECKING:
@@ -132,6 +134,33 @@ def _require_single_worker_on_primary(settings: AppSettings) -> None:
         raise RuntimeError(message)
 
 
+def _build_actions_search_service(
+    settings: AppSettings,
+    rundb: RunDb,
+) -> TypesenseActionsService | None:
+    if not settings.typesense.actions_service_enabled:
+        return None
+
+    client = TypesenseClient(
+        TypesenseClientConfig(
+            host=settings.typesense.host,
+            api_key=settings.typesense.api_key,
+            timeout_seconds=settings.typesense.timeout_seconds,
+        ),
+    )
+    return TypesenseActionsService(
+        client=client,
+        actiondb=rundb.actiondb,
+        kvstore=rundb.kvstore,
+        alias=settings.typesense.actions_alias,
+        enabled=settings.typesense.actions_enabled,
+        shadow_reads_enabled=settings.typesense.actions_shadow_reads_enabled,
+        fallback_to_mongo=settings.typesense.fallback_to_mongo,
+        sync_batch_size=settings.typesense.actions_sync_batch_size,
+        sync_interval_seconds=settings.typesense.actions_sync_interval_seconds,
+    )
+
+
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     bootstrap_settings = AppSettings.from_env()
@@ -157,6 +186,9 @@ def create_app() -> FastAPI:
         app.state.actiondb = rundb.actiondb
         app.state.workerdb = rundb.workerdb
 
+        actions_search_service = _build_actions_search_service(settings, rundb)
+        app.state.actions_search_service = actions_search_service
+
         _install_sigusr1_thread_dump_handler()
 
         # All instances should use the same user schema.
@@ -171,10 +203,17 @@ def create_app() -> FastAPI:
         if settings.is_primary_instance:
             await run_in_threadpool(rundb.update_aggregated_data)
             await run_in_threadpool(rundb.schedule_tasks)
+            if actions_search_service is not None:
+                await run_in_threadpool(
+                    actions_search_service.register_scheduler,
+                    rundb.scheduler,
+                )
 
         try:
             yield
         finally:
+            if actions_search_service is not None:
+                await run_in_threadpool(actions_search_service.close)
             await _shutdown_rundb(rundb)
 
     # OpenAPI docs are disabled in production (openapi_url defaults to None).
@@ -223,6 +262,7 @@ app = create_app()
 
 
 __all__ = [
+    "_build_actions_search_service",
     "app",
     "create_app",
 ]

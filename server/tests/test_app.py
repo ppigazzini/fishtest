@@ -16,6 +16,11 @@ class _ConnStub:
         return None
 
 
+class _SchedulerStub:
+    def stop(self):
+        return None
+
+
 class _ActionDbStub:
     def system_event(self, message: str):
         _ = message
@@ -41,6 +46,7 @@ class _RunDbStub:
         return None
 
     def schedule_tasks(self):
+        self.scheduler = _SchedulerStub()
         return None
 
     def save_persistent_data(self):
@@ -166,6 +172,54 @@ class TestHttpApp(unittest.TestCase):
         self.assertIn("paths", payload)
         self.assertTrue(payload["paths"])
         self.assertIn("/api/request_version", payload["paths"])
+
+    def test_create_app_attaches_actions_search_service_when_configured(self):
+        import fishtest.app as app_module
+        from fishtest.http.settings import AppSettings, TypesenseSettings
+
+        _FastAPI, TestClient = test_support.require_fastapi()
+
+        async def _fake_run_in_threadpool(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        service_stub = mock.Mock()
+        settings = AppSettings(
+            port=8001,
+            primary_port=8000,
+            is_primary_instance=False,
+            typesense=TypesenseSettings(
+                enabled=True,
+                actions_shadow_reads_enabled=True,
+                host="http://localhost:8108",
+                api_key="typesense-key",
+            ),
+        )
+
+        with mock.patch.dict("os.environ", {"FISHTEST_INSECURE_DEV": "1"}, clear=False):
+            with (
+                mock.patch.object(app_module, "RunDb", _RunDbStub),
+                mock.patch.object(
+                    app_module,
+                    "run_in_threadpool",
+                    _fake_run_in_threadpool,
+                ),
+                mock.patch.object(
+                    app_module.AppSettings,
+                    "from_env",
+                    return_value=settings,
+                ),
+                mock.patch.object(
+                    app_module,
+                    "_build_actions_search_service",
+                    return_value=service_stub,
+                ),
+            ):
+                app = app_module.create_app()
+
+                with TestClient(app) as client:
+                    self.assertIs(client.app.state.actions_search_service, service_stub)
+
+        service_stub.close.assert_called_once_with()
 
 
 if __name__ == "__main__":

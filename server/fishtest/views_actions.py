@@ -13,6 +13,7 @@ from urllib.parse import urlencode
 if TYPE_CHECKING:
     from starlette.responses import RedirectResponse
 
+from fishtest.search_actions import ActionsSearchUnavailableError
 from fishtest.views_helpers import (
     _ANONYMOUS_RESULT_LIMIT_HARD,
     _DEFAULT_SORT_ORDER,
@@ -323,6 +324,65 @@ def _matching_action_usernames(
     return matches
 
 
+def _actions_search_service(request: Any) -> Any:  # noqa: ANN401
+    return getattr(request, "actions_search_service", None)
+
+
+def _search_service_enabled(service: Any) -> bool:  # noqa: ANN401
+    return bool(getattr(service, "enabled", False))
+
+
+def _search_service_fallback_enabled(service: Any) -> bool:  # noqa: ANN401
+    return bool(getattr(service, "fallback_to_mongo", True))
+
+
+def _search_service_shadow_reads_enabled(service: Any) -> bool:  # noqa: ANN401
+    return bool(getattr(service, "shadow_reads_enabled", False))
+
+
+def _get_actions_with_backend(  # noqa: PLR0913
+    request: Any,  # noqa: ANN401
+    *,
+    username: str | None = None,
+    usernames: list[str] | None = None,
+    action: str | None = None,
+    text: str | None = None,
+    limit: int = 0,
+    skip: int = 0,
+    utc_before: float | None = None,
+    run_id: str | None = None,
+    max_count: int | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    service = _actions_search_service(request)
+    search_kwargs = {
+        "username": username,
+        "usernames": usernames,
+        "action": action,
+        "text": text,
+        "limit": limit,
+        "skip": skip,
+        "utc_before": utc_before,
+        "run_id": run_id,
+        "max_count": max_count,
+    }
+
+    if service is not None and _search_service_enabled(service):
+        try:
+            return service.get_actions(**search_kwargs)
+        except ActionsSearchUnavailableError:
+            if not _search_service_fallback_enabled(service):
+                raise
+
+    mongo_result = request.actiondb.get_actions(**search_kwargs)
+
+    if service is not None and _search_service_shadow_reads_enabled(service):
+        shadow_compare = getattr(service, "shadow_compare", None)
+        if callable(shadow_compare):
+            shadow_compare(mongo_result=mongo_result, **search_kwargs)
+
+    return mongo_result
+
+
 def actions(  # noqa: PLR0915
     request: Any,  # noqa: ANN401
     *,
@@ -381,12 +441,13 @@ def actions(  # noqa: PLR0915
     ):
         ranked_actions = _ranked_multi_username_merge(
             usernames=matched_usernames,
-            fetch_fn=lambda u, window, cap: request.actiondb.get_actions(
+            fetch_fn=lambda u, window, cap: _get_actions_with_backend(
+                request,
                 username=u,
                 action=search_action,
                 text=text,
-                skip=0,
                 limit=window,
+                skip=0,
                 utc_before=before,
                 run_id=run_id,
                 max_count=cap,
@@ -398,12 +459,13 @@ def actions(  # noqa: PLR0915
             max_count=max_count,
         )
         if ranked_actions is None:
-            raw_actions, num_actions = request.actiondb.get_actions(
+            raw_actions, num_actions = _get_actions_with_backend(
+                request,
                 usernames=matched_usernames,
                 action=search_action,
                 text=text,
-                skip=0,
                 limit=sort_scope_max_count,
+                skip=0,
                 utc_before=before,
                 max_count=sort_scope_max_count,
                 run_id=run_id,
@@ -446,12 +508,13 @@ def actions(  # noqa: PLR0915
                 for action in raw_actions
             ]
     elif use_capped_sort_scope:
-        raw_actions, num_actions = request.actiondb.get_actions(
+        raw_actions, num_actions = _get_actions_with_backend(
+            request,
             usernames=matched_usernames if username else None,
             action=search_action,
             text=text,
-            skip=0,
             limit=sort_scope_max_count,
+            skip=0,
             utc_before=before,
             max_count=sort_scope_max_count,
             run_id=run_id,
@@ -479,12 +542,13 @@ def actions(  # noqa: PLR0915
         start = page_idx * page_size
         actions_rows = actions_rows[start : start + page_size]
     else:
-        raw_actions, num_actions = request.actiondb.get_actions(
+        raw_actions, num_actions = _get_actions_with_backend(
+            request,
             usernames=matched_usernames if username else None,
             action=search_action,
             text=text,
-            skip=page_idx * page_size,
             limit=page_size,
+            skip=page_idx * page_size,
             utc_before=before,
             max_count=max_count,
             run_id=run_id,

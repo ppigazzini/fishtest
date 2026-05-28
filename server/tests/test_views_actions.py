@@ -8,6 +8,7 @@ import test_support
 from fastapi.responses import RedirectResponse
 
 from fishtest.http.settings import HTMX_INPUT_CHANGED_DELAY_MS
+from fishtest.search_actions import ActionsSearchUnavailableError
 from fishtest.views import actions as actions_view
 
 
@@ -105,6 +106,7 @@ class _GlueRequestStub:
         self.params = params or {}
         self._request = _FakeStarletteRequest(query_params=dict(self.params))
         self.actiondb = _ActionDbStub(return_count=return_count)
+        self.actions_search_service = None
         self._authenticated_userid = authenticated_userid
         self.host_url = host_url
         self.path = path
@@ -130,6 +132,26 @@ class _FakeUserDb:
 
     def get_users(self):
         return list(self._users)
+
+
+class _ActionsSearchServiceStub:
+    def __init__(self, *, rows=None, total=0, raise_unavailable=False):
+        self.enabled = True
+        self.fallback_to_mongo = True
+        self.shadow_reads_enabled = False
+        self.rows = list(rows or [])
+        self.total = total
+        self.raise_unavailable = raise_unavailable
+        self.last_kwargs = None
+
+    def get_actions(self, **kwargs):
+        self.last_kwargs = kwargs
+        if self.raise_unavailable:
+            raise ActionsSearchUnavailableError("typesense unavailable")
+        return list(self.rows), self.total
+
+    def shadow_compare(self, **kwargs):
+        _ = kwargs
 
 
 class TestActionsViewMaxCount(unittest.TestCase):
@@ -249,6 +271,53 @@ class TestActionsViewMaxCount(unittest.TestCase):
 
         last_kwargs = self._last_kwargs(request)
         self.assertEqual(last_kwargs["max_count"], 2**63 - 1)
+
+    def test_actions_uses_search_service_when_enabled(self):
+        request = _GlueRequestStub(
+            params={"text": '"branch search"'},
+            authenticated_userid="TestActionsViewer",
+        )
+        request.actions_search_service = _ActionsSearchServiceStub(
+            rows=[
+                {
+                    "_id": "search-1",
+                    "action": "new_run",
+                    "username": "typesense-user",
+                    "run_id": "64e74776a170cb1f26fa3930",
+                    "run": "typesense-run",
+                    "message": "from search backend",
+                    "time": datetime.now(UTC).timestamp(),
+                }
+            ],
+            total=1,
+        )
+
+        result = actions_view(request)
+
+        self.assertEqual(result["num_actions"], 1)
+        self.assertEqual(result["visible_actions"], 1)
+        self.assertEqual(result["actions"][0]["username"], "typesense-user")
+        self.assertIsNone(request.actiondb.last_kwargs)
+        self.assertIsNotNone(request.actions_search_service.last_kwargs)
+        self.assertEqual(
+            request.actions_search_service.last_kwargs["text"],
+            '"branch search"',
+        )
+
+    def test_actions_falls_back_to_mongo_when_search_service_is_unavailable(self):
+        request = _GlueRequestStub(
+            params={"text": "branch"},
+            authenticated_userid="TestActionsViewer",
+        )
+        request.actions_search_service = _ActionsSearchServiceStub(
+            raise_unavailable=True,
+        )
+
+        actions_view(request)
+
+        self.assertIsNotNone(request.actiondb.last_kwargs)
+        self.assertIsNotNone(request.actions_search_service.last_kwargs)
+        self.assertEqual(request.actiondb.last_kwargs["text"], "branch")
 
     def test_actions_username_filter_refreshes_cached_usernames_on_miss(self):
         request = _GlueRequestStub(

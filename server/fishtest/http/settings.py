@@ -66,6 +66,9 @@ UI_FORM_MAX_PART_SIZE_BYTES: int = 200 * 1024 * 1024
 
 TYPESENSE_ACTIONS_ALIAS: str = "actions_current"
 TYPESENSE_FINISHED_RUNS_ALIAS: str = "finished_runs_current"
+TYPESENSE_SYNC_BATCH_SIZE: int = 250
+TYPESENSE_SYNC_INTERVAL_SECONDS: int = 30
+TYPESENSE_TIMEOUT_SECONDS: float = 15.0
 
 
 def env_int(name: str, *, default: int) -> int:
@@ -91,6 +94,17 @@ def env_bool(name: str, *, default: bool) -> bool:
     return default
 
 
+def env_float(name: str, *, default: float) -> float:
+    """Parse an environment variable as a float, with a fallback default."""
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
 def env_str(name: str, *, default: str) -> str:
     """Parse an environment variable as a trimmed string, with a fallback default."""
     value = os.environ.get(name, "").strip()
@@ -103,10 +117,29 @@ class TypesenseSettings:
 
     enabled: bool = False
     actions_enabled: bool = False
+    actions_shadow_reads_enabled: bool = False
     finished_runs_enabled: bool = False
     fallback_to_mongo: bool = True
+    host: str = ""
+    api_key: str = ""
+    timeout_seconds: float = TYPESENSE_TIMEOUT_SECONDS
+    actions_sync_batch_size: int = TYPESENSE_SYNC_BATCH_SIZE
+    actions_sync_interval_seconds: int = TYPESENSE_SYNC_INTERVAL_SECONDS
     actions_alias: str = TYPESENSE_ACTIONS_ALIAS
     finished_runs_alias: str = TYPESENSE_FINISHED_RUNS_ALIAS
+
+    @property
+    def actions_service_enabled(self) -> bool:
+        """Return whether the `/actions` Typesense subsystem should be active."""
+        return bool(
+            self.host
+            and self.api_key
+            and (
+                self.enabled
+                or self.actions_enabled
+                or self.actions_shadow_reads_enabled
+            ),
+        )
 
     @classmethod
     def from_env(cls) -> TypesenseSettings:
@@ -116,15 +149,39 @@ class TypesenseSettings:
             enabled=enabled,
             actions_enabled=env_bool(
                 "FISHTEST_TYPESENSE_ACTIONS_ENABLED",
+                default=False,
+            ),
+            actions_shadow_reads_enabled=env_bool(
+                "FISHTEST_TYPESENSE_ACTIONS_SHADOW_READS_ENABLED",
                 default=enabled,
             ),
             finished_runs_enabled=env_bool(
                 "FISHTEST_TYPESENSE_FINISHED_RUNS_ENABLED",
-                default=enabled,
+                default=False,
             ),
             fallback_to_mongo=env_bool(
                 "FISHTEST_TYPESENSE_FALLBACK_TO_MONGO",
                 default=True,
+            ),
+            host=env_str(
+                "FISHTEST_TYPESENSE_HOST",
+                default="",
+            ),
+            api_key=env_str(
+                "FISHTEST_TYPESENSE_API_KEY",
+                default="",
+            ),
+            timeout_seconds=env_float(
+                "FISHTEST_TYPESENSE_TIMEOUT_SECONDS",
+                default=TYPESENSE_TIMEOUT_SECONDS,
+            ),
+            actions_sync_batch_size=env_int(
+                "FISHTEST_TYPESENSE_ACTIONS_SYNC_BATCH_SIZE",
+                default=TYPESENSE_SYNC_BATCH_SIZE,
+            ),
+            actions_sync_interval_seconds=env_int(
+                "FISHTEST_TYPESENSE_ACTIONS_SYNC_INTERVAL_SECONDS",
+                default=TYPESENSE_SYNC_INTERVAL_SECONDS,
             ),
             actions_alias=env_str(
                 "FISHTEST_TYPESENSE_ACTIONS_ALIAS",
