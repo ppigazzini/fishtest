@@ -23,11 +23,11 @@
 | `FISHTEST_CAPTCHA_SITE_KEY` | No | built-in | reCAPTCHA site key for signup |
 | `FISHTEST_INSECURE_DEV` | No | -- | Set to `1` for development mode (insecure secret) |
 | `FISHTEST_JINJA_TEMPLATES_DIR` | No | auto | Override Jinja2 templates directory |
-| `FISHTEST_TYPESENSE_ENABLED` | No | `0` | Enable the Typesense subsystem for sync and shadow reads |
-| `FISHTEST_TYPESENSE_ACTIONS_SHADOW_READS_ENABLED` | No | follows `FISHTEST_TYPESENSE_ENABLED` | Compare `/actions` Mongo results against Typesense while still serving Mongo |
-| `FISHTEST_TYPESENSE_ACTIONS_ENABLED` | No | `0` | Serve `/actions` from Typesense instead of MongoDB |
-| `FISHTEST_TYPESENSE_FINISHED_RUNS_SHADOW_READS_ENABLED` | No | follows `FISHTEST_TYPESENSE_ENABLED` | Compare `/tests/finished` Mongo results against Typesense while still serving Mongo |
-| `FISHTEST_TYPESENSE_FINISHED_RUNS_ENABLED` | No | `0` | Serve `/tests/finished` from Typesense instead of MongoDB |
+| `FISHTEST_TYPESENSE_ENABLED` | No | `0` | Global Typesense switch for benchmark windows; setting it to `1` still builds and schedules the `/actions` and `/tests/finished` subsystems even if the route-specific flags stay `0` |
+| `FISHTEST_TYPESENSE_ACTIONS_SHADOW_READS_ENABLED` | No | follows `FISHTEST_TYPESENSE_ENABLED` | Benchmark-only `/actions` shadow reads while MongoDB remains the served backend |
+| `FISHTEST_TYPESENSE_ACTIONS_ENABLED` | No | `0` | Serve `/actions` from Typesense instead of MongoDB; not recommended for the current structured-query workload without a fresh benchmark win |
+| `FISHTEST_TYPESENSE_FINISHED_RUNS_SHADOW_READS_ENABLED` | No | follows `FISHTEST_TYPESENSE_ENABLED` | Benchmark-only `/tests/finished` shadow reads while MongoDB remains the served backend |
+| `FISHTEST_TYPESENSE_FINISHED_RUNS_ENABLED` | No | `0` | Serve `/tests/finished` from Typesense instead of MongoDB; not recommended for the current structured-query workload without a fresh benchmark win |
 | `FISHTEST_TYPESENSE_FALLBACK_TO_MONGO` | No | `1` | Fall back to MongoDB when the Typesense `/actions` backend is unavailable |
 | `FISHTEST_TYPESENSE_HOST` | No | (empty) | Base URL for the Typesense HTTP API |
 | `FISHTEST_TYPESENSE_API_KEY` | No | (empty) | Server-side Typesense API key |
@@ -72,11 +72,11 @@ internal process manager distributes PGN upload requests across the workers.
 The extra workers absorb the long-tail latency of large PGN writes
 (p95 approx 30 s at peak load).
 
-When the optional Typesense `/actions` and `/tests/finished` backends are
-enabled, the polling sync, initial backfill, and optional periodic full reindex
-run only on the primary instance via the existing in-process scheduler. Keep
-the route-specific serve flags at `0` during the shadow-read phase so MongoDB
-remains the served path until parity is acceptable.
+During an explicit Typesense benchmark window, the polling sync, initial
+backfill, and optional periodic full reindex run only on the primary instance
+via the existing in-process scheduler. Keep the route-specific serve flags at
+`0` during that window so MongoDB remains the served path while you measure the
+extra CPU, RAM, and latency cost of the sidecar.
 
 For `/tests/finished`, the service now seeds the newest finished-run batch
 first, keeps a separate historical backfill cursor, and reports current-sync

@@ -64,7 +64,7 @@ but generic `OPTIONS` is not part of the UI route contract and returns `405`.
 | `/tests/live_elo_update/{id}` | GET | `live_elo_update` | `live_elo_fragment.html.j2` | Fragment-only (OOB) |
 | `/tests/finished` | GET | `tests_finished` | `tests_finished.html.j2` | HX: `tests_finished_content_fragment` |
 | `/tests/user/{username}` | GET | `tests_user` | `tests_user.html.j2` | HX: `tests_user_content_fragment`; page 1 live run tables poll the same route via `?live=run_tables` |
-| `/actions` | GET | `actions` | `actions.html.j2` | Full page plus htmx content fragment; full-page responses render route-specific Open Graph metadata that preserves the current query string in `og:url` and summarizes the first visible action row; when the optional Typesense `/actions` backend is enabled, the action selector can show additive facet counts |
+| `/actions` | GET | `actions` | `actions.html.j2` | Full page plus htmx content fragment; full-page responses render route-specific Open Graph metadata that preserves the current query string in `og:url` and summarizes the first visible action row; during an explicit benchmark window, the experimental Typesense `/actions` backend can add selector facet counts |
 | `/contributors` | GET | `contributors` | `contributors.html.j2` | HX: `contributors_content_fragment`; paginated (100/page) |
 | `/contributors/monthly` | GET | `contributors_monthly` | `contributors.html.j2` | HX: `contributors_content_fragment`; paginated (100/page) |
 | `/user/{username}` | GET, POST | `user` | `user.html.j2` | CSRF |
@@ -783,11 +783,12 @@ Behavior notes:
 - htmx requests target `#actions-content` and keep URL state via
    `hx-push-url="true"`.
 - The visible filters auto-submit on select change and search/input events.
-- When the optional Typesense `/actions` backend is enabled and healthy, the
-   action selector appends additive counts for the current text, username,
-   run, and time-cursor filter context. These counts do not change the main
-   result semantics and fall back to plain labels when the backend is disabled
-   or unavailable.
+- During an explicit benchmark window, the experimental Typesense `/actions`
+   backend can append additive counts for the current text, username, run,
+   and time-cursor filter context. These counts do not change the main result
+   semantics and fall back to plain labels when the backend is disabled or
+   unavailable. Current deployment guidance keeps this backend disabled by
+   default for the structured `/actions` workload.
 - The username field follows the same pattern as the other username filters in
    the UI: it is a plain `<input type="search">` in the main `/actions` GET
    form.
@@ -843,10 +844,12 @@ Behavior notes:
 - htmx tab clicks refresh the results target directly and refresh the tab strip
   out of band so the active-tab styling stays aligned with the pushed URL.
 - In navigation mode, the existing `All`, `Green`, `Yellow`, and `LTC` tabs can
-   show additive best-effort counts when the optional `/tests/finished`
-   Typesense backend is enabled. Those counts do not change the current result
-   query, and the labels fall back to the plain tab names when counts are
-   unavailable.
+   show additive best-effort counts during an explicit benchmark window when
+   the experimental `/tests/finished` Typesense backend is enabled. Those
+   counts do not change the current result query, and the labels fall back to
+   the plain tab names when counts are unavailable. Current deployment
+   guidance keeps this backend disabled by default for the structured
+   `/tests/finished` workload.
 - The username input auto-submits on debounced input and native search clear
    events.
 - The run-info text-search input auto-submits on debounced input and native
