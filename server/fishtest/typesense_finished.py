@@ -387,8 +387,26 @@ class TypesenseFinishedRunsService:
     def status_snapshot(self) -> dict[str, Any]:
         """Return operational counters and current sync lag."""
         snapshot = self._runtime.snapshot()
+        snapshot["collection_document_count"] = self._collection_document_count(
+            str(snapshot.get("collection_name") or ""),
+        )
         snapshot["shadow_compare_ready"] = self._shadow_compare_ready()
         return snapshot
+
+    def _collection_document_count(self, collection_name: str) -> int | None:
+        if not collection_name:
+            return None
+        try:
+            collection = self._client.get_collection(
+                collection_name,
+                allow_missing=True,
+            )
+        except TypesenseUnavailableError, TypesenseApiError:
+            return None
+        if not isinstance(collection, dict):
+            return None
+        count = collection.get("num_documents")
+        return int(count) if isinstance(count, int | float) else None
 
     def get_finished_runs_tab_counts(self) -> dict[str, int]:
         """Return additive counts for the `/tests/finished` navigation tabs."""

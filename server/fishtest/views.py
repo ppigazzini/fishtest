@@ -1525,6 +1525,12 @@ def _typesense_status_count(value: object) -> int:
     return int(value) if isinstance(value, int | float) else 0
 
 
+def _typesense_status_optional_count_label(value: object) -> str:
+    if not isinstance(value, int | float):
+        return "Unknown"
+    return str(int(value))
+
+
 def _build_typesense_status_row(
     *,
     service_config: dict[str, Any],
@@ -1552,6 +1558,9 @@ def _build_typesense_status_row(
         ),
         "alias": alias_value,
         "collection_name": collection_name,
+        "collection_document_count_label": _typesense_status_optional_count_label(
+            live.get("collection_document_count"),
+        ),
         "indexed_lag_label": _typesense_status_lag_label(
             live.get("indexed_lag_seconds"),
         ),

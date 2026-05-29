@@ -28,6 +28,7 @@ class _TypesenseClientStub:
         search_payloads=None,
         alias_info=None,
         collection_exists=False,
+        collection_metadata=None,
         existing_collections=None,
         search_exception=None,
     ):
@@ -35,10 +36,18 @@ class _TypesenseClientStub:
         self.alias_info = alias_info
         self.search_exception = search_exception
         self.existing_collections = set(existing_collections or [])
+        self.collection_metadata = {
+            name: dict(metadata)
+            for name, metadata in dict(collection_metadata or {}).items()
+        }
         if collection_exists and isinstance(alias_info, dict):
             collection_name = str(alias_info.get("collection_name") or "")
             if collection_name:
                 self.existing_collections.add(collection_name)
+                self.collection_metadata.setdefault(
+                    collection_name,
+                    {"name": collection_name},
+                )
         self.search_calls = []
         self.created_schema = None
         self.created_schemas = []
@@ -63,6 +72,8 @@ class _TypesenseClientStub:
         return self.alias_info
 
     def get_collection(self, collection, *, allow_missing=False):
+        if collection in self.collection_metadata:
+            return dict(self.collection_metadata[collection])
         if collection in self.existing_collections:
             return {"name": collection}
         return None
@@ -71,6 +82,7 @@ class _TypesenseClientStub:
         self.created_schema = dict(schema)
         self.created_schemas.append(dict(schema))
         self.existing_collections.add(schema["name"])
+        self.collection_metadata.setdefault(schema["name"], {"name": schema["name"]})
         return {"name": schema["name"]}
 
     def upsert_alias(self, alias, collection_name):
@@ -704,6 +716,41 @@ class TypesenseFinishedRunsServiceTests(unittest.TestCase):
         self.assertEqual(snapshot["fallback_count"], 1)
         self.assertEqual(snapshot["count_mismatch_count"], 1)
         self.assertEqual(snapshot["result_mismatch_count"], 1)
+
+    def test_status_snapshot_includes_collection_document_count(self):
+        client = _TypesenseClientStub(
+            alias_info={
+                "name": "finished_runs_current",
+                "collection_name": "finished_runs_20260528",
+            },
+            collection_exists=True,
+            collection_metadata={
+                "finished_runs_20260528": {
+                    "name": "finished_runs_20260528",
+                    "num_documents": 9876,
+                }
+            },
+        )
+        service = TypesenseFinishedRunsService(
+            client=client,
+            rundb=SimpleNamespace(
+                runs=_RunsCollectionStub([]),
+                ltc_lower_bound=20.0,
+            ),
+            kvstore={},
+            alias="finished_runs_current",
+            enabled=False,
+            shadow_reads_enabled=True,
+            fallback_to_mongo=True,
+            sync_batch_size=250,
+            sync_interval_seconds=30,
+            reindex_interval_seconds=0,
+        )
+
+        service.ensure_finished_runs_collection()
+        snapshot = service.status_snapshot()
+
+        self.assertEqual(snapshot["collection_document_count"], 9876)
 
     def test_shadow_compare_skips_until_shared_index_is_ready(self):
         search_run_id = ObjectId("64e74776a170cb1f26fa3930")

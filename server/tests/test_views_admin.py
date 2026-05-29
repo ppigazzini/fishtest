@@ -351,6 +351,7 @@ class TestAdminViews(UiUserTestCase):
             "route": "/actions",
             "alias": "actions_current",
             "collection_name": "actions_20260528164000",
+            "collection_document_count": 4321,
             "enabled": True,
             "shadow_reads_enabled": True,
             "fallback_to_mongo": True,
@@ -376,6 +377,7 @@ class TestAdminViews(UiUserTestCase):
             "route": "/tests/finished",
             "alias": "finished_runs_current",
             "collection_name": "finished_runs_20260528164000",
+            "collection_document_count": 9876,
             "enabled": False,
             "shadow_reads_enabled": True,
             "shadow_compare_ready": False,
@@ -422,6 +424,8 @@ class TestAdminViews(UiUserTestCase):
             self.assertIn("finished_runs_20260528164000", full_response.text)
             self.assertIn("10.5s", full_response.text)
             self.assertIn("2024-05-28 16:39:50 UTC", full_response.text)
+            self.assertIn("Docs in collection:", full_response.text)
+            self.assertIn("4321", full_response.text)
             self.assertIn("actions backend timeout", full_response.text)
 
             fragment_response = self.client.get("/typesense_status/server")
@@ -432,6 +436,8 @@ class TestAdminViews(UiUserTestCase):
             self.assertIn("Disabled", fragment_response.text)
             self.assertIn("Backfill in progress", fragment_response.text)
             self.assertIn("Indexed through:", fragment_response.text)
+            self.assertIn("Imported this process:", fragment_response.text)
+            self.assertIn("9876", fragment_response.text)
             self.assertIn("45s", fragment_response.text)
             self.assertIn("3600s", fragment_response.text)
         finally:
