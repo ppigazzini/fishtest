@@ -155,10 +155,24 @@ RestartSec=3
 WantedBy=multi-user.target
 ```
 
-### Optional Typesense `/actions` and `/tests/finished` backends
+### Experimental Typesense `/actions` and `/tests/finished` backends
 
-Add the following `Environment=` lines only when enabling the staged Typesense
-rollout for `/actions` and `/tests/finished`:
+Current recommendation: keep these backends disabled on current Fishtest
+deployments. The live `/actions` and `/tests/finished` query shapes are mostly
+structured filters plus recent-first pagination, and the MongoDB path already
+uses dedicated compound indexes for those shapes. Current measurements on the
+8 GB host have not shown a latency win large enough to justify the extra CPU,
+RAM, and operational complexity of the Typesense sidecar.
+
+If you are not actively benchmarking or rehearsing a rollback, set
+`FISHTEST_TYPESENSE_ENABLED=0`. Leaving the global flag at `1` still activates
+the `/actions` and `/tests/finished` Typesense subsystems because the app uses
+the global flag as sufficient reason to build and schedule those services,
+even when the route-specific `*_ENABLED` and `*_SHADOW_READS_ENABLED` flags are
+`0`.
+
+Use the following `Environment=` lines only for an explicit benchmark or
+rehearsal window:
 
 ```ini
 Environment="FISHTEST_TYPESENSE_ENABLED=1"
@@ -179,23 +193,20 @@ Environment="FISHTEST_TYPESENSE_FINISHED_RUNS_SYNC_INTERVAL_SECONDS=30"
 Environment="FISHTEST_TYPESENSE_FINISHED_RUNS_REINDEX_INTERVAL_SECONDS=0"
 ```
 
-Use this rollout order:
+Use this benchmark order:
 
-1. Start Typesense and set `FISHTEST_TYPESENSE_ENABLED=1` plus the host and API key.
-2. Keep `FISHTEST_TYPESENSE_ACTIONS_ENABLED=0` and
-    `FISHTEST_TYPESENSE_FINISHED_RUNS_ENABLED=0` so both routes stay
-    Mongo-served.
-3. Leave the route-specific shadow-read flags enabled while the primary
-    backfills the alias targets and polls MongoDB for incremental updates.
-    The `/tests/finished` service seeds the newest rows first so current-sync
-    lag can reach steady state before the historical backfill is complete.
-4. Switch `FISHTEST_TYPESENSE_ACTIONS_ENABLED=1` only after `/actions` parity
-    and latency checks are acceptable.
-5. Switch `FISHTEST_TYPESENSE_FINISHED_RUNS_ENABLED=1` only after
-    `/tests/finished` parity and latency checks are acceptable.
-6. Keep both reindex intervals at `0` during the initial rollout, then enable a
-   route-specific interval only after the alias-backed reindex path has been
-   rehearsed successfully on the primary instance.
+1. Keep `FISHTEST_TYPESENSE_ENABLED=0` for normal deployment.
+2. When benchmarking, enable `FISHTEST_TYPESENSE_ENABLED=1` only on the test
+    instance that will collect the measurements.
+3. Keep `FISHTEST_TYPESENSE_ACTIONS_ENABLED=0` and
+    `FISHTEST_TYPESENSE_FINISHED_RUNS_ENABLED=0` so MongoDB remains the served
+    backend throughout the comparison.
+4. Turn on at most one route-specific shadow-read flag at a time and measure
+    both route latency and host-level CPU/RAM cost.
+5. Do not switch either route to `*_ENABLED=1` unless the benchmarked
+    end-to-end result beats the MongoDB baseline on the same hardware.
+6. Turn `FISHTEST_TYPESENSE_ENABLED` back to `0` after the rehearsal unless the
+    benchmark produced a clear and repeatable win.
 
 `/actions` request handlers already cross the app's threadpool boundary before
 the backend query runs, so another worker-pool hop is not the primary latency
@@ -203,6 +214,10 @@ lever here. On smaller hosts, reduce query cost first: the server now disables
 Typesense highlight/snippet generation for `/actions` hits and leaves the
 additive selector-count facet query on Typesense's `automatic` facet strategy
 instead of forcing exhaustive scans across the whole action history.
+
+For the current Fishtest routes, treat that query-cost tuning as damage control
+for experiments, not as evidence that Typesense should be kept enabled by
+default.
 
 The server writes to the alias names, not to hard-coded collection names. This
 supports alias-based reindexing without changing the application config.
