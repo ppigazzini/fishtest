@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from bson.errors import InvalidId
 from bson.objectid import ObjectId
-from pymongo import ASCENDING
+from pymongo import ASCENDING, DESCENDING
 
 from fishtest.search_contract import FINISHED_RUNS_SEARCH_CONTRACT
 from fishtest.search_finished import FinishedRunsSearchUnavailableError
@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 _FINISHED_RUNS_SYNC_COLLECTION_KEY = "typesense.finished_runs.collection_name"
 _FINISHED_RUNS_SYNC_STATE_KEY = "typesense.finished_runs.sync_state"
+_FINISHED_RUNS_BACKFILL_STATE_KEY = "typesense.finished_runs.backfill_state"
 _FINISHED_RUNS_SHADOW_READY_KEY = "typesense.finished_runs.shadow_ready"
 _FINISHED_RUNS_HYDRATE_PROJECTION = {
     "tasks": 0,
@@ -50,6 +51,7 @@ _FINISHED_RUNS_SYNC_PROJECTION = {
 _MAX_SEARCH_PAGE_SIZE = 250
 _FINISHED_TAB_FACET_MAX_VALUES = 4
 _SHADOW_COMPARE_LOG_ID_LIMIT = 10
+_FINISHED_RUNS_BACKFILL_INTERVAL_SECONDS = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +80,10 @@ class FinishedRunsSyncState:
             "last_updated": self.last_updated,
             "last_id": self.last_id,
         }
+
+    def is_set(self) -> bool:
+        """Return whether the cursor points at a concrete MongoDB row."""
+        return self.last_updated is not None and self.last_id != ""
 
 
 class TypesenseFinishedRunsService:
@@ -130,10 +136,10 @@ class TypesenseFinishedRunsService:
         if scheduler is None or self._scheduler_registered:
             return
         scheduler.create_task(
-            1.0,
-            self.backfill_finished_runs,
+            _FINISHED_RUNS_BACKFILL_INTERVAL_SECONDS,
+            self.backfill_finished_runs_once,
             initial_delay=1.0,
-            one_shot=True,
+            min_delay=_FINISHED_RUNS_BACKFILL_INTERVAL_SECONDS,
             background=True,
         )
         scheduler.create_task(
@@ -157,19 +163,70 @@ class TypesenseFinishedRunsService:
         """Run the initial backfill until the current collection is caught up."""
         imported = 0
         while True:
-            batch_count = self.sync_finished_runs_once()
+            batch_count = self.backfill_finished_runs_once()
             if batch_count <= 0:
                 return imported
             imported += batch_count
 
+    def backfill_finished_runs_once(self) -> int:
+        """Import one historical backfill batch into the current collection."""
+        with self._sync_lock:
+            collection_name = self._prepare_finished_runs_collection_for_sync()
+            seeded = self._seed_recent_finished_runs(collection_name)
+            if seeded > 0:
+                return seeded
+
+            current_state = self._load_sync_state()
+            backfill_state = self._load_backfill_state()
+            if not backfill_state.is_set():
+                self._store_shadow_compare_ready(ready=True)
+                self._runtime.note_sync(
+                    imported_count=0,
+                    indexed_through=_finished_run_last_updated_timestamp(
+                        current_state.last_updated,
+                    ),
+                    collection_name=collection_name,
+                )
+                return 0
+
+            batch = self._next_finished_runs_batch_before(backfill_state)
+            if not batch:
+                self._clear_backfill_state()
+                self._store_shadow_compare_ready(ready=True)
+                self._runtime.note_sync(
+                    imported_count=0,
+                    indexed_through=_finished_run_last_updated_timestamp(
+                        current_state.last_updated,
+                    ),
+                    collection_name=collection_name,
+                )
+                return 0
+
+            documents = [mongo_finished_run_to_typesense_document(run) for run in batch]
+            self._client.import_documents(self._alias, documents, action="upsert")
+
+            oldest_run = batch[-1]
+            self._store_backfill_state(self._state_from_finished_run(oldest_run))
+            self._runtime.note_sync(
+                imported_count=len(batch),
+                indexed_through=_finished_run_last_updated_timestamp(
+                    current_state.last_updated,
+                ),
+                collection_name=collection_name,
+            )
+            return len(batch)
+
     def sync_finished_runs_once(self) -> int:
         """Poll MongoDB for the next batch of finished runs and upsert them."""
         with self._sync_lock:
-            collection_name = self.ensure_finished_runs_collection()
+            collection_name = self._prepare_finished_runs_collection_for_sync()
+            seeded = self._seed_recent_finished_runs(collection_name)
+            if seeded > 0:
+                return seeded
+
             state = self._load_sync_state()
             batch = self._next_finished_runs_batch_after(state)
             if not batch:
-                self._store_shadow_compare_ready(ready=True)
                 self._runtime.note_sync(
                     imported_count=0,
                     indexed_through=_finished_run_last_updated_timestamp(
@@ -233,6 +290,7 @@ class TypesenseFinishedRunsService:
             self._client.upsert_alias(self._alias, collection_name)
             self._kvstore[_FINISHED_RUNS_SYNC_COLLECTION_KEY] = collection_name
             self._store_sync_state(state)
+            self._clear_backfill_state()
             self._store_shadow_compare_ready(ready=True)
             snapshot = self._runtime.note_reindex(
                 imported_count=imported,
@@ -400,7 +458,13 @@ class TypesenseFinishedRunsService:
         snapshot["collection_document_count"] = self._collection_document_count(
             str(snapshot.get("collection_name") or ""),
         )
-        snapshot["shadow_compare_ready"] = self._shadow_compare_ready()
+        shadow_compare_ready = self._shadow_compare_ready()
+        snapshot["shadow_compare_ready"] = shadow_compare_ready
+        backfill_state = self._load_backfill_state()
+        if backfill_state.is_set() or not shadow_compare_ready:
+            snapshot["backfill_through"] = _finished_run_last_updated_timestamp(
+                backfill_state.last_updated,
+            )
         return snapshot
 
     def _collection_document_count(self, collection_name: str) -> int | None:
@@ -471,6 +535,12 @@ class TypesenseFinishedRunsService:
         self._runtime.note_collection(collection_name)
         return collection_name
 
+    def _prepare_finished_runs_collection_for_sync(self) -> str:
+        collection_name = self.ensure_finished_runs_collection()
+        if not self._should_reset_legacy_partial_collection():
+            return collection_name
+        return self._reset_legacy_partial_collection(collection_name)
+
     def _next_finished_runs_batch_after(
         self,
         state: FinishedRunsSyncState,
@@ -486,6 +556,33 @@ class TypesenseFinishedRunsService:
             ]
         cursor = self._rundb.runs.find(query, _FINISHED_RUNS_SYNC_PROJECTION)
         cursor = cursor.sort([("last_updated", ASCENDING), ("_id", ASCENDING)])
+        cursor = cursor.limit(self._sync_batch_size)
+        return list(cursor)
+
+    def _next_finished_runs_batch_before(
+        self,
+        state: FinishedRunsSyncState,
+    ) -> list[dict[str, Any]]:
+        query: dict[str, Any] = {"finished": True}
+        if state.is_set():
+            query["$or"] = [
+                {"last_updated": {"$lt": state.last_updated}},
+                {
+                    "last_updated": state.last_updated,
+                    "_id": {"$lt": ObjectId(state.last_id)},
+                },
+            ]
+        cursor = self._rundb.runs.find(query, _FINISHED_RUNS_SYNC_PROJECTION)
+        cursor = cursor.sort([("last_updated", DESCENDING), ("_id", DESCENDING)])
+        cursor = cursor.limit(self._sync_batch_size)
+        return list(cursor)
+
+    def _latest_finished_runs_batch(self) -> list[dict[str, Any]]:
+        cursor = self._rundb.runs.find(
+            {"finished": True},
+            _FINISHED_RUNS_SYNC_PROJECTION,
+        )
+        cursor = cursor.sort([("last_updated", DESCENDING), ("_id", DESCENDING)])
         cursor = cursor.limit(self._sync_batch_size)
         return list(cursor)
 
@@ -548,11 +645,90 @@ class TypesenseFinishedRunsService:
     def _store_sync_state(self, state: FinishedRunsSyncState) -> None:
         self._kvstore[_FINISHED_RUNS_SYNC_STATE_KEY] = state.as_value()
 
+    def _clear_sync_state(self) -> None:
+        self._kvstore[_FINISHED_RUNS_SYNC_STATE_KEY] = {}
+
+    def _load_backfill_state(self) -> FinishedRunsSyncState:
+        return FinishedRunsSyncState.from_value(
+            self._kvstore.get(_FINISHED_RUNS_BACKFILL_STATE_KEY, {}),
+        )
+
+    def _store_backfill_state(self, state: FinishedRunsSyncState) -> None:
+        self._kvstore[_FINISHED_RUNS_BACKFILL_STATE_KEY] = state.as_value()
+
+    def _clear_backfill_state(self) -> None:
+        self._kvstore[_FINISHED_RUNS_BACKFILL_STATE_KEY] = {}
+
     def _shadow_compare_ready(self) -> bool:
         return bool(self._kvstore.get(_FINISHED_RUNS_SHADOW_READY_KEY, False))
 
     def _store_shadow_compare_ready(self, *, ready: bool) -> None:
         self._kvstore[_FINISHED_RUNS_SHADOW_READY_KEY] = ready
+
+    def _seed_recent_finished_runs(self, collection_name: str) -> int:
+        current_state = self._load_sync_state()
+        if current_state.is_set():
+            return 0
+
+        batch = self._latest_finished_runs_batch()
+        if not batch:
+            self._store_shadow_compare_ready(ready=True)
+            self._runtime.note_sync(
+                imported_count=0,
+                indexed_through=None,
+                collection_name=collection_name,
+            )
+            return 0
+
+        documents = [mongo_finished_run_to_typesense_document(run) for run in batch]
+        self._client.import_documents(self._alias, documents, action="upsert")
+
+        newest_run = batch[0]
+        oldest_run = batch[-1]
+        self._store_sync_state(self._state_from_finished_run(newest_run))
+        self._store_backfill_state(self._state_from_finished_run(oldest_run))
+        self._store_shadow_compare_ready(ready=False)
+        self._runtime.note_sync(
+            imported_count=len(batch),
+            indexed_through=_finished_run_last_updated_timestamp(
+                _finished_run_last_updated_datetime(newest_run.get("last_updated")),
+            ),
+            collection_name=collection_name,
+        )
+        return len(batch)
+
+    def _should_reset_legacy_partial_collection(self) -> bool:
+        return (
+            not self._shadow_compare_ready()
+            and not self._load_backfill_state().is_set()
+            and self._load_sync_state().is_set()
+        )
+
+    def _reset_legacy_partial_collection(self, collection_name: str) -> str:
+        new_collection_name = self._fresh_finished_runs_collection_name()
+        self._client.create_collection(
+            finished_runs_collection_schema(new_collection_name),
+        )
+        self._client.upsert_alias(self._alias, new_collection_name)
+        self._kvstore[_FINISHED_RUNS_SYNC_COLLECTION_KEY] = new_collection_name
+        self._clear_sync_state()
+        self._clear_backfill_state()
+        self._store_shadow_compare_ready(ready=False)
+        self._runtime.note_collection(new_collection_name)
+        logger.info(
+            "Typesense /tests/finished reset legacy partial collection: "
+            "old_collection=%s new_collection=%s",
+            collection_name,
+            new_collection_name,
+        )
+        return new_collection_name
+
+    @staticmethod
+    def _state_from_finished_run(run: dict[str, Any]) -> FinishedRunsSyncState:
+        return FinishedRunsSyncState(
+            last_updated=_finished_run_last_updated_datetime(run.get("last_updated")),
+            last_id=str(run.get("_id") or ""),
+        )
 
 
 def timestamped_finished_runs_collection_name(now: datetime | None = None) -> str:

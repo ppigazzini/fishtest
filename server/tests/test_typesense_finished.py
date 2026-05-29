@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from bson.objectid import ObjectId
+from pymongo import DESCENDING
 
 from fishtest.search_finished import FinishedRunsSearchUnavailableError
 from fishtest.typesense_client import TypesenseUnavailableError
@@ -95,12 +96,14 @@ class _CursorStub:
     def __init__(self, docs):
         self._docs = list(docs)
 
-    def sort(self, _spec):
+    def sort(self, spec):
+        reverse = bool(spec) and spec[0][1] == DESCENDING
         self._docs.sort(
             key=lambda doc: (
                 _sort_last_updated_value(doc.get("last_updated")),
                 doc["_id"],
             ),
+            reverse=reverse,
         )
         return self
 
@@ -119,24 +122,47 @@ class _RunsCollectionStub:
     def find(self, query, projection=None):
         docs = list(self._docs)
         if "$or" in query:
-            last_updated_clause = query["$or"][0]["last_updated"]["$gt"]
-            object_id_clause = query["$or"][1]["_id"]["$gt"]
+            operator, last_updated_clause = next(
+                iter(query["$or"][0]["last_updated"].items()),
+            )
+            object_id_operator, object_id_clause = next(
+                iter(query["$or"][1]["_id"].items()),
+            )
             equal_last_updated_clause = query["$or"][1]["last_updated"]
-            docs = [
-                doc
-                for doc in docs
-                if _matches_mongo_last_updated_gt(
-                    doc.get("last_updated"),
-                    last_updated_clause,
-                )
-                or (
-                    _matches_mongo_last_updated_eq(
+            if operator == "$gt":
+                docs = [
+                    doc
+                    for doc in docs
+                    if _matches_mongo_last_updated_gt(
                         doc.get("last_updated"),
-                        equal_last_updated_clause,
+                        last_updated_clause,
                     )
-                    and doc["_id"] > object_id_clause
-                )
-            ]
+                    or (
+                        _matches_mongo_last_updated_eq(
+                            doc.get("last_updated"),
+                            equal_last_updated_clause,
+                        )
+                        and object_id_operator == "$gt"
+                        and doc["_id"] > object_id_clause
+                    )
+                ]
+            else:
+                docs = [
+                    doc
+                    for doc in docs
+                    if _matches_mongo_last_updated_lt(
+                        doc.get("last_updated"),
+                        last_updated_clause,
+                    )
+                    or (
+                        _matches_mongo_last_updated_eq(
+                            doc.get("last_updated"),
+                            equal_last_updated_clause,
+                        )
+                        and object_id_operator == "$lt"
+                        and doc["_id"] < object_id_clause
+                    )
+                ]
         elif "_id" in query and "$in" in query["_id"]:
             requested = {str(value) for value in query["_id"]["$in"]}
             docs = [doc for doc in docs if str(doc.get("_id") or "") in requested]
@@ -183,6 +209,14 @@ def _matches_mongo_last_updated_eq(doc_value, clause_value):
     if isinstance(doc_value, int | float) != isinstance(clause_value, int | float):
         return False
     return _sort_last_updated_value(doc_value) == _sort_last_updated_value(clause_value)
+
+
+def _matches_mongo_last_updated_lt(doc_value, clause_value):
+    if isinstance(doc_value, datetime) != isinstance(clause_value, datetime):
+        return False
+    if isinstance(doc_value, int | float) != isinstance(clause_value, int | float):
+        return False
+    return _sort_last_updated_value(doc_value) < _sort_last_updated_value(clause_value)
 
 
 class TypesenseFinishedRunsServiceTests(unittest.TestCase):
@@ -394,7 +428,10 @@ class TypesenseFinishedRunsServiceTests(unittest.TestCase):
         self.assertEqual(imported, 2)
         self.assertEqual(client.import_calls[0][0], "finished_runs_current")
         self.assertEqual(client.import_calls[0][2], "upsert")
-        self.assertEqual(client.import_calls[0][1][0]["id"], str(docs[0]["_id"]))
+        self.assertEqual(
+            [document["id"] for document in client.import_calls[0][1]],
+            [str(docs[1]["_id"]), str(docs[0]["_id"])],
+        )
         self.assertEqual(
             kvstore["typesense.finished_runs.sync_state"]["last_id"],
             str(docs[-1]["_id"]),
@@ -403,10 +440,16 @@ class TypesenseFinishedRunsServiceTests(unittest.TestCase):
             kvstore["typesense.finished_runs.sync_state"]["last_updated"],
             docs[-1]["last_updated"],
         )
+        self.assertEqual(
+            kvstore["typesense.finished_runs.backfill_state"]["last_id"],
+            str(docs[0]["_id"]),
+        )
         self.assertFalse(kvstore["typesense.finished_runs.shadow_ready"])
         self.assertTrue(client.upserted_aliases)
 
-    def test_sync_finished_runs_once_resumes_from_legacy_float_watermark(self):
+    def test_sync_finished_runs_once_reseeds_latest_batch_after_legacy_partial_index(
+        self,
+    ):
         now = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
         docs = [
             {
@@ -462,12 +505,22 @@ class TypesenseFinishedRunsServiceTests(unittest.TestCase):
 
         imported = service.sync_finished_runs_once()
 
-        self.assertEqual(imported, 1)
+        self.assertEqual(imported, 2)
+        self.assertEqual(
+            client.created_schemas[-1]["name"], client.upserted_aliases[-1][1]
+        )
         self.assertEqual(len(client.import_calls), 1)
-        self.assertEqual(client.import_calls[0][1][0]["id"], str(docs[-1]["_id"]))
+        self.assertEqual(
+            [document["id"] for document in client.import_calls[0][1]],
+            [str(docs[-1]["_id"]), str(docs[-2]["_id"])],
+        )
         self.assertEqual(
             kvstore["typesense.finished_runs.sync_state"]["last_updated"],
             docs[-1]["last_updated"],
+        )
+        self.assertEqual(
+            kvstore["typesense.finished_runs.backfill_state"]["last_updated"],
+            docs[-2]["last_updated"],
         )
         self.assertFalse(kvstore.get("typesense.finished_runs.shadow_ready", False))
 
@@ -520,17 +573,18 @@ class TypesenseFinishedRunsServiceTests(unittest.TestCase):
         self.assertEqual(len(client.import_calls), 2)
         self.assertEqual(
             [document["id"] for document in client.import_calls[0][1]],
-            [str(docs[0]["_id"]), str(docs[1]["_id"])],
+            [str(docs[2]["_id"]), str(docs[1]["_id"])],
         )
         self.assertEqual(
             [document["id"] for document in client.import_calls[1][1]],
-            [str(docs[2]["_id"])],
+            [str(docs[0]["_id"])],
         )
         self.assertEqual(
             kvstore["typesense.finished_runs.sync_state"]["last_updated"],
             docs[-1]["last_updated"],
         )
         self.assertTrue(kvstore["typesense.finished_runs.shadow_ready"])
+        self.assertEqual(kvstore["typesense.finished_runs.backfill_state"], {})
 
     def test_mongo_finished_run_to_typesense_document_keeps_nested_args(self):
         run = {
@@ -600,7 +654,8 @@ class TypesenseFinishedRunsServiceTests(unittest.TestCase):
 
         self.assertEqual(len(scheduler.calls), 2)
         self.assertEqual(scheduler.calls[0][0], 1.0)
-        self.assertEqual(scheduler.calls[0][2]["one_shot"], True)
+        self.assertEqual(scheduler.calls[0][1], service.backfill_finished_runs_once)
+        self.assertEqual(scheduler.calls[0][2]["min_delay"], 1.0)
         self.assertEqual(scheduler.calls[1][0], 45)
         self.assertEqual(scheduler.calls[1][2]["background"], True)
 
@@ -751,6 +806,60 @@ class TypesenseFinishedRunsServiceTests(unittest.TestCase):
         snapshot = service.status_snapshot()
 
         self.assertEqual(snapshot["collection_document_count"], 9876)
+
+    def test_status_snapshot_reports_backfill_progress_separately(self):
+        now = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
+        docs = [
+            {
+                "_id": ObjectId("64e74776a170cb1f26fa3930"),
+                "args": {"username": "alice", "info": "first"},
+                "finished": True,
+                "deleted": False,
+                "last_updated": now,
+            },
+            {
+                "_id": ObjectId("64e74776a170cb1f26fa3931"),
+                "args": {"username": "bob", "info": "second"},
+                "finished": True,
+                "deleted": False,
+                "last_updated": now.replace(second=1),
+            },
+            {
+                "_id": ObjectId("64e74776a170cb1f26fa3932"),
+                "args": {"username": "carol", "info": "third"},
+                "finished": True,
+                "deleted": False,
+                "last_updated": now.replace(second=2),
+            },
+        ]
+        service = TypesenseFinishedRunsService(
+            client=_TypesenseClientStub(),
+            rundb=SimpleNamespace(
+                runs=_RunsCollectionStub(docs),
+                ltc_lower_bound=20.0,
+            ),
+            kvstore={},
+            alias="finished_runs_current",
+            enabled=False,
+            shadow_reads_enabled=True,
+            fallback_to_mongo=True,
+            sync_batch_size=2,
+            sync_interval_seconds=30,
+            reindex_interval_seconds=0,
+        )
+
+        service.sync_finished_runs_once()
+        snapshot = service.status_snapshot()
+
+        self.assertEqual(
+            snapshot["last_indexed_through"],
+            docs[-1]["last_updated"].timestamp(),
+        )
+        self.assertEqual(
+            snapshot["backfill_through"],
+            docs[1]["last_updated"].timestamp(),
+        )
+        self.assertFalse(snapshot["shadow_compare_ready"])
 
     def test_shadow_compare_skips_until_shared_index_is_ready(self):
         search_run_id = ObjectId("64e74776a170cb1f26fa3930")

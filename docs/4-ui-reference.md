@@ -98,7 +98,10 @@ The sidebar contains two visibility-aware status links and one operational link:
 - `Typesense Status` is a direct sidebar navigation link. The page itself is
    approver-only and mounts a visibility-aware htmx poll to
    `/typesense_status/server`, which refreshes the server-owned runtime table
-   for the `/actions` and `/tests/finished` backends.
+   for the `/actions` and `/tests/finished` backends. The `/tests/finished`
+   row separates current sync freshness from historical backfill progress so
+   operators can see whether the newest finished runs are already indexed while
+   older history is still loading.
 
 Route notes:
 - **Fragment-only**: endpoint always returns a fragment template (no full page).

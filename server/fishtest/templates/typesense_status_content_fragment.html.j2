@@ -35,13 +35,15 @@
         <td>
           <div><strong>Lag:</strong> {{ service.indexed_lag_label }}</div>
           <div><strong>Indexed through:</strong> {{ service.last_indexed_through_label }}</div>
+          {% if service.backfill_through_label %}
+            <div><strong>Backfilled through:</strong> {{ service.backfill_through_label }}</div>
+          {% endif %}
           <div><strong>Last sync:</strong> {{ service.last_sync_completed_at_label }}</div>
           <div><strong>Last reindex:</strong> {{ service.last_reindex_completed_at_label }}</div>
           <div><strong>Sync interval:</strong> {{ service.sync_interval_label }}</div>
           <div><strong>Reindex interval:</strong> {{ service.reindex_interval_label }}</div>
         </td>
         <td>
-          <div><strong>Synced docs:</strong> {{ service.synced_document_count }}</div>
           <div><strong>Docs in collection:</strong> {{ service.collection_document_count_label }}</div>
           <div><strong>Imported this process:</strong> {{ service.synced_document_count }}</div>
           <div><strong>Sync batches:</strong> {{ service.sync_batches }}</div>

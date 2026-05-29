@@ -378,6 +378,7 @@ class TestAdminViews(UiUserTestCase):
             "alias": "finished_runs_current",
             "collection_name": "finished_runs_20260528164000",
             "collection_document_count": 9876,
+            "backfill_through": 1716914100.0,
             "enabled": False,
             "shadow_reads_enabled": True,
             "shadow_compare_ready": False,
@@ -436,6 +437,8 @@ class TestAdminViews(UiUserTestCase):
             self.assertIn("Disabled", fragment_response.text)
             self.assertIn("Backfill in progress", fragment_response.text)
             self.assertIn("Indexed through:", fragment_response.text)
+            self.assertIn("Backfilled through:", fragment_response.text)
+            self.assertIn("2024-05-28 16:35:00 UTC", fragment_response.text)
             self.assertIn("Imported this process:", fragment_response.text)
             self.assertIn("9876", fragment_response.text)
             self.assertIn("45s", fragment_response.text)

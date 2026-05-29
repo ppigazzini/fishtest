@@ -78,6 +78,10 @@ run only on the primary instance via the existing in-process scheduler. Keep
 the route-specific serve flags at `0` during the shadow-read phase so MongoDB
 remains the served path until parity is acceptable.
 
+For `/tests/finished`, the service now seeds the newest finished-run batch
+first, keeps a separate historical backfill cursor, and reports current-sync
+freshness separately from historical backfill progress on `/typesense_status`.
+
 ## Starting the server
 
 Managed via a systemd service template (one unit per port):
@@ -183,6 +187,8 @@ Use this rollout order:
     Mongo-served.
 3. Leave the route-specific shadow-read flags enabled while the primary
     backfills the alias targets and polls MongoDB for incremental updates.
+    The `/tests/finished` service seeds the newest rows first so current-sync
+    lag can reach steady state before the historical backfill is complete.
 4. Switch `FISHTEST_TYPESENSE_ACTIONS_ENABLED=1` only after `/actions` parity
     and latency checks are acceptable.
 5. Switch `FISHTEST_TYPESENSE_FINISHED_RUNS_ENABLED=1` only after
@@ -209,7 +215,7 @@ Watch these application logs alongside the Typesense cluster endpoints from the
 production guide:
 
 - `/typesense_status` in the approver UI for the app-owned lag, sync, fallback,
-  mismatch, and alias-swap counters;
+    historical backfill progress, mismatch, and alias-swap counters;
 - `/health` for availability;
 - `/metrics.json` for resource usage;
 - `/stats.json` for request rate and latency.

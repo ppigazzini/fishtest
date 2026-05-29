@@ -1545,6 +1545,11 @@ def _build_typesense_status_row(
         shadow_compare_status_label = (
             "Ready" if shadow_compare_ready else "Backfill in progress"
         )
+    backfill_through_label = ""
+    if "backfill_through" in live:
+        backfill_through_label = _typesense_status_timestamp_label(
+            live.get("backfill_through"),
+        )
     return {
         "label": service_config["label"],
         "route": str(live.get("route") or service_config["route"]),
@@ -1567,6 +1572,7 @@ def _build_typesense_status_row(
         "last_indexed_through_label": _typesense_status_timestamp_label(
             live.get("last_indexed_through"),
         ),
+        "backfill_through_label": backfill_through_label,
         "last_sync_completed_at_label": _typesense_status_timestamp_label(
             live.get("last_sync_completed_at"),
         ),
