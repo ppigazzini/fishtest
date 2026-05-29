@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from bson.objectid import ObjectId
 
@@ -769,6 +770,83 @@ class TypesenseFinishedRunsServiceTests(unittest.TestCase):
         self.assertEqual(client.search_calls, [])
         self.assertEqual(snapshot["count_mismatch_count"], 0)
         self.assertEqual(snapshot["result_mismatch_count"], 0)
+
+    def test_shadow_compare_logs_capped_id_previews(self):
+        search_ids = [ObjectId() for _ in range(12)]
+        mongo_ids = [ObjectId() for _ in range(13)]
+        client = _TypesenseClientStub(
+            search_payloads=[
+                {
+                    "found": len(search_ids),
+                    "hits": [
+                        {"document": {"id": str(run_id)}} for run_id in search_ids
+                    ],
+                }
+            ],
+            alias_info={
+                "name": "finished_runs_current",
+                "collection_name": "finished_runs_20260528",
+            },
+            collection_exists=True,
+        )
+        service = TypesenseFinishedRunsService(
+            client=client,
+            rundb=SimpleNamespace(
+                runs=_RunsCollectionStub(
+                    [
+                        {
+                            "_id": run_id,
+                            "args": {
+                                "username": "typesense-user",
+                                "info": "branch search",
+                            },
+                            "last_updated": datetime.now(UTC),
+                            "finished": True,
+                            "deleted": False,
+                        }
+                        for run_id in search_ids
+                    ]
+                ),
+                ltc_lower_bound=20.0,
+            ),
+            kvstore={"typesense.finished_runs.shadow_ready": True},
+            alias="finished_runs_current",
+            enabled=False,
+            shadow_reads_enabled=True,
+            fallback_to_mongo=True,
+            sync_batch_size=250,
+            sync_interval_seconds=30,
+            reindex_interval_seconds=0,
+        )
+
+        with patch("fishtest.typesense_finished.logger.warning") as warning:
+            service.shadow_compare(
+                mongo_result=(
+                    [
+                        {
+                            "_id": run_id,
+                            "args": {"username": "mongo-user", "info": "branch search"},
+                            "last_updated": datetime.now(UTC),
+                            "finished": True,
+                            "deleted": False,
+                        }
+                        for run_id in mongo_ids
+                    ],
+                    len(mongo_ids),
+                ),
+                text="branch",
+                limit=len(search_ids),
+            )
+
+        log_params = warning.call_args.args[5]
+        self.assertEqual(log_params["mongo_ids_total"], len(mongo_ids))
+        self.assertEqual(log_params["search_ids_total"], len(search_ids))
+        self.assertEqual(
+            log_params["mongo_ids"], [str(run_id) for run_id in mongo_ids[:10]]
+        )
+        self.assertEqual(
+            log_params["search_ids"], [str(run_id) for run_id in search_ids[:10]]
+        )
 
     def test_rebuild_index_creates_new_collection_and_swaps_alias(self):
         old_collection = "finished_runs_20260528000000"

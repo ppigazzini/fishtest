@@ -49,6 +49,7 @@ _FINISHED_RUNS_SYNC_PROJECTION = {
 }
 _MAX_SEARCH_PAGE_SIZE = 250
 _FINISHED_TAB_FACET_MAX_VALUES = 4
+_SHADOW_COMPARE_LOG_ID_LIMIT = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -360,19 +361,19 @@ class TypesenseFinishedRunsService:
                 search_total,
                 snapshot["count_mismatch_count"],
                 snapshot["result_mismatch_count"],
-                {
-                    "username": username,
-                    "usernames": usernames,
-                    "text": text,
-                    "success_only": success_only,
-                    "yellow_only": yellow_only,
-                    "ltc_only": ltc_only,
-                    "skip": skip,
-                    "limit": limit,
-                    "max_count": max_count,
-                    "mongo_ids": mongo_ids,
-                    "search_ids": search_ids,
-                },
+                _shadow_compare_log_params(
+                    username=username,
+                    usernames=usernames,
+                    text=text,
+                    success_only=success_only,
+                    yellow_only=yellow_only,
+                    ltc_only=ltc_only,
+                    skip=skip,
+                    limit=limit,
+                    max_count=max_count,
+                    mongo_ids=mongo_ids,
+                    search_ids=search_ids,
+                ),
             )
 
     def record_fallback(self) -> None:
@@ -722,6 +723,41 @@ def _finished_run_last_updated_index_value(value: object) -> int:
     if isinstance(value, int | float):
         return int(float(value) * 1000)
     return 0
+
+
+def _shadow_compare_log_params(
+    *,
+    username: str | None,
+    usernames: list[str] | None,
+    text: str | None,
+    success_only: bool,
+    yellow_only: bool,
+    ltc_only: bool,
+    skip: int,
+    limit: int | None,
+    max_count: int | None,
+    mongo_ids: list[str],
+    search_ids: list[str],
+) -> dict[str, Any]:
+    return {
+        "username": username,
+        "usernames": usernames,
+        "text": text,
+        "success_only": success_only,
+        "yellow_only": yellow_only,
+        "ltc_only": ltc_only,
+        "skip": skip,
+        "limit": limit,
+        "max_count": max_count,
+        "mongo_ids": _log_id_preview(mongo_ids),
+        "search_ids": _log_id_preview(search_ids),
+        "mongo_ids_total": len(mongo_ids),
+        "search_ids_total": len(search_ids),
+    }
+
+
+def _log_id_preview(ids: list[str]) -> list[str]:
+    return ids[:_SHADOW_COMPARE_LOG_ID_LIMIT]
 
 
 def _quote_typesense_value(value: str) -> str:
