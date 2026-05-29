@@ -497,9 +497,13 @@ def _get_actions_with_backend(  # noqa: PLR0913
     mongo_result = request.actiondb.get_actions(**search_kwargs)
 
     if service is not None and _search_service_shadow_reads_enabled(service):
-        shadow_compare = getattr(service, "shadow_compare", None)
-        if callable(shadow_compare):
-            shadow_compare(mongo_result=mongo_result, **search_kwargs)
+        schedule_shadow_compare = getattr(service, "schedule_shadow_compare", None)
+        if callable(schedule_shadow_compare):
+            schedule_shadow_compare(mongo_result=mongo_result, **search_kwargs)
+        else:
+            shadow_compare = getattr(service, "shadow_compare", None)
+            if callable(shadow_compare):
+                shadow_compare(mongo_result=mongo_result, **search_kwargs)
 
     return mongo_result
 

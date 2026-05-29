@@ -99,6 +99,8 @@ class TypesenseActionsService:
         self._sync_interval_seconds = max(1, sync_interval_seconds)
         self._reindex_interval_seconds = max(0, reindex_interval_seconds)
         self._sync_lock = threading.Lock()
+        self._shadow_compare_lock = threading.Lock()
+        self._shadow_compare_running = False
         self._scheduler_registered = False
         self._runtime = TypesenseRuntimeState(
             route="/actions",
@@ -351,6 +353,45 @@ class TypesenseActionsService:
                 },
             )
 
+    def schedule_shadow_compare(  # noqa: PLR0913
+        self,
+        *,
+        mongo_result: tuple[list[dict[str, Any]], int],
+        username: str | None = None,
+        usernames: list[str] | None = None,
+        action: str | None = None,
+        text: str | None = None,
+        limit: int = 0,
+        skip: int = 0,
+        utc_before: float | None = None,
+        run_id: str | None = None,
+        max_count: int | None = None,
+    ) -> None:
+        """Start one background shadow compare without blocking the request."""
+        if not self._begin_shadow_compare():
+            return
+        thread = threading.Thread(
+            target=self._run_shadow_compare,
+            kwargs={
+                "mongo_result": mongo_result,
+                "username": username,
+                "usernames": usernames,
+                "action": action,
+                "text": text,
+                "limit": limit,
+                "skip": skip,
+                "utc_before": utc_before,
+                "run_id": run_id,
+                "max_count": max_count,
+            },
+            daemon=True,
+        )
+        try:
+            thread.start()
+        except Exception:
+            self._finish_shadow_compare()
+            raise
+
     def record_fallback(self) -> None:
         """Record a request that fell back to MongoDB."""
         snapshot = self._runtime.note_fallback()
@@ -384,6 +425,47 @@ class TypesenseActionsService:
             return None
         count = collection.get("num_documents")
         return int(count) if isinstance(count, int | float) else None
+
+    def _begin_shadow_compare(self) -> bool:
+        with self._shadow_compare_lock:
+            if self._shadow_compare_running:
+                return False
+            self._shadow_compare_running = True
+            return True
+
+    def _finish_shadow_compare(self) -> None:
+        with self._shadow_compare_lock:
+            self._shadow_compare_running = False
+
+    def _run_shadow_compare(  # noqa: PLR0913
+        self,
+        *,
+        mongo_result: tuple[list[dict[str, Any]], int],
+        username: str | None = None,
+        usernames: list[str] | None = None,
+        action: str | None = None,
+        text: str | None = None,
+        limit: int = 0,
+        skip: int = 0,
+        utc_before: float | None = None,
+        run_id: str | None = None,
+        max_count: int | None = None,
+    ) -> None:
+        try:
+            self.shadow_compare(
+                mongo_result=mongo_result,
+                username=username,
+                usernames=usernames,
+                action=action,
+                text=text,
+                limit=limit,
+                skip=skip,
+                utc_before=utc_before,
+                run_id=run_id,
+                max_count=max_count,
+            )
+        finally:
+            self._finish_shadow_compare()
 
     def get_action_facet_counts(
         self,
@@ -559,6 +641,7 @@ def build_actions_search_params(  # noqa: PLR0913
         "limit": limit,
         "offset": offset,
         "include_fields": _ACTIONS_INCLUDE_FIELDS,
+        "highlight_fields": "none",
         "prefix": ",".join("false" for _ in range(field_count)),
         "num_typos": ",".join("0" for _ in range(field_count)),
         "drop_tokens_threshold": 0,
@@ -592,7 +675,7 @@ def build_action_facet_params(
         "q": text or "*",
         "query_by": query_fields,
         "facet_by": "action",
-        "facet_strategy": "exhaustive",
+        "facet_strategy": "automatic",
         "max_facet_values": _ACTION_FACET_MAX_VALUES,
         "per_page": 0,
         "prefix": ",".join("false" for _ in range(field_count)),

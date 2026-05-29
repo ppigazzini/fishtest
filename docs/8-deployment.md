@@ -197,6 +197,13 @@ Use this rollout order:
    route-specific interval only after the alias-backed reindex path has been
    rehearsed successfully on the primary instance.
 
+`/actions` request handlers already cross the app's threadpool boundary before
+the backend query runs, so another worker-pool hop is not the primary latency
+lever here. On smaller hosts, reduce query cost first: the server now disables
+Typesense highlight/snippet generation for `/actions` hits and leaves the
+additive selector-count facet query on Typesense's `automatic` facet strategy
+instead of forcing exhaustive scans across the whole action history.
+
 The server writes to the alias names, not to hard-coded collection names. This
 supports alias-based reindexing without changing the application config.
 

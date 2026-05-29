@@ -6,7 +6,7 @@ import logging
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from bson.errors import InvalidId
 from bson.objectid import ObjectId
@@ -22,9 +22,25 @@ from fishtest.typesense_client import (
 from fishtest.typesense_runtime import TypesenseRuntimeState
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from fishtest.kvstore import KeyValueStore
     from fishtest.rundb import RunDb
     from fishtest.scheduler import Scheduler
+
+
+class _FinishedRunsCursor(Protocol):
+    def hint(self, index: str) -> _FinishedRunsCursor: ...
+
+    def sort(
+        self,
+        key_or_list: object,
+        direction: object = ...,
+    ) -> _FinishedRunsCursor: ...
+
+    def limit(self, limit: int) -> _FinishedRunsCursor: ...
+
+    def __iter__(self) -> Iterator[dict[str, Any]]: ...
 
 
 logger = logging.getLogger(__name__)
@@ -547,15 +563,15 @@ class TypesenseFinishedRunsService:
     def _finished_runs_sync_query() -> dict[str, Any]:
         return {"finished": True, "deleted": False}
 
-    def _finished_runs_sync_cursor(self, query: dict[str, Any]) -> Any:
+    def _finished_runs_sync_cursor(self, query: dict[str, Any]) -> _FinishedRunsCursor:
         cursor = self._rundb.runs.find(query, _FINISHED_RUNS_SYNC_PROJECTION)
         hint_name = self._finished_runs_sync_hint_name()
         if not hint_name:
-            return cursor
+            return cast("_FinishedRunsCursor", cursor)
         apply_hint = getattr(cursor, "hint", None)
         if not callable(apply_hint):
-            return cursor
-        return apply_hint(hint_name)
+            return cast("_FinishedRunsCursor", cursor)
+        return cast("_FinishedRunsCursor", apply_hint(hint_name))
 
     def _finished_runs_sync_hint_name(self) -> str:
         get_index_names = getattr(self._rundb, "get_runs_index_names", None)

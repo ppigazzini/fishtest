@@ -157,6 +157,8 @@ class _ActionsSearchServiceStub:
         self.facet_raise_unavailable = facet_raise_unavailable
         self.last_kwargs = None
         self.last_facet_kwargs = None
+        self.last_shadow_compare_kwargs = None
+        self.last_scheduled_shadow_compare_kwargs = None
 
     def get_actions(self, **kwargs):
         self.last_kwargs = kwargs
@@ -165,7 +167,10 @@ class _ActionsSearchServiceStub:
         return list(self.rows), self.total
 
     def shadow_compare(self, **kwargs):
-        _ = kwargs
+        self.last_shadow_compare_kwargs = kwargs
+
+    def schedule_shadow_compare(self, **kwargs):
+        self.last_scheduled_shadow_compare_kwargs = kwargs
 
     def get_action_facet_counts(self, **kwargs):
         self.last_facet_kwargs = kwargs
@@ -420,6 +425,23 @@ class TestActionsViewMaxCount(unittest.TestCase):
         last_kwargs = self._last_kwargs(request)
         self.assertEqual(last_kwargs["usernames"], ["TestFreshActionUser"])
         self.assertEqual(request.actiondb.get_action_usernames.cache_clear_calls, 1)
+
+    def test_actions_schedules_shadow_compare_without_blocking_mongo_results(self):
+        request = _GlueRequestStub(
+            params={"text": "branch"},
+            authenticated_userid="TestActionsViewer",
+        )
+        request.actions_search_service = _ActionsSearchServiceStub()
+        request.actions_search_service.enabled = False
+        request.actions_search_service.shadow_reads_enabled = True
+
+        actions_view(request)
+
+        self.assertIsNotNone(request.actiondb.last_kwargs)
+        self.assertIsNotNone(
+            request.actions_search_service.last_scheduled_shadow_compare_kwargs,
+        )
+        self.assertIsNone(request.actions_search_service.last_shadow_compare_kwargs)
 
 
 class TestActionsViews(unittest.TestCase):

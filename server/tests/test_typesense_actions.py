@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from bson.objectid import ObjectId
 
@@ -198,15 +199,17 @@ class TypesenseActionsServiceTests(unittest.TestCase):
         self.assertEqual(
             client.search_calls[0][1]["sort_by"], "time:desc,_text_match:desc"
         )
+        self.assertEqual(client.search_calls[0][1]["highlight_fields"], "none")
         self.assertNotIn("exhaustive_search", client.search_calls[0][1])
 
-    def test_build_actions_search_params_does_not_force_exhaustive_search(self):
+    def test_build_actions_search_params_disables_unused_highlights(self):
         params = build_actions_search_params(text="branch", limit=25, offset=0)
 
         self.assertEqual(params["q"], "branch")
+        self.assertEqual(params["highlight_fields"], "none")
         self.assertNotIn("exhaustive_search", params)
 
-    def test_build_action_facet_params_uses_raw_action_facets(self):
+    def test_build_action_facet_params_uses_automatic_facet_strategy(self):
         params = build_action_facet_params(
             usernames=["alice", "bob"],
             text='"branch search"',
@@ -215,7 +218,7 @@ class TypesenseActionsServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(params["facet_by"], "action")
-        self.assertEqual(params["facet_strategy"], "exhaustive")
+        self.assertEqual(params["facet_strategy"], "automatic")
         self.assertEqual(params["per_page"], 0)
         self.assertEqual(params["q"], '"branch search"')
         self.assertNotIn("exhaustive_search", params)
@@ -508,6 +511,52 @@ class TypesenseActionsServiceTests(unittest.TestCase):
 
         self.assertTrue(snapshot["shadow_compare_ready"])
         self.assertEqual(snapshot["collection_document_count"], 4321)
+
+    def test_schedule_shadow_compare_skips_when_one_is_in_flight(self):
+        client = _TypesenseClientStub(
+            search_payloads=[
+                {
+                    "found": 0,
+                    "hits": [],
+                }
+            ],
+            alias_info={
+                "name": "actions_current",
+                "collection_name": "actions_20260528",
+            },
+            collection_exists=True,
+        )
+        service = TypesenseActionsService(
+            client=client,
+            actiondb=SimpleNamespace(actions=_ActionCollectionStub([])),
+            kvstore={},
+            alias="actions_current",
+            enabled=False,
+            shadow_reads_enabled=True,
+            fallback_to_mongo=True,
+            sync_batch_size=250,
+            sync_interval_seconds=30,
+            reindex_interval_seconds=0,
+        )
+
+        class _ThreadStub:
+            calls = []
+
+            def __init__(self, *, target, kwargs, daemon):
+                self.target = target
+                self.kwargs = kwargs
+                self.daemon = daemon
+                _ThreadStub.calls.append(self)
+
+            def start(self):
+                return None
+
+        with patch("fishtest.typesense_actions.threading.Thread", _ThreadStub):
+            service.schedule_shadow_compare(mongo_result=([], 0), text="branch")
+            service.schedule_shadow_compare(mongo_result=([], 0), text="branch")
+
+        self.assertEqual(len(_ThreadStub.calls), 1)
+        self.assertTrue(_ThreadStub.calls[0].daemon)
 
     def test_rebuild_index_creates_new_collection_and_swaps_alias(self):
         old_collection = "actions_20260528000000"
