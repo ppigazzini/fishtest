@@ -390,6 +390,7 @@ class TypesenseFinishedRunsServiceTests(unittest.TestCase):
             kvstore["typesense.finished_runs.sync_state"]["last_updated"],
             docs[-1]["last_updated"],
         )
+        self.assertFalse(kvstore["typesense.finished_runs.shadow_ready"])
         self.assertTrue(client.upserted_aliases)
 
     def test_sync_finished_runs_once_resumes_from_legacy_float_watermark(self):
@@ -455,6 +456,7 @@ class TypesenseFinishedRunsServiceTests(unittest.TestCase):
             kvstore["typesense.finished_runs.sync_state"]["last_updated"],
             docs[-1]["last_updated"],
         )
+        self.assertFalse(kvstore.get("typesense.finished_runs.shadow_ready", False))
 
     def test_backfill_finished_runs_imports_all_batches(self):
         now = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
@@ -515,6 +517,7 @@ class TypesenseFinishedRunsServiceTests(unittest.TestCase):
             kvstore["typesense.finished_runs.sync_state"]["last_updated"],
             docs[-1]["last_updated"],
         )
+        self.assertTrue(kvstore["typesense.finished_runs.shadow_ready"])
 
     def test_mongo_finished_run_to_typesense_document_keeps_nested_args(self):
         run = {
@@ -668,7 +671,7 @@ class TypesenseFinishedRunsServiceTests(unittest.TestCase):
                 ),
                 ltc_lower_bound=20.0,
             ),
-            kvstore={},
+            kvstore={"typesense.finished_runs.shadow_ready": True},
             alias="finished_runs_current",
             enabled=False,
             shadow_reads_enabled=True,
@@ -700,6 +703,72 @@ class TypesenseFinishedRunsServiceTests(unittest.TestCase):
         self.assertEqual(snapshot["fallback_count"], 1)
         self.assertEqual(snapshot["count_mismatch_count"], 1)
         self.assertEqual(snapshot["result_mismatch_count"], 1)
+
+    def test_shadow_compare_skips_until_shared_index_is_ready(self):
+        search_run_id = ObjectId("64e74776a170cb1f26fa3930")
+        client = _TypesenseClientStub(
+            search_payloads=[
+                {
+                    "found": 1,
+                    "hits": [{"document": {"id": str(search_run_id)}}],
+                }
+            ],
+            alias_info={
+                "name": "finished_runs_current",
+                "collection_name": "finished_runs_20260528",
+            },
+            collection_exists=True,
+        )
+        service = TypesenseFinishedRunsService(
+            client=client,
+            rundb=SimpleNamespace(
+                runs=_RunsCollectionStub(
+                    [
+                        {
+                            "_id": search_run_id,
+                            "args": {
+                                "username": "typesense-user",
+                                "info": "branch search",
+                            },
+                            "last_updated": datetime.now(UTC),
+                            "finished": True,
+                            "deleted": False,
+                        }
+                    ]
+                ),
+                ltc_lower_bound=20.0,
+            ),
+            kvstore={"typesense.finished_runs.shadow_ready": False},
+            alias="finished_runs_current",
+            enabled=False,
+            shadow_reads_enabled=True,
+            fallback_to_mongo=True,
+            sync_batch_size=250,
+            sync_interval_seconds=30,
+            reindex_interval_seconds=0,
+        )
+
+        service.shadow_compare(
+            mongo_result=(
+                [
+                    {
+                        "_id": ObjectId("64e74776a170cb1f26fa3931"),
+                        "args": {"username": "mongo-user", "info": "branch search"},
+                        "last_updated": datetime.now(UTC),
+                        "finished": True,
+                        "deleted": False,
+                    }
+                ],
+                2,
+            ),
+            text="branch",
+            limit=1,
+        )
+
+        snapshot = service.status_snapshot()
+        self.assertEqual(client.search_calls, [])
+        self.assertEqual(snapshot["count_mismatch_count"], 0)
+        self.assertEqual(snapshot["result_mismatch_count"], 0)
 
     def test_rebuild_index_creates_new_collection_and_swaps_alias(self):
         old_collection = "finished_runs_20260528000000"
@@ -757,6 +826,7 @@ class TypesenseFinishedRunsServiceTests(unittest.TestCase):
             kvstore["typesense.finished_runs.collection_name"],
             new_collection,
         )
+        self.assertTrue(kvstore["typesense.finished_runs.shadow_ready"])
         self.assertEqual(snapshot["alias_swap_count"], 1)
         self.assertEqual(snapshot["last_reindex_document_count"], 2)
 

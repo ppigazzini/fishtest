@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 _FINISHED_RUNS_SYNC_COLLECTION_KEY = "typesense.finished_runs.collection_name"
 _FINISHED_RUNS_SYNC_STATE_KEY = "typesense.finished_runs.sync_state"
+_FINISHED_RUNS_SHADOW_READY_KEY = "typesense.finished_runs.shadow_ready"
 _FINISHED_RUNS_HYDRATE_PROJECTION = {
     "tasks": 0,
     "bad_tasks": 0,
@@ -163,6 +164,7 @@ class TypesenseFinishedRunsService:
             state = self._load_sync_state()
             batch = self._next_finished_runs_batch_after(state)
             if not batch:
+                self._store_shadow_compare_ready(True)
                 self._runtime.note_sync(
                     imported_count=0,
                     indexed_through=_finished_run_last_updated_timestamp(
@@ -224,6 +226,7 @@ class TypesenseFinishedRunsService:
             self._client.upsert_alias(self._alias, collection_name)
             self._kvstore[_FINISHED_RUNS_SYNC_COLLECTION_KEY] = collection_name
             self._store_sync_state(state)
+            self._store_shadow_compare_ready(True)
             snapshot = self._runtime.note_reindex(
                 imported_count=imported,
                 indexed_through=_finished_run_last_updated_timestamp(
@@ -323,6 +326,9 @@ class TypesenseFinishedRunsService:
         max_count: int | None = None,
     ) -> None:
         """Compare a Mongo-served result with the equivalent Typesense query."""
+        if not self._shadow_compare_ready():
+            return
+
         try:
             search_rows, search_total = self.get_finished_runs(
                 username=username,
@@ -429,6 +435,7 @@ class TypesenseFinishedRunsService:
             )
         self._client.upsert_alias(self._alias, collection_name)
         self._kvstore[_FINISHED_RUNS_SYNC_COLLECTION_KEY] = collection_name
+        self._store_shadow_compare_ready(False)
         self._runtime.note_collection(collection_name)
         return collection_name
 
@@ -506,6 +513,12 @@ class TypesenseFinishedRunsService:
 
     def _store_sync_state(self, state: FinishedRunsSyncState) -> None:
         self._kvstore[_FINISHED_RUNS_SYNC_STATE_KEY] = state.as_value()
+
+    def _shadow_compare_ready(self) -> bool:
+        return bool(self._kvstore.get(_FINISHED_RUNS_SHADOW_READY_KEY, False))
+
+    def _store_shadow_compare_ready(self, ready: bool) -> None:
+        self._kvstore[_FINISHED_RUNS_SHADOW_READY_KEY] = ready
 
 
 def timestamped_finished_runs_collection_name(now: datetime | None = None) -> str:
