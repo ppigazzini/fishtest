@@ -352,6 +352,7 @@ class TestAdminViews(UiUserTestCase):
             "alias": "actions_current",
             "collection_name": "actions_20260528164000",
             "collection_document_count": 4321,
+            "shadow_compare_ready": True,
             "enabled": True,
             "shadow_reads_enabled": True,
             "fallback_to_mongo": True,
@@ -434,6 +435,7 @@ class TestAdminViews(UiUserTestCase):
             self.assertNotIn("<!doctype html>", fragment_response.text.lower())
             self.assertIn('id="typesense_status_table"', fragment_response.text)
             self.assertIn("Finished runs", fragment_response.text)
+            self.assertIn("Ready", fragment_response.text)
             self.assertIn("Disabled", fragment_response.text)
             self.assertIn("Backfill in progress", fragment_response.text)
             self.assertIn("Indexed through:", fragment_response.text)

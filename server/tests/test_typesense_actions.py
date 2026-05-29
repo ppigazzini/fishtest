@@ -506,6 +506,7 @@ class TypesenseActionsServiceTests(unittest.TestCase):
         service.ensure_actions_collection()
         snapshot = service.status_snapshot()
 
+        self.assertTrue(snapshot["shadow_compare_ready"])
         self.assertEqual(snapshot["collection_document_count"], 4321)
 
     def test_rebuild_index_creates_new_collection_and_swaps_alias(self):

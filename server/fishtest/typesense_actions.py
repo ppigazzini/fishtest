@@ -362,6 +362,9 @@ class TypesenseActionsService:
     def status_snapshot(self) -> dict[str, Any]:
         """Return operational counters and current sync lag."""
         snapshot = self._runtime.snapshot()
+        # `/actions` shadow compares are live as soon as the service is running;
+        # unlike finished runs there is no separate historical-backfill gate.
+        snapshot["shadow_compare_ready"] = True
         snapshot["collection_document_count"] = self._collection_document_count(
             str(snapshot.get("collection_name") or ""),
         )
