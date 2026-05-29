@@ -52,6 +52,8 @@ _MAX_SEARCH_PAGE_SIZE = 250
 _FINISHED_TAB_FACET_MAX_VALUES = 4
 _SHADOW_COMPARE_LOG_ID_LIMIT = 10
 _FINISHED_RUNS_BACKFILL_INTERVAL_SECONDS = 1.0
+_FINISHED_RUNS_CURSOR_HINT_NAME = "finished_runs_cursor"
+_FINISHED_RUNS_FALLBACK_HINT_NAME = "finished_runs"
 
 
 @dataclass(frozen=True, slots=True)
@@ -541,11 +543,36 @@ class TypesenseFinishedRunsService:
             return collection_name
         return self._reset_legacy_partial_collection(collection_name)
 
+    @staticmethod
+    def _finished_runs_sync_query() -> dict[str, Any]:
+        return {"finished": True, "deleted": False}
+
+    def _finished_runs_sync_cursor(self, query: dict[str, Any]) -> Any:
+        cursor = self._rundb.runs.find(query, _FINISHED_RUNS_SYNC_PROJECTION)
+        hint_name = self._finished_runs_sync_hint_name()
+        if not hint_name:
+            return cursor
+        apply_hint = getattr(cursor, "hint", None)
+        if not callable(apply_hint):
+            return cursor
+        return apply_hint(hint_name)
+
+    def _finished_runs_sync_hint_name(self) -> str:
+        get_index_names = getattr(self._rundb, "get_runs_index_names", None)
+        if not callable(get_index_names):
+            return ""
+        index_names = set(get_index_names())
+        if _FINISHED_RUNS_CURSOR_HINT_NAME in index_names:
+            return _FINISHED_RUNS_CURSOR_HINT_NAME
+        if _FINISHED_RUNS_FALLBACK_HINT_NAME in index_names:
+            return _FINISHED_RUNS_FALLBACK_HINT_NAME
+        return ""
+
     def _next_finished_runs_batch_after(
         self,
         state: FinishedRunsSyncState,
     ) -> list[dict[str, Any]]:
-        query: dict[str, Any] = {"finished": True}
+        query = self._finished_runs_sync_query()
         if state.last_updated is not None and state.last_id:
             query["$or"] = [
                 {"last_updated": {"$gt": state.last_updated}},
@@ -554,7 +581,7 @@ class TypesenseFinishedRunsService:
                     "_id": {"$gt": ObjectId(state.last_id)},
                 },
             ]
-        cursor = self._rundb.runs.find(query, _FINISHED_RUNS_SYNC_PROJECTION)
+        cursor = self._finished_runs_sync_cursor(query)
         cursor = cursor.sort([("last_updated", ASCENDING), ("_id", ASCENDING)])
         cursor = cursor.limit(self._sync_batch_size)
         return list(cursor)
@@ -563,7 +590,7 @@ class TypesenseFinishedRunsService:
         self,
         state: FinishedRunsSyncState,
     ) -> list[dict[str, Any]]:
-        query: dict[str, Any] = {"finished": True}
+        query = self._finished_runs_sync_query()
         if state.is_set():
             query["$or"] = [
                 {"last_updated": {"$lt": state.last_updated}},
@@ -572,16 +599,13 @@ class TypesenseFinishedRunsService:
                     "_id": {"$lt": ObjectId(state.last_id)},
                 },
             ]
-        cursor = self._rundb.runs.find(query, _FINISHED_RUNS_SYNC_PROJECTION)
+        cursor = self._finished_runs_sync_cursor(query)
         cursor = cursor.sort([("last_updated", DESCENDING), ("_id", DESCENDING)])
         cursor = cursor.limit(self._sync_batch_size)
         return list(cursor)
 
     def _latest_finished_runs_batch(self) -> list[dict[str, Any]]:
-        cursor = self._rundb.runs.find(
-            {"finished": True},
-            _FINISHED_RUNS_SYNC_PROJECTION,
-        )
+        cursor = self._finished_runs_sync_cursor(self._finished_runs_sync_query())
         cursor = cursor.sort([("last_updated", DESCENDING), ("_id", DESCENDING)])
         cursor = cursor.limit(self._sync_batch_size)
         return list(cursor)
