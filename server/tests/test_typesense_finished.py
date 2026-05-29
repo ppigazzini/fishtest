@@ -106,8 +106,13 @@ class _RunsCollectionStub:
     def find(self, query, projection=None):
         docs = list(self._docs)
         if "$or" in query:
-            last_updated_clause = query["$or"][0]["last_updated"]["$gt"]
+            last_updated_clause = _sort_last_updated_value(
+                query["$or"][0]["last_updated"]["$gt"]
+            )
             object_id_clause = query["$or"][1]["_id"]["$gt"]
+            equal_last_updated_clause = _sort_last_updated_value(
+                query["$or"][1]["last_updated"]
+            )
             docs = [
                 doc
                 for doc in docs
@@ -115,7 +120,7 @@ class _RunsCollectionStub:
                 > last_updated_clause
                 or (
                     _sort_last_updated_value(doc.get("last_updated"))
-                    == last_updated_clause
+                    == equal_last_updated_clause
                     and doc["_id"] > object_id_clause
                 )
             ]
@@ -367,9 +372,73 @@ class TypesenseFinishedRunsServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             kvstore["typesense.finished_runs.sync_state"]["last_updated"],
-            docs[-1]["last_updated"].timestamp(),
+            docs[-1]["last_updated"],
         )
         self.assertTrue(client.upserted_aliases)
+
+    def test_sync_finished_runs_once_resumes_from_legacy_float_watermark(self):
+        now = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
+        docs = [
+            {
+                "_id": ObjectId("64e74776a170cb1f26fa3930"),
+                "args": {"username": "alice", "info": "first"},
+                "finished": True,
+                "deleted": False,
+                "last_updated": now,
+            },
+            {
+                "_id": ObjectId("64e74776a170cb1f26fa3931"),
+                "args": {"username": "bob", "info": "second"},
+                "finished": True,
+                "deleted": False,
+                "last_updated": now.replace(second=1),
+            },
+            {
+                "_id": ObjectId("64e74776a170cb1f26fa3932"),
+                "args": {"username": "carol", "info": "third"},
+                "finished": True,
+                "deleted": False,
+                "last_updated": now.replace(second=2),
+            },
+        ]
+        kvstore = {
+            "typesense.finished_runs.sync_state": {
+                "last_updated": docs[1]["last_updated"].timestamp(),
+                "last_id": str(docs[1]["_id"]),
+            }
+        }
+        client = _TypesenseClientStub(
+            alias_info={
+                "name": "finished_runs_current",
+                "collection_name": "finished_runs_20260528",
+            },
+            collection_exists=True,
+        )
+        service = TypesenseFinishedRunsService(
+            client=client,
+            rundb=SimpleNamespace(
+                runs=_RunsCollectionStub(docs),
+                ltc_lower_bound=20.0,
+            ),
+            kvstore=kvstore,
+            alias="finished_runs_current",
+            enabled=False,
+            shadow_reads_enabled=True,
+            fallback_to_mongo=True,
+            sync_batch_size=2,
+            sync_interval_seconds=30,
+            reindex_interval_seconds=0,
+        )
+
+        imported = service.sync_finished_runs_once()
+
+        self.assertEqual(imported, 1)
+        self.assertEqual(len(client.import_calls), 1)
+        self.assertEqual(client.import_calls[0][1][0]["id"], str(docs[-1]["_id"]))
+        self.assertEqual(
+            kvstore["typesense.finished_runs.sync_state"]["last_updated"],
+            docs[-1]["last_updated"],
+        )
 
     def test_mongo_finished_run_to_typesense_document_keeps_nested_args(self):
         run = {

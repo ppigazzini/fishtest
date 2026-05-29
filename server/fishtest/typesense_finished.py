@@ -54,7 +54,7 @@ _FINISHED_TAB_FACET_MAX_VALUES = 4
 class FinishedRunsSyncState:
     """Persistent watermark for the `/tests/finished` polling sync."""
 
-    last_updated: float | None = None
+    last_updated: datetime | None = None
     last_id: str = ""
 
     @classmethod
@@ -64,9 +64,7 @@ class FinishedRunsSyncState:
         last_updated = value.get("last_updated")
         last_id = value.get("last_id")
         return cls(
-            last_updated=(
-                float(last_updated) if isinstance(last_updated, int | float) else None
-            ),
+            last_updated=_finished_run_last_updated_datetime(last_updated),
             last_id=str(last_id or ""),
         )
 
@@ -167,7 +165,9 @@ class TypesenseFinishedRunsService:
             if not batch:
                 self._runtime.note_sync(
                     imported_count=0,
-                    indexed_through=state.last_updated,
+                    indexed_through=_finished_run_last_updated_timestamp(
+                        state.last_updated,
+                    ),
                     collection_name=collection_name,
                 )
                 return 0
@@ -177,13 +177,17 @@ class TypesenseFinishedRunsService:
 
             last_run = batch[-1]
             next_state = FinishedRunsSyncState(
-                last_updated=_finished_run_last_updated_sort_value(last_run),
+                last_updated=_finished_run_last_updated_datetime(
+                    last_run.get("last_updated"),
+                ),
                 last_id=str(last_run.get("_id") or ""),
             )
             self._store_sync_state(next_state)
             self._runtime.note_sync(
                 imported_count=len(batch),
-                indexed_through=next_state.last_updated,
+                indexed_through=_finished_run_last_updated_timestamp(
+                    next_state.last_updated,
+                ),
                 collection_name=collection_name,
             )
             return len(batch)
@@ -211,7 +215,9 @@ class TypesenseFinishedRunsService:
                 imported += len(batch)
                 last_run = batch[-1]
                 state = FinishedRunsSyncState(
-                    last_updated=_finished_run_last_updated_sort_value(last_run),
+                    last_updated=_finished_run_last_updated_datetime(
+                        last_run.get("last_updated"),
+                    ),
                     last_id=str(last_run.get("_id") or ""),
                 )
 
@@ -220,7 +226,9 @@ class TypesenseFinishedRunsService:
             self._store_sync_state(state)
             snapshot = self._runtime.note_reindex(
                 imported_count=imported,
-                indexed_through=state.last_updated,
+                indexed_through=_finished_run_last_updated_timestamp(
+                    state.last_updated,
+                ),
                 collection_name=collection_name,
             )
             logger.info(
@@ -677,6 +685,20 @@ def _finished_run_last_updated_sort_value(run: dict[str, Any]) -> float:
     if isinstance(last_updated, int | float):
         return float(last_updated)
     return 0.0
+
+
+def _finished_run_last_updated_datetime(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    if isinstance(value, int | float):
+        return datetime.fromtimestamp(float(value), UTC)
+    return None
+
+
+def _finished_run_last_updated_timestamp(value: datetime | None) -> float | None:
+    if isinstance(value, datetime):
+        return value.timestamp()
+    return None
 
 
 def _quote_typesense_value(value: str) -> str:
