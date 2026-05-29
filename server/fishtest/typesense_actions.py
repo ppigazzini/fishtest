@@ -6,7 +6,7 @@ import logging
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from bson.objectid import ObjectId
 from pymongo import ASCENDING
@@ -32,6 +32,9 @@ _ACTIONS_SYNC_COLLECTION_KEY = "typesense.actions.collection_name"
 _ACTIONS_SYNC_STATE_KEY = "typesense.actions.sync_state"
 _MAX_SEARCH_PAGE_SIZE = 250
 _ACTION_FACET_MAX_VALUES = 32
+_ACTIONS_INCLUDE_FIELDS = (
+    "id,time,action,username,worker,message,run,run_id,user,nn,task_id"
+)
 _DEFAULT_EXCLUDED_ACTIONS = (
     "system_event",
     "update_stats",
@@ -48,16 +51,19 @@ class ActionsSyncState:
 
     @classmethod
     def from_value(cls, value: object) -> ActionsSyncState:
+        """Build sync state from a persisted key-value payload."""
         if not isinstance(value, dict):
             return cls()
-        last_time = value.get("last_time")
-        last_id = value.get("last_id")
+        payload = cast("dict[str, object]", value)
+        last_time = payload.get("last_time")
+        last_id = payload.get("last_id")
         return cls(
             last_time=float(last_time) if isinstance(last_time, int | float) else None,
             last_id=str(last_id or ""),
         )
 
     def as_value(self) -> dict[str, Any]:
+        """Serialize sync state for key-value storage."""
         return {
             "last_time": self.last_time,
             "last_id": self.last_id,
@@ -67,7 +73,7 @@ class ActionsSyncState:
 class TypesenseActionsService:
     """Serve and synchronize `/actions` data against Typesense."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         *,
         client: TypesenseClient,
@@ -81,6 +87,7 @@ class TypesenseActionsService:
         sync_interval_seconds: int,
         reindex_interval_seconds: int,
     ) -> None:
+        """Store dependencies and runtime settings for the `/actions` service."""
         self._client = client
         self._actiondb = actiondb
         self._kvstore = kvstore
@@ -190,7 +197,9 @@ class TypesenseActionsService:
                     mongo_action_to_typesense_document(action) for action in batch
                 ]
                 self._client.import_documents(
-                    collection_name, documents, action="upsert"
+                    collection_name,
+                    documents,
+                    action="upsert",
                 )
                 imported += len(batch)
                 last_action = batch[-1]
@@ -208,7 +217,8 @@ class TypesenseActionsService:
                 collection_name=collection_name,
             )
             logger.info(
-                "Typesense /actions reindex complete: collection=%s alias_swap_count=%s indexed_lag_seconds=%s imported=%s",
+                "Typesense /actions reindex complete: collection=%s "
+                "alias_swap_count=%s indexed_lag_seconds=%s imported=%s",
                 collection_name,
                 snapshot["alias_swap_count"],
                 snapshot["indexed_lag_seconds"],
@@ -271,7 +281,8 @@ class TypesenseActionsService:
         except (TypesenseUnavailableError, TypesenseApiError) as exc:
             snapshot = self._runtime.note_backend_unavailable(exc)
             logger.warning(
-                "Typesense /actions backend unavailable: backend_unavailable_count=%s error=%s",
+                "Typesense /actions backend unavailable: "
+                "backend_unavailable_count=%s error=%s",
                 snapshot["backend_unavailable_count"],
                 snapshot["last_error"],
             )
@@ -318,7 +329,9 @@ class TypesenseActionsService:
                 result_mismatch=result_mismatch,
             )
             logger.warning(
-                "Typesense /actions shadow mismatch: mongo_total=%s search_total=%s count_mismatch_count=%s result_mismatch_count=%s params=%s",
+                "Typesense /actions shadow mismatch: "
+                "mongo_total=%s search_total=%s "
+                "count_mismatch_count=%s result_mismatch_count=%s params=%s",
                 mongo_total,
                 search_total,
                 snapshot["count_mismatch_count"],
@@ -397,7 +410,8 @@ class TypesenseActionsService:
         except (TypesenseUnavailableError, TypesenseApiError) as exc:
             snapshot = self._runtime.note_backend_unavailable(exc)
             logger.warning(
-                "Typesense /actions backend unavailable: backend_unavailable_count=%s error=%s",
+                "Typesense /actions backend unavailable: "
+                "backend_unavailable_count=%s error=%s",
                 snapshot["backend_unavailable_count"],
                 snapshot["last_error"],
             )
@@ -415,7 +429,7 @@ class TypesenseActionsService:
 
         stored_collection = self._kvstore.get(_ACTIONS_SYNC_COLLECTION_KEY, "")
         collection_name = str(
-            stored_collection or timestamped_actions_collection_name()
+            stored_collection or timestamped_actions_collection_name(),
         )
         if self._client.get_collection(collection_name, allow_missing=True) is None:
             self._client.create_collection(actions_collection_schema(collection_name))
@@ -425,7 +439,8 @@ class TypesenseActionsService:
         return collection_name
 
     def _next_actions_batch_after(
-        self, state: ActionsSyncState
+        self,
+        state: ActionsSyncState,
     ) -> list[dict[str, Any]]:
         query: dict[str, Any] = {}
         if state.last_time is not None and state.last_id:
@@ -436,7 +451,7 @@ class TypesenseActionsService:
                         "time": state.last_time,
                         "_id": {"$gt": ObjectId(state.last_id)},
                     },
-                ]
+                ],
             }
         cursor = self._actiondb.actions.find(query)
         cursor = cursor.sort([("time", ASCENDING), ("_id", ASCENDING)])
@@ -465,7 +480,10 @@ class TypesenseActionsService:
 def timestamped_actions_collection_name(now: datetime | None = None) -> str:
     """Return a timestamped collection name for alias-based reindexing."""
     current = now or datetime.now(UTC)
-    return f"{ACTIONS_SEARCH_CONTRACT.collection_prefix}_{current.strftime('%Y%m%d%H%M%S')}"
+    return (
+        f"{ACTIONS_SEARCH_CONTRACT.collection_prefix}_"
+        f"{current.strftime('%Y%m%d%H%M%S')}"
+    )
 
 
 def actions_collection_schema(collection_name: str) -> dict[str, Any]:
@@ -537,7 +555,7 @@ def build_actions_search_params(  # noqa: PLR0913
         "sort_by": "time:desc,_text_match:desc" if text else "time:desc",
         "limit": limit,
         "offset": offset,
-        "include_fields": "id,time,action,username,worker,message,run,run_id,user,nn,task_id",
+        "include_fields": _ACTIONS_INCLUDE_FIELDS,
         "prefix": ",".join("false" for _ in range(field_count)),
         "num_typos": ",".join("0" for _ in range(field_count)),
         "drop_tokens_threshold": 0,

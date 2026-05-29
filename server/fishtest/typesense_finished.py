@@ -6,7 +6,7 @@ import logging
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from bson.errors import InvalidId
 from bson.objectid import ObjectId
@@ -61,16 +61,19 @@ class FinishedRunsSyncState:
 
     @classmethod
     def from_value(cls, value: object) -> FinishedRunsSyncState:
+        """Build sync state from a persisted key-value payload."""
         if not isinstance(value, dict):
             return cls()
-        last_updated = value.get("last_updated")
-        last_id = value.get("last_id")
+        payload = cast("dict[str, object]", value)
+        last_updated = payload.get("last_updated")
+        last_id = payload.get("last_id")
         return cls(
             last_updated=_finished_run_last_updated_datetime(last_updated),
             last_id=str(last_id or ""),
         )
 
     def as_value(self) -> dict[str, Any]:
+        """Serialize sync state for key-value storage."""
         return {
             "last_updated": self.last_updated,
             "last_id": self.last_id,
@@ -80,7 +83,7 @@ class FinishedRunsSyncState:
 class TypesenseFinishedRunsService:
     """Serve and synchronize `/tests/finished` data against Typesense."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         *,
         client: TypesenseClient,
@@ -94,6 +97,7 @@ class TypesenseFinishedRunsService:
         sync_interval_seconds: int,
         reindex_interval_seconds: int,
     ) -> None:
+        """Store dependencies and runtime settings for finished-run search."""
         self._client = client
         self._rundb = rundb
         self._kvstore = kvstore
@@ -165,7 +169,7 @@ class TypesenseFinishedRunsService:
             state = self._load_sync_state()
             batch = self._next_finished_runs_batch_after(state)
             if not batch:
-                self._store_shadow_compare_ready(True)
+                self._store_shadow_compare_ready(ready=True)
                 self._runtime.note_sync(
                     imported_count=0,
                     indexed_through=_finished_run_last_updated_timestamp(
@@ -213,7 +217,9 @@ class TypesenseFinishedRunsService:
                     mongo_finished_run_to_typesense_document(run) for run in batch
                 ]
                 self._client.import_documents(
-                    collection_name, documents, action="upsert"
+                    collection_name,
+                    documents,
+                    action="upsert",
                 )
                 imported += len(batch)
                 last_run = batch[-1]
@@ -227,7 +233,7 @@ class TypesenseFinishedRunsService:
             self._client.upsert_alias(self._alias, collection_name)
             self._kvstore[_FINISHED_RUNS_SYNC_COLLECTION_KEY] = collection_name
             self._store_sync_state(state)
-            self._store_shadow_compare_ready(True)
+            self._store_shadow_compare_ready(ready=True)
             snapshot = self._runtime.note_reindex(
                 imported_count=imported,
                 indexed_through=_finished_run_last_updated_timestamp(
@@ -236,7 +242,8 @@ class TypesenseFinishedRunsService:
                 collection_name=collection_name,
             )
             logger.info(
-                "Typesense /tests/finished reindex complete: collection=%s alias_swap_count=%s indexed_lag_seconds=%s imported=%s",
+                "Typesense /tests/finished reindex complete: collection=%s "
+                "alias_swap_count=%s indexed_lag_seconds=%s imported=%s",
                 collection_name,
                 snapshot["alias_swap_count"],
                 snapshot["indexed_lag_seconds"],
@@ -244,7 +251,7 @@ class TypesenseFinishedRunsService:
             )
             return imported
 
-    def get_finished_runs(
+    def get_finished_runs(  # noqa: PLR0913
         self,
         *,
         username: str | None = None,
@@ -306,13 +313,14 @@ class TypesenseFinishedRunsService:
         except (TypesenseUnavailableError, TypesenseApiError) as exc:
             snapshot = self._runtime.note_backend_unavailable(exc)
             logger.warning(
-                "Typesense /tests/finished backend unavailable: backend_unavailable_count=%s error=%s",
+                "Typesense /tests/finished backend unavailable: "
+                "backend_unavailable_count=%s error=%s",
                 snapshot["backend_unavailable_count"],
                 snapshot["last_error"],
             )
             raise FinishedRunsSearchUnavailableError(str(exc)) from exc
 
-    def shadow_compare(
+    def shadow_compare(  # noqa: PLR0913
         self,
         *,
         mongo_result: tuple[list[dict[str, Any]], int],
@@ -356,7 +364,9 @@ class TypesenseFinishedRunsService:
                 result_mismatch=result_mismatch,
             )
             logger.warning(
-                "Typesense /tests/finished shadow mismatch: mongo_total=%s search_total=%s count_mismatch_count=%s result_mismatch_count=%s params=%s",
+                "Typesense /tests/finished shadow mismatch: "
+                "mongo_total=%s search_total=%s count_mismatch_count=%s "
+                "result_mismatch_count=%s params=%s",
                 mongo_total,
                 search_total,
                 snapshot["count_mismatch_count"],
@@ -430,7 +440,8 @@ class TypesenseFinishedRunsService:
         except (TypesenseUnavailableError, TypesenseApiError) as exc:
             snapshot = self._runtime.note_backend_unavailable(exc)
             logger.warning(
-                "Typesense /tests/finished backend unavailable: backend_unavailable_count=%s error=%s",
+                "Typesense /tests/finished backend unavailable: "
+                "backend_unavailable_count=%s error=%s",
                 snapshot["backend_unavailable_count"],
                 snapshot["last_error"],
             )
@@ -448,7 +459,7 @@ class TypesenseFinishedRunsService:
 
         stored_collection = self._kvstore.get(_FINISHED_RUNS_SYNC_COLLECTION_KEY, "")
         collection_name = str(
-            stored_collection or timestamped_finished_runs_collection_name()
+            stored_collection or timestamped_finished_runs_collection_name(),
         )
         if self._client.get_collection(collection_name, allow_missing=True) is None:
             self._client.create_collection(
@@ -456,7 +467,7 @@ class TypesenseFinishedRunsService:
             )
         self._client.upsert_alias(self._alias, collection_name)
         self._kvstore[_FINISHED_RUNS_SYNC_COLLECTION_KEY] = collection_name
-        self._store_shadow_compare_ready(False)
+        self._store_shadow_compare_ready(ready=False)
         self._runtime.note_collection(collection_name)
         return collection_name
 
@@ -489,7 +500,8 @@ class TypesenseFinishedRunsService:
         return f"{timestamped_finished_runs_collection_name(base_time)}_reindex"
 
     def _hydrate_finished_runs(
-        self, hits: list[dict[str, Any]]
+        self,
+        hits: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         run_ids = [
             str((hit.get("document") or {}).get("id") or "")
@@ -520,7 +532,8 @@ class TypesenseFinishedRunsService:
         hydrated = [rows_by_id[run_id] for run_id in run_ids if run_id in rows_by_id]
         if len(hydrated) != len(run_ids):
             logger.warning(
-                "Typesense /tests/finished hydration mismatch: requested=%s hydrated=%s ids=%s",
+                "Typesense /tests/finished hydration mismatch: "
+                "requested=%s hydrated=%s ids=%s",
                 len(run_ids),
                 len(hydrated),
                 run_ids,
@@ -538,7 +551,7 @@ class TypesenseFinishedRunsService:
     def _shadow_compare_ready(self) -> bool:
         return bool(self._kvstore.get(_FINISHED_RUNS_SHADOW_READY_KEY, False))
 
-    def _store_shadow_compare_ready(self, ready: bool) -> None:
+    def _store_shadow_compare_ready(self, *, ready: bool) -> None:
         self._kvstore[_FINISHED_RUNS_SHADOW_READY_KEY] = ready
 
 
@@ -603,7 +616,7 @@ def mongo_finished_run_to_typesense_document(run: dict[str, Any]) -> dict[str, A
     return document
 
 
-def build_finished_runs_search_params(
+def build_finished_runs_search_params(  # noqa: PLR0913
     *,
     username: str | None = None,
     usernames: list[str] | None = None,
@@ -683,12 +696,12 @@ def build_finished_runs_tab_counts_params() -> dict[str, Any]:
             "facet_by": "is_green,is_yellow",
             "facet_strategy": "exhaustive",
             "max_facet_values": _FINISHED_TAB_FACET_MAX_VALUES,
-        }
+        },
     )
     return params
 
 
-def build_finished_runs_filter_by(
+def build_finished_runs_filter_by(  # noqa: PLR0913
     *,
     username: str | None = None,
     usernames: list[str] | None = None,
@@ -745,7 +758,7 @@ def _finished_run_last_updated_index_value(value: object) -> int:
     return 0
 
 
-def _shadow_compare_log_params(
+def _shadow_compare_log_params(  # noqa: PLR0913
     *,
     username: str | None,
     usernames: list[str] | None,
@@ -828,8 +841,8 @@ __all__ = [
     "build_finished_runs_filter_by",
     "build_finished_runs_search_params",
     "build_finished_runs_tab_counts_params",
-    "finished_runs_tab_counts_from_payloads",
     "finished_runs_collection_schema",
+    "finished_runs_tab_counts_from_payloads",
     "mongo_finished_run_to_typesense_document",
     "timestamped_finished_runs_collection_name",
 ]

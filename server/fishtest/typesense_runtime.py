@@ -15,7 +15,7 @@ def _utc_timestamp(now: datetime | None = None) -> float:
 class TypesenseRuntimeState:
     """Track operational counters and watermarks for one search service."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         *,
         route: str,
@@ -26,6 +26,7 @@ class TypesenseRuntimeState:
         sync_interval_seconds: int,
         reindex_interval_seconds: int,
     ) -> None:
+        """Initialize counters and watermarks for one routed search service."""
         self._lock = threading.Lock()
         self._state: dict[str, Any] = {
             "route": route,
@@ -53,6 +54,7 @@ class TypesenseRuntimeState:
         }
 
     def note_collection(self, collection_name: str) -> None:
+        """Record the collection currently serving the route."""
         with self._lock:
             self._state["collection_name"] = collection_name
 
@@ -64,6 +66,7 @@ class TypesenseRuntimeState:
         collection_name: str,
         now: datetime | None = None,
     ) -> dict[str, Any]:
+        """Record one completed sync batch and return a snapshot."""
         with self._lock:
             self._state["collection_name"] = collection_name
             self._state["last_sync_completed_at"] = _utc_timestamp(now)
@@ -80,6 +83,7 @@ class TypesenseRuntimeState:
         collection_name: str,
         now: datetime | None = None,
     ) -> dict[str, Any]:
+        """Record a full reindex completion and return a snapshot."""
         with self._lock:
             current_time = _utc_timestamp(now)
             self._state["collection_name"] = collection_name
@@ -96,6 +100,7 @@ class TypesenseRuntimeState:
         *,
         now: datetime | None = None,
     ) -> dict[str, Any]:
+        """Record a backend-unavailable event and return a snapshot."""
         with self._lock:
             self._state["last_backend_unavailable_at"] = _utc_timestamp(now)
             self._state["backend_unavailable_count"] += 1
@@ -103,6 +108,7 @@ class TypesenseRuntimeState:
             return self._snapshot_locked(now)
 
     def note_fallback(self, *, now: datetime | None = None) -> dict[str, Any]:
+        """Record one fallback to MongoDB and return a snapshot."""
         with self._lock:
             self._state["last_fallback_at"] = _utc_timestamp(now)
             self._state["fallback_count"] += 1
@@ -115,6 +121,7 @@ class TypesenseRuntimeState:
         result_mismatch: bool,
         now: datetime | None = None,
     ) -> dict[str, Any]:
+        """Record shadow-compare mismatches and return a snapshot."""
         with self._lock:
             if count_mismatch:
                 self._state["count_mismatch_count"] += 1
@@ -123,6 +130,7 @@ class TypesenseRuntimeState:
             return self._snapshot_locked(now)
 
     def snapshot(self, *, now: datetime | None = None) -> dict[str, Any]:
+        """Return the current runtime counters and derived lag values."""
         with self._lock:
             return self._snapshot_locked(now)
 
