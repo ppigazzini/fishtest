@@ -386,7 +386,9 @@ class TypesenseFinishedRunsService:
 
     def status_snapshot(self) -> dict[str, Any]:
         """Return operational counters and current sync lag."""
-        return self._runtime.snapshot()
+        snapshot = self._runtime.snapshot()
+        snapshot["shadow_compare_ready"] = self._shadow_compare_ready()
+        return snapshot
 
     def get_finished_runs_tab_counts(self) -> dict[str, int]:
         """Return additive counts for the `/tests/finished` navigation tabs."""

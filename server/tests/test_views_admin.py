@@ -356,6 +356,7 @@ class TestAdminViews(UiUserTestCase):
             "fallback_to_mongo": True,
             "sync_interval_seconds": 30,
             "reindex_interval_seconds": 0,
+            "last_indexed_through": 1716914390.0,
             "last_sync_completed_at": 1716914400.0,
             "last_reindex_completed_at": 1716914460.0,
             "last_fallback_at": 1716914520.0,
@@ -377,9 +378,11 @@ class TestAdminViews(UiUserTestCase):
             "collection_name": "finished_runs_20260528164000",
             "enabled": False,
             "shadow_reads_enabled": True,
+            "shadow_compare_ready": False,
             "fallback_to_mongo": True,
             "sync_interval_seconds": 45,
             "reindex_interval_seconds": 3600,
+            "last_indexed_through": 1716914396.0,
             "last_sync_completed_at": 1716914400.0,
             "last_reindex_completed_at": None,
             "last_fallback_at": None,
@@ -418,6 +421,7 @@ class TestAdminViews(UiUserTestCase):
             self.assertIn("actions_20260528164000", full_response.text)
             self.assertIn("finished_runs_20260528164000", full_response.text)
             self.assertIn("10.5s", full_response.text)
+            self.assertIn("2024-05-28 16:39:50 UTC", full_response.text)
             self.assertIn("actions backend timeout", full_response.text)
 
             fragment_response = self.client.get("/typesense_status/server")
@@ -426,6 +430,8 @@ class TestAdminViews(UiUserTestCase):
             self.assertIn('id="typesense_status_table"', fragment_response.text)
             self.assertIn("Finished runs", fragment_response.text)
             self.assertIn("Disabled", fragment_response.text)
+            self.assertIn("Backfill in progress", fragment_response.text)
+            self.assertIn("Indexed through:", fragment_response.text)
             self.assertIn("45s", fragment_response.text)
             self.assertIn("3600s", fragment_response.text)
         finally:

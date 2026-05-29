@@ -1533,6 +1533,12 @@ def _build_typesense_status_row(
     live = dict(snapshot or {})
     alias_value = str(live.get("alias") or service_config["alias"])
     collection_name = str(live.get("collection_name") or "") or "Not initialized"
+    shadow_compare_ready = live.get("shadow_compare_ready")
+    shadow_compare_status_label = ""
+    if isinstance(shadow_compare_ready, bool):
+        shadow_compare_status_label = (
+            "Ready" if shadow_compare_ready else "Backfill in progress"
+        )
     return {
         "label": service_config["label"],
         "route": str(live.get("route") or service_config["route"]),
@@ -1548,6 +1554,9 @@ def _build_typesense_status_row(
         "collection_name": collection_name,
         "indexed_lag_label": _typesense_status_lag_label(
             live.get("indexed_lag_seconds"),
+        ),
+        "last_indexed_through_label": _typesense_status_timestamp_label(
+            live.get("last_indexed_through"),
         ),
         "last_sync_completed_at_label": _typesense_status_timestamp_label(
             live.get("last_sync_completed_at"),
@@ -1588,6 +1597,7 @@ def _build_typesense_status_row(
         "result_mismatch_count": _typesense_status_count(
             live.get("result_mismatch_count"),
         ),
+        "shadow_compare_status_label": shadow_compare_status_label,
         "last_error_label": str(live.get("last_error") or "None"),
     }
 

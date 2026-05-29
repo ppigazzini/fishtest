@@ -23,6 +23,9 @@
           <div><strong>Configured:</strong> {{ service.configured_label }}</div>
           <div><strong>Serve:</strong> {{ service.enabled_label }}</div>
           <div><strong>Shadow reads:</strong> {{ service.shadow_reads_label }}</div>
+          {% if service.shadow_compare_status_label %}
+            <div><strong>Shadow compare:</strong> {{ service.shadow_compare_status_label }}</div>
+          {% endif %}
           <div><strong>Fallback:</strong> {{ service.fallback_to_mongo_label }}</div>
         </td>
         <td>
@@ -31,6 +34,7 @@
         </td>
         <td>
           <div><strong>Lag:</strong> {{ service.indexed_lag_label }}</div>
+          <div><strong>Indexed through:</strong> {{ service.last_indexed_through_label }}</div>
           <div><strong>Last sync:</strong> {{ service.last_sync_completed_at_label }}</div>
           <div><strong>Last reindex:</strong> {{ service.last_reindex_completed_at_label }}</div>
           <div><strong>Sync interval:</strong> {{ service.sync_interval_label }}</div>
