@@ -524,7 +524,6 @@ def build_actions_search_params(  # noqa: PLR0913
         "drop_tokens_threshold": 0,
         "typo_tokens_threshold": 0,
         "split_join_tokens": "off",
-        "exhaustive_search": "true",
     }
     if filters:
         params["filter_by"] = filters
@@ -561,7 +560,6 @@ def build_action_facet_params(
         "drop_tokens_threshold": 0,
         "typo_tokens_threshold": 0,
         "split_join_tokens": "off",
-        "exhaustive_search": "true",
     }
     if filters:
         params["filter_by"] = filters

@@ -13,6 +13,7 @@ from fishtest.typesense_actions import (
     action_facet_counts_from_payload,
     build_action_facet_params,
     build_actions_filter_by,
+    build_actions_search_params,
     mongo_action_to_typesense_document,
 )
 from fishtest.typesense_client import TypesenseUnavailableError
@@ -185,6 +186,13 @@ class TypesenseActionsServiceTests(unittest.TestCase):
         self.assertEqual(
             client.search_calls[0][1]["sort_by"], "time:desc,_text_match:desc"
         )
+        self.assertNotIn("exhaustive_search", client.search_calls[0][1])
+
+    def test_build_actions_search_params_does_not_force_exhaustive_search(self):
+        params = build_actions_search_params(text="branch", limit=25, offset=0)
+
+        self.assertEqual(params["q"], "branch")
+        self.assertNotIn("exhaustive_search", params)
 
     def test_build_action_facet_params_uses_raw_action_facets(self):
         params = build_action_facet_params(
@@ -198,6 +206,7 @@ class TypesenseActionsServiceTests(unittest.TestCase):
         self.assertEqual(params["facet_strategy"], "exhaustive")
         self.assertEqual(params["per_page"], 0)
         self.assertEqual(params["q"], '"branch search"')
+        self.assertNotIn("exhaustive_search", params)
         self.assertIn("username:=[`alice`, `bob`]", params["filter_by"])
         self.assertIn("time:<=42.0", params["filter_by"])
         self.assertIn("run_id:=`64e74776a170cb1f26fa3930`", params["filter_by"])
