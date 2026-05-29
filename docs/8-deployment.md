@@ -366,6 +366,8 @@ upstream backend_8003 {
 
 map $uri $backends {
     /tests                                 backend_8001;
+    /typesense_status                      backend_8000;
+    /typesense_status/server               backend_8000;
     ~^/api/(actions|active_runs|calc_elo)  backend_8002;
     ~^/api/(nn|pgn|run_pgns)/              backend_8002;
     ~^/api/upload_pgn                      backend_8003;
