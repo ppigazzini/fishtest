@@ -106,21 +106,21 @@ class _RunsCollectionStub:
     def find(self, query, projection=None):
         docs = list(self._docs)
         if "$or" in query:
-            last_updated_clause = _sort_last_updated_value(
-                query["$or"][0]["last_updated"]["$gt"]
-            )
+            last_updated_clause = query["$or"][0]["last_updated"]["$gt"]
             object_id_clause = query["$or"][1]["_id"]["$gt"]
-            equal_last_updated_clause = _sort_last_updated_value(
-                query["$or"][1]["last_updated"]
-            )
+            equal_last_updated_clause = query["$or"][1]["last_updated"]
             docs = [
                 doc
                 for doc in docs
-                if _sort_last_updated_value(doc.get("last_updated"))
-                > last_updated_clause
+                if _matches_mongo_last_updated_gt(
+                    doc.get("last_updated"),
+                    last_updated_clause,
+                )
                 or (
-                    _sort_last_updated_value(doc.get("last_updated"))
-                    == equal_last_updated_clause
+                    _matches_mongo_last_updated_eq(
+                        doc.get("last_updated"),
+                        equal_last_updated_clause,
+                    )
                     and doc["_id"] > object_id_clause
                 )
             ]
@@ -154,6 +154,22 @@ def _sort_last_updated_value(value):
     if isinstance(value, int | float):
         return float(value)
     return 0.0
+
+
+def _matches_mongo_last_updated_gt(doc_value, clause_value):
+    if isinstance(doc_value, datetime) != isinstance(clause_value, datetime):
+        return False
+    if isinstance(doc_value, int | float) != isinstance(clause_value, int | float):
+        return False
+    return _sort_last_updated_value(doc_value) > _sort_last_updated_value(clause_value)
+
+
+def _matches_mongo_last_updated_eq(doc_value, clause_value):
+    if isinstance(doc_value, datetime) != isinstance(clause_value, datetime):
+        return False
+    if isinstance(doc_value, int | float) != isinstance(clause_value, int | float):
+        return False
+    return _sort_last_updated_value(doc_value) == _sort_last_updated_value(clause_value)
 
 
 class TypesenseFinishedRunsServiceTests(unittest.TestCase):
@@ -440,6 +456,66 @@ class TypesenseFinishedRunsServiceTests(unittest.TestCase):
             docs[-1]["last_updated"],
         )
 
+    def test_backfill_finished_runs_imports_all_batches(self):
+        now = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
+        docs = [
+            {
+                "_id": ObjectId("64e74776a170cb1f26fa3930"),
+                "args": {"username": "alice", "info": "first"},
+                "finished": True,
+                "deleted": False,
+                "last_updated": now,
+            },
+            {
+                "_id": ObjectId("64e74776a170cb1f26fa3931"),
+                "args": {"username": "bob", "info": "second"},
+                "finished": True,
+                "deleted": False,
+                "last_updated": now.replace(second=1),
+            },
+            {
+                "_id": ObjectId("64e74776a170cb1f26fa3932"),
+                "args": {"username": "carol", "info": "third"},
+                "finished": True,
+                "deleted": False,
+                "last_updated": now.replace(second=2),
+            },
+        ]
+        kvstore = {}
+        client = _TypesenseClientStub()
+        service = TypesenseFinishedRunsService(
+            client=client,
+            rundb=SimpleNamespace(
+                runs=_RunsCollectionStub(docs),
+                ltc_lower_bound=20.0,
+            ),
+            kvstore=kvstore,
+            alias="finished_runs_current",
+            enabled=False,
+            shadow_reads_enabled=True,
+            fallback_to_mongo=True,
+            sync_batch_size=2,
+            sync_interval_seconds=30,
+            reindex_interval_seconds=0,
+        )
+
+        imported = service.backfill_finished_runs()
+
+        self.assertEqual(imported, 3)
+        self.assertEqual(len(client.import_calls), 2)
+        self.assertEqual(
+            [document["id"] for document in client.import_calls[0][1]],
+            [str(docs[0]["_id"]), str(docs[1]["_id"])],
+        )
+        self.assertEqual(
+            [document["id"] for document in client.import_calls[1][1]],
+            [str(docs[2]["_id"])],
+        )
+        self.assertEqual(
+            kvstore["typesense.finished_runs.sync_state"]["last_updated"],
+            docs[-1]["last_updated"],
+        )
+
     def test_mongo_finished_run_to_typesense_document_keeps_nested_args(self):
         run = {
             "_id": ObjectId("64e74776a170cb1f26fa3930"),
@@ -459,6 +535,33 @@ class TypesenseFinishedRunsServiceTests(unittest.TestCase):
         self.assertEqual(document["args"]["username"], "approver")
         self.assertEqual(document["args"]["info"], "LTC branch search")
         self.assertEqual(document["tc_base"], 60.0)
+
+    def test_mongo_finished_run_to_typesense_document_preserves_millisecond_sorting(
+        self,
+    ):
+        run = {
+            "_id": ObjectId("64e74776a170cb1f26fa3930"),
+            "args": {
+                "username": "approver",
+                "info": "LTC branch search",
+            },
+            "finished": True,
+            "deleted": False,
+            "last_updated": datetime(
+                2026,
+                5,
+                28,
+                12,
+                0,
+                0,
+                987000,
+                tzinfo=UTC,
+            ),
+        }
+
+        document = mongo_finished_run_to_typesense_document(run)
+
+        self.assertEqual(document["last_updated"], 1779969600987)
 
     def test_register_scheduler_adds_backfill_and_polling_tasks_once(self):
         client = _TypesenseClientStub()

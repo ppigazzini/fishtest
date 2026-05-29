@@ -551,7 +551,9 @@ def mongo_finished_run_to_typesense_document(run: dict[str, Any]) -> dict[str, A
     args = dict(run.get("args") or {})
     document: dict[str, Any] = {
         "id": str(run.get("_id") or ""),
-        "last_updated": int(_finished_run_last_updated_sort_value(run)),
+        "last_updated": _finished_run_last_updated_index_value(
+            run.get("last_updated"),
+        ),
         "args": {
             "username": str(args.get("username") or ""),
             "info": str(args.get("info") or ""),
@@ -699,6 +701,14 @@ def _finished_run_last_updated_timestamp(value: datetime | None) -> float | None
     if isinstance(value, datetime):
         return value.timestamp()
     return None
+
+
+def _finished_run_last_updated_index_value(value: object) -> int:
+    if isinstance(value, datetime):
+        return int(value.timestamp() * 1000)
+    if isinstance(value, int | float):
+        return int(float(value) * 1000)
+    return 0
 
 
 def _quote_typesense_value(value: str) -> str:
