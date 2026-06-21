@@ -239,7 +239,9 @@ class SpsaWorkflowTests(unittest.TestCase):
         self.assertEqual(payload["chart_rows"][-1]["values"], [12.5])
         self.assertEqual(payload["chart_rows"][-1]["c_values"], [live_c])
 
-    def test_build_spsa_chart_payload_ignores_legacy_c_only_history_rows(self):
+    def test_build_spsa_chart_payload_recovers_legacy_c_only_history_rows(self):
+        # An un-migrated run whose c values are invertible renders its full
+        # history at the recovered iterations instead of dropping the middle.
         gamma = 0.101
         base_c = 1.6
         sample_iter_1 = 20
@@ -271,12 +273,16 @@ class SpsaWorkflowTests(unittest.TestCase):
             ],
         }
 
-        payload = build_spsa_chart_payload(spsa)
+        rows = build_spsa_chart_payload(spsa)["chart_rows"]
 
-        self.assertEqual(
-            payload["chart_rows"],
-            [{"iter_ratio": 0.0, "values": [10.0]}],
-        )
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(rows[0], {"iter_ratio": 0.0, "values": [10.0]})
+        self.assertAlmostEqual(rows[1]["iter_ratio"], sample_iter_1 / 250)
+        self.assertEqual(rows[1]["values"], [11.5])
+        self.assertAlmostEqual(rows[2]["iter_ratio"], sample_iter_2 / 250)
+        self.assertEqual(rows[2]["values"], [12.0])
+        self.assertAlmostEqual(rows[3]["iter_ratio"], 201 / 250)
+        self.assertEqual(rows[3]["values"], [12.5])
 
     def test_build_spsa_chart_payload_accepts_estimated_float_iter_positions(self):
         spsa = {
@@ -312,6 +318,45 @@ class SpsaWorkflowTests(unittest.TestCase):
             payload["chart_rows"][1]["c_values"][0],
             1.6 / (3.5**0.101),
         )
+
+    def test_build_spsa_chart_payload_trusts_small_explicit_iters(self):
+        # Short run: the stored iters 1, 2, 3 sit within one step of synthetic
+        # master spacing. They are genuine migrated checkpoints and must be
+        # plotted at their stored positions, not discarded for even spacing.
+        spsa = {
+            "iter": 3,
+            "num_iter": 6,
+            "A": 4,
+            "alpha": 0.602,
+            "gamma": 0.101,
+            "params": [
+                {
+                    "name": "ParamA",
+                    "theta": 12.5,
+                    "start": 10,
+                    "min": 0,
+                    "max": 20,
+                    "c": 1.6,
+                    "c_end": 0.1,
+                    "a": 0.2,
+                    "r_end": 1.0e-03,
+                },
+            ],
+            "param_history": [
+                [{"theta": 11.0, "iter": 1}],
+                [{"theta": 12.0, "iter": 2}],
+                [{"theta": 12.3, "iter": 3}],
+            ],
+        }
+
+        rows = build_spsa_chart_payload(spsa)["chart_rows"]
+
+        self.assertAlmostEqual(rows[1]["iter_ratio"], 1 / 6)
+        self.assertAlmostEqual(rows[2]["iter_ratio"], 2 / 6)
+        self.assertAlmostEqual(rows[3]["iter_ratio"], 3 / 6)
+        self.assertEqual(rows[1]["values"], [11.0])
+        self.assertEqual(rows[2]["values"], [12.0])
+        self.assertEqual(rows[3]["values"], [12.3])
 
     def test_build_spsa_chart_payload_drops_explicit_zero_iter_history_rows(self):
         spsa = {
@@ -421,7 +466,11 @@ class SpsaWorkflowTests(unittest.TestCase):
             payload["chart_rows"][2]["c_values"][0],
         )
 
-    def test_build_spsa_chart_payload_ignores_legacy_history_rows_without_iter(self):
+    def test_build_spsa_chart_payload_recovers_legacy_rows_and_drops_unrecoverable(
+        self,
+    ):
+        # The first sample has no usable signal (c is None, no R) and cannot be
+        # placed, so it is dropped; the invertible second sample still renders.
         spsa = {
             "iter": 20,
             "num_iter": 250,
@@ -447,12 +496,14 @@ class SpsaWorkflowTests(unittest.TestCase):
             ],
         }
 
-        payload = build_spsa_chart_payload(spsa)
+        rows = build_spsa_chart_payload(spsa)["chart_rows"]
 
-        self.assertEqual(
-            payload["chart_rows"],
-            [{"iter_ratio": 0.0, "values": [10.0]}],
-        )
+        # The unrecoverable theta=11.0 sample is not placed anywhere.
+        self.assertNotIn([11.0], [row.get("values") for row in rows])
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[0], {"iter_ratio": 0.0, "values": [10.0]})
+        self.assertAlmostEqual(rows[1]["iter_ratio"], 20 / 250)
+        self.assertEqual(rows[1]["values"], [12.0])
 
     def test_build_spsa_chart_payload_ignores_constant_c_history_rows_without_iter(
         self,
@@ -524,9 +575,11 @@ class SpsaWorkflowTests(unittest.TestCase):
             [{"iter_ratio": 0.0, "values": [10.0]}],
         )
 
-    def test_build_spsa_chart_payload_ignores_legacy_r_history_rows_without_iter(
+    def test_build_spsa_chart_payload_recovers_legacy_r_history_rows(
         self,
     ):
+        # gamma is 0 so c carries no iteration information, but the varying R
+        # values are invertible and the history renders at the recovered iters.
         base_c = 1.6
         base_a = 0.2
         A = 1.0
@@ -570,12 +623,14 @@ class SpsaWorkflowTests(unittest.TestCase):
             ],
         }
 
-        payload = build_spsa_chart_payload(spsa)
+        rows = build_spsa_chart_payload(spsa)["chart_rows"]
 
-        self.assertEqual(
-            payload["chart_rows"],
-            [{"iter_ratio": 0.0, "values": [10.0]}],
-        )
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(rows[0], {"iter_ratio": 0.0, "values": [10.0]})
+        self.assertAlmostEqual(rows[1]["iter_ratio"], sample_iter_1 / 250)
+        self.assertEqual(rows[1]["values"], [11.0])
+        self.assertAlmostEqual(rows[2]["iter_ratio"], sample_iter_2 / 250)
+        self.assertEqual(rows[2]["values"], [12.0])
 
     def test_build_spsa_chart_payload_ignores_non_list_history_samples(self):
         spsa = {

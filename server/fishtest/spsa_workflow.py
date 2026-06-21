@@ -502,7 +502,7 @@ def _build_spsa_live_point(
     return live_point
 
 
-def _build_legacy_chart_history_iters(
+def _recover_legacy_history_iters(
     params: Sequence[Mapping[str, Any]],
     chart_history: list[list[dict[str, float | None]]],
     *,
@@ -510,15 +510,11 @@ def _build_legacy_chart_history_iters(
     alpha: float | None,
     gamma: float,
     iter_value: float,
-    num_iter: float,
-    has_live_point: bool,
-) -> list[float]:
-    fallback_history_iters = _build_master_fallback_history_iters(
-        len(chart_history),
-        iter_value=iter_value,
-        num_iter=num_iter,
-        has_live_point=has_live_point,
-    )
+    fallback_history_iters: Sequence[float],
+) -> list[float | None]:
+    # Per-row recovery from the genuine c/R signals. A row whose iteration cannot
+    # be independently recovered yields None; callers either drop it (runtime) or
+    # interpolate it from neighbors (migration reference).
     constant_c = _chart_history_field_is_constant(chart_history, field_name="c")
     constant_r = _chart_history_field_is_constant(chart_history, field_name="R")
     recovered_history_iters: list[float | None] = []
@@ -567,98 +563,39 @@ def _build_legacy_chart_history_iters(
         else:
             sample_iter = max(sample_iter, 0.0)
         recovered_history_iters.append(sample_iter)
+    return recovered_history_iters
+
+
+def _build_legacy_chart_history_iters(
+    params: Sequence[Mapping[str, Any]],
+    chart_history: list[list[dict[str, float | None]]],
+    *,
+    A: float | None,
+    alpha: float | None,
+    gamma: float,
+    iter_value: float,
+    num_iter: float,
+    has_live_point: bool,
+) -> list[float]:
+    fallback_history_iters = _build_master_fallback_history_iters(
+        len(chart_history),
+        iter_value=iter_value,
+        num_iter=num_iter,
+        has_live_point=has_live_point,
+    )
+    recovered_history_iters = _recover_legacy_history_iters(
+        params,
+        chart_history,
+        A=A,
+        alpha=alpha,
+        gamma=gamma,
+        iter_value=iter_value,
+        fallback_history_iters=fallback_history_iters,
+    )
     return _interpolate_legacy_history_iters(
         recovered_history_iters,
         fallback_history_iters,
     )
-
-
-def _chart_history_uses_stored_c(
-    chart_history: Sequence[tuple[float, list[dict[str, float | None]]]],
-    *,
-    gamma: float,
-) -> bool:
-    if not isfinite(gamma) or gamma <= 0:
-        return True
-
-    if not any(
-        sample_param.get("c") is not None
-        for _, sample in chart_history
-        for sample_param in sample
-    ):
-        return True
-
-    return not _chart_history_field_is_constant(
-        [sample for _, sample in chart_history],
-        field_name="c",
-    )
-
-
-def _history_uses_legacy_sample_signals(
-    chart_history: Sequence[list[dict[str, float | None]]],
-) -> bool:
-    return any(
-        sample_param.get("c") is not None or sample_param.get("R") is not None
-        for sample in chart_history
-        for sample_param in sample
-    )
-
-
-def _explicit_iters_are_rounded_master_fallback(
-    explicit_history: Sequence[tuple[float, list[dict[str, float | None]]]],
-    fallback_history_iters: Sequence[float],
-) -> bool:
-    if len(explicit_history) != len(fallback_history_iters):
-        return False
-
-    return all(
-        abs(sample_iter - fallback_iter) <= 1.0
-        for (sample_iter, _), fallback_iter in zip(
-            explicit_history,
-            fallback_history_iters,
-            strict=False,
-        )
-    )
-
-
-def _resolve_iter_chart_history_samples(
-    param_history: object,
-    *,
-    iter_value: float,
-) -> list[tuple[float, list[dict[str, float | None]]]]:
-    if not isinstance(param_history, list):
-        return []
-
-    chart_history: list[tuple[float, list[dict[str, float | None]]]] = []
-    for sample in param_history:
-        normalized_sample = _normalize_spsa_history_row(sample)
-        if normalized_sample is None:
-            continue
-
-        normalized_params, sample_iters = normalized_sample
-        if not sample_iters:
-            continue
-
-        sample_iters.sort()
-        sample_iter = sample_iters[len(sample_iters) // 2]
-        if iter_value > 0:
-            sample_iter = min(sample_iter, iter_value)
-        chart_history.append(
-            (
-                sample_iter,
-                [
-                    {
-                        "theta": sample_param.get("theta"),
-                        "c": None,
-                        "R": None,
-                    }
-                    for sample_param in normalized_params
-                ],
-            )
-        )
-
-    chart_history.sort(key=lambda sample: sample[0])
-    return chart_history
 
 
 def resolve_spsa_history_samples(
@@ -670,6 +607,7 @@ def resolve_spsa_history_samples(
     gamma: float,
     num_iter: float,
     iter_value: float,
+    drop_unrecoverable: bool = False,
 ) -> list[tuple[float, list[dict[str, float | None]]]]:
     if not isinstance(param_history, list):
         return []
@@ -697,34 +635,10 @@ def resolve_spsa_history_samples(
         return []
 
     if not has_legacy_history and len(explicit_history) == len(normalized_history):
-        if not _history_uses_legacy_sample_signals(normalized_history):
-            live_point = _build_spsa_live_point(
-                params,
-                gamma=gamma if gamma is not None else 0.0,
-                iter_value=iter_value,
-            )
-            has_live_point = not _chart_sample_matches(
-                normalized_history[-1],
-                live_point,
-            )
-            fallback_history_iters = _build_master_fallback_history_iters(
-                len(normalized_history),
-                iter_value=iter_value,
-                num_iter=num_iter,
-                has_live_point=has_live_point,
-            )
-            if _explicit_iters_are_rounded_master_fallback(
-                explicit_history,
-                fallback_history_iters,
-            ):
-                return list(
-                    zip(
-                        fallback_history_iters,
-                        normalized_history,
-                        strict=False,
-                    )
-                )
-
+        # Every row carries a stored iteration. The migration certifies stored
+        # iterations as genuine recovered checkpoints (ISSUE-57 M2 refuses any
+        # fallback-derived or non-monotonic conversion), so trust them directly
+        # instead of second-guessing them against synthetic master spacing.
         explicit_history.sort(key=lambda sample: sample[0])
         return explicit_history
 
@@ -734,6 +648,38 @@ def resolve_spsa_history_samples(
         iter_value=iter_value,
     )
     has_live_point = not _chart_sample_matches(normalized_history[-1], live_point)
+    fallback_history_iters = _build_master_fallback_history_iters(
+        len(normalized_history),
+        iter_value=iter_value,
+        num_iter=num_iter,
+        has_live_point=has_live_point,
+    )
+
+    if drop_unrecoverable:
+        # Runtime rendering: place a legacy row only where its iteration is
+        # genuinely recovered from c or R, and drop the rest instead of
+        # fabricating a synthetic position. An un-migrated invertible run renders
+        # in full; a constant-signal run that the migration cannot convert keeps
+        # an empty middle rather than showing a fabricated chart.
+        recovered_history_iters = _recover_legacy_history_iters(
+            params,
+            normalized_history,
+            A=A,
+            alpha=alpha,
+            gamma=gamma if gamma is not None else 0.0,
+            iter_value=iter_value,
+            fallback_history_iters=fallback_history_iters,
+        )
+        rendered = [
+            (sample_iter, sample)
+            for sample_iter, sample in zip(
+                recovered_history_iters, normalized_history, strict=False
+            )
+            if sample_iter is not None
+        ]
+        rendered.sort(key=lambda sample: sample[0])
+        return rendered
+
     history_iters = _build_legacy_chart_history_iters(
         params,
         normalized_history,
@@ -1191,6 +1137,8 @@ def build_spsa_chart_payload(spsa: Mapping[str, Any] | None) -> dict[str, Any]:
     iter_value = _finite_float(spsa.get("iter"), 0.0)
     gamma = _finite_float(spsa.get("gamma"), 0.0)
     num_iter = _finite_float(spsa.get("num_iter"), 0.0)
+    A = _finite_float(spsa.get("A"))
+    alpha = _finite_float(spsa.get("alpha"))
 
     params: list[Mapping[str, Any]] = []
     param_names: list[str] = []
@@ -1205,9 +1153,18 @@ def build_spsa_chart_payload(spsa: Mapping[str, Any] | None) -> dict[str, Any]:
         iter_value=iter_value,
     )
 
-    chart_history = _resolve_iter_chart_history_samples(
+    # Trust stored iterations on the fast path; recover legacy {theta, R, c}
+    # rows so an un-migrated run still renders its full history instead of
+    # silently dropping the middle of the chart.
+    chart_history = resolve_spsa_history_samples(
         spsa.get("param_history"),
-        iter_value=iter_value,
+        params=params,
+        A=A,
+        alpha=alpha,
+        gamma=gamma if gamma is not None else 0.0,
+        num_iter=num_iter if num_iter is not None else 0.0,
+        iter_value=iter_value if iter_value is not None else 0.0,
+        drop_unrecoverable=True,
     )
     if chart_history and _chart_sample_matches(
         _build_effective_chart_sample(
