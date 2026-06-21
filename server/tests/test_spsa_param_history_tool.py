@@ -612,7 +612,7 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         self.assertEqual(report.r_check.checked_values, 1)
         self.assertEqual(report.r_check.mismatched_values, 0)
 
-    def test_build_history_conversion_report_accepts_chart_only_constant_c_and_r_history(
+    def test_build_history_conversion_report_flags_unrecoverable_constant_c_and_r_history(
         self,
     ):
         doc = {
@@ -661,10 +661,19 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
             chart_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_CHART_TOLERANCE,
         )
 
+        # Constant c and constant R carry no information about the sample
+        # iterations, so the legacy recovery can only fall back to synthetic
+        # spacing. The chart round-trip now compares the legacy-derived
+        # reference against the stored integer iters through the real runtime
+        # reader, so it refuses to certify the unrecoverable conversion instead
+        # of passing a circular self-comparison.
         self.assertEqual(report.c_check.checked_values, 0)
         self.assertEqual(report.r_check.checked_values, 0)
-        self.assertEqual(report.chart_check.mismatched_rows, 0)
-        self.assertEqual(report.errors, [])
+        self.assertGreater(report.chart_check.mismatched_rows, 0)
+        self.assertTrue(
+            any("chart" in error for error in report.errors),
+            report.errors,
+        )
 
     def test_main_inspect_iter_window_reports_best_nearby_iter(self):
         doc = {
@@ -1026,6 +1035,56 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         self.assertEqual(check.mismatched_rows, 0)
         self.assertIsNone(check.first_mismatch)
 
+    def test_inspect_chart_roundtrip_rejects_wrong_stored_iter(self):
+        # The round-trip is non-circular: the reference comes from the legacy c
+        # values, the converted chart from the stored iters through the runtime
+        # reader. A stored iter that does not reproduce the legacy-derived chart
+        # must be rejected, even though c is invertible. The correct iters for
+        # this history are 100 and 200.
+        gamma = 0.101
+        base_c = 1.6
+        doc = {
+            "start_time": datetime(2025, 4, 20, tzinfo=UTC),
+            "args": {
+                "num_games": 800,
+                "spsa": {
+                    "iter": 400,
+                    "num_iter": 400,
+                    "gamma": gamma,
+                    "params": [{"theta": 12.5, "start": 10, "c": base_c}],
+                    "param_history": [
+                        [{"theta": 11.0, "c": base_c / (101**gamma)}],
+                        [{"theta": 12.0, "c": base_c / (201**gamma)}],
+                    ],
+                },
+            },
+        }
+
+        correct_history = [
+            [{"theta": 11.0, "iter": 100}],
+            [{"theta": 12.0, "iter": 200}],
+        ]
+        wrong_history = [
+            [{"theta": 11.0, "iter": 100}],
+            [{"theta": 12.0, "iter": 250}],
+        ]
+
+        correct_check = SPSA_PARAM_HISTORY_TOOL._inspect_chart_roundtrip(
+            doc,
+            correct_history,
+            tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_CHART_TOLERANCE,
+        )
+        self.assertEqual(correct_check.mismatched_rows, 0)
+        self.assertIsNone(correct_check.first_mismatch)
+
+        wrong_check = SPSA_PARAM_HISTORY_TOOL._inspect_chart_roundtrip(
+            doc,
+            wrong_history,
+            tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_CHART_TOLERANCE,
+        )
+        self.assertGreater(wrong_check.mismatched_rows, 0)
+        self.assertIsNotNone(wrong_check.first_mismatch)
+
     def test_inspect_chart_roundtrip_accepts_one_step_drift_and_terminal_dedupe(
         self,
     ):
@@ -1083,12 +1142,12 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         with (
             patch.object(
                 SPSA_PARAM_HISTORY_TOOL,
-                "build_spsa_chart_payload",
+                "_build_legacy_reference_chart_payload",
                 return_value=original_payload,
             ),
             patch.object(
                 SPSA_PARAM_HISTORY_TOOL,
-                "_build_chart_payload_for_history",
+                "_render_iter_history_chart_payload",
                 return_value=converted_payload,
             ),
         ):

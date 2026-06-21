@@ -953,81 +953,88 @@ def _normalize_chart_rows_for_comparison(
     return normalized_rows
 
 
-def _build_chart_payload_for_history(
+def _render_iter_history_chart_payload(
     doc: Document,
-    history: list[list[dict[str, Any]]],
+    iter_history: list[list[dict[str, Any]]],
     *,
     tolerance: float,
 ) -> dict[str, Any]:
+    # Render a {theta, iter} history through the real runtime chart reader
+    # (build_spsa_chart_payload), so the comparison reflects exactly what the
+    # UI computes from the stored iteration. A non-positive iter is nudged to a
+    # tiny placeholder because the runtime reader drops rows with iter <= 0;
+    # stored iters are always positive, so this only matters for recovered
+    # reference iters that round down to zero.
     chart_doc = deepcopy(doc)
     args = chart_doc.get("args")
     if not isinstance(args, Mapping):
         raise ValueError("missing args mapping")
 
-    chart_args = dict(args)
     spsa = dict(_read_spsa(chart_doc))
-    spsa["param_history"] = history
-    chart_args["spsa"] = spsa
-    chart_doc["args"] = chart_args
-
-    iter_tolerance = max(tolerance, DEFAULT_ITER_TOLERANCE)
-    non_empty_samples = [sample for sample in history if sample]
-    if non_empty_samples and all(
-        _iter_sample_is_iter_only(sample) for sample in non_empty_samples
-    ):
-        resolved_iters = _resolve_history_sample_iters(
-            chart_doc,
-            list(history),
-            tolerance=iter_tolerance,
-        )
-    else:
-        resolved_iters = _resolve_history_sample_iters(
-            chart_doc,
-            list(history),
-            tolerance=iter_tolerance,
-        )
-        resolved_iters = _integerize_resolved_history_iters(
-            chart_doc,
-            resolved_iters,
-            tolerance=iter_tolerance,
-        )
+    placeholder_iter = max(tolerance, DEFAULT_ITER_TOLERANCE)
 
     normalized_history: list[list[dict[str, Any]]] = []
-    for sample_index, sample in enumerate(history, start=1):
+    for sample_index, sample in enumerate(iter_history, start=1):
         if not isinstance(sample, list):
             raise ValueError(f"history sample {sample_index} is not a list")
-        if not sample:
-            normalized_history.append([])
-            continue
 
-        sample_iter = resolved_iters[sample_index - 1]
-        if sample_iter is None:
-            raise ValueError(f"history sample {sample_index} did not resolve to iter")
-
-        normalized_history.append(
-            [
-                {
-                    "theta": dict(sample_param).get("theta"),
-                    "iter": sample_iter,
-                }
-                for sample_param in sample
-                if isinstance(sample_param, Mapping)
-            ]
-        )
-
-    placeholder_iter = max(tolerance, DEFAULT_ITER_TOLERANCE)
-    for sample in normalized_history:
-        if not sample:
-            continue
-        sample_iter = _as_finite_float(sample[0].get("iter"))
-        if sample_iter is None or sample_iter > 0:
-            continue
+        normalized_sample: list[dict[str, Any]] = []
         for sample_param in sample:
-            sample_param["iter"] = placeholder_iter
+            if not isinstance(sample_param, Mapping):
+                continue
+            sample_iter = _as_finite_float(sample_param.get("iter"))
+            if sample_iter is not None and sample_iter <= 0:
+                sample_iter = placeholder_iter
+            normalized_sample.append(
+                {"theta": dict(sample_param).get("theta"), "iter": sample_iter}
+            )
+        normalized_history.append(normalized_sample)
 
     spsa["param_history"] = normalized_history
     payload = build_spsa_chart_payload(spsa)
     return payload if isinstance(payload, dict) else {}
+
+
+def _build_legacy_reference_chart_payload(
+    doc: Document,
+    legacy_history: list[Any],
+    *,
+    tolerance: float,
+) -> dict[str, Any]:
+    # The reference chart is derived from the original legacy c/R signals
+    # through the legacy recovery path (resolve_spsa_history_samples), never
+    # from the stored iters. Comparing it against the converted chart (which
+    # reads the stored iters) makes the round-trip check non-circular: a stored
+    # iter that does not reproduce the legacy-derived chart now fails.
+    spsa = _read_spsa(doc)
+    params = _read_params(spsa)
+    gamma = _as_finite_float(spsa.get("gamma"))
+    A = _as_finite_float(spsa.get("A"))
+    alpha = _as_finite_float(spsa.get("alpha"))
+    iter_value = _as_finite_float(spsa.get("iter"))
+    num_iter = float(_read_num_iter_for_history(doc))
+
+    resolved = resolve_spsa_history_samples(
+        legacy_history,
+        params=params,
+        A=A,
+        alpha=alpha,
+        gamma=gamma if gamma is not None else 0.0,
+        num_iter=num_iter,
+        iter_value=iter_value if iter_value is not None else 0.0,
+    )
+    reference_history = [
+        [
+            {"theta": sample_param.get("theta"), "iter": sample_iter}
+            for sample_param in sample_params
+        ]
+        for sample_iter, sample_params in resolved
+    ]
+    return _render_iter_history_chart_payload(
+        doc,
+        reference_history,
+        tolerance=tolerance,
+    )
 
 
 def _inspect_chart_roundtrip(
@@ -1036,12 +1043,12 @@ def _inspect_chart_roundtrip(
     *,
     tolerance: float,
 ) -> ChartEquivalenceCheck:
-    original_payload = _build_chart_payload_for_history(
+    original_payload = _build_legacy_reference_chart_payload(
         doc,
         _read_param_history(doc),
         tolerance=tolerance,
     )
-    converted_payload = _build_chart_payload_for_history(
+    converted_payload = _render_iter_history_chart_payload(
         doc,
         new_history,
         tolerance=tolerance,
