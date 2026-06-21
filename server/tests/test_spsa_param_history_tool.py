@@ -13,6 +13,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from fishtest.spsa_workflow import build_spsa_worker_step
+
 MODULE_PATH = (
     Path(__file__).resolve().parents[1]
     / "utils"
@@ -162,6 +164,167 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         )
         self.assertIsNotNone(reason)
         self.assertIn("length changed", reason)
+
+    def test_migration_recovers_true_iters_from_genuine_worker_history(self):
+        # Forward-truth: build legacy {theta, R, c} rows with the production
+        # worker formula at known iterations, then assert the migration recovers
+        # exactly those iterations -- not a self-consistent but wrong answer.
+        spsa = {
+            "iter": 1000,
+            "num_iter": 1000,
+            "A": 5000,
+            "alpha": 0.602,
+            "gamma": 0.101,
+            "params": [
+                {
+                    "name": "ParamA",
+                    "theta": 12.0,
+                    "start": 10,
+                    "min": 0,
+                    "max": 20,
+                    "c": 1.6,
+                    "a": 0.2,
+                },
+            ],
+        }
+        param = spsa["params"][0]
+        true_iters = [100, 250, 600, 1000]
+        history = [
+            [
+                {
+                    "theta": 10.0 + sample_iter / 1000.0,
+                    "R": build_spsa_worker_step(
+                        spsa, param, iter_value=sample_iter, flip=1
+                    )["R"],
+                    "c": build_spsa_worker_step(
+                        spsa, param, iter_value=sample_iter, flip=1
+                    )["c"],
+                }
+            ]
+            for sample_iter in true_iters
+        ]
+        doc = {
+            "start_time": datetime(2025, 4, 20, tzinfo=UTC),
+            "args": {"num_games": 2000, "spsa": {**spsa, "param_history": history}},
+        }
+
+        report = SPSA_PARAM_HISTORY_TOOL._build_history_conversion_report(
+            doc,
+            iter_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_ITER_TOLERANCE,
+            c_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_C_TOLERANCE,
+            r_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_R_TOLERANCE,
+            chart_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_CHART_TOLERANCE,
+        )
+
+        self.assertEqual(report.errors, [])
+        self.assertEqual(report.recovery_errors, [])
+        recovered = [row[0]["iter"] for row in report.converted_history]
+        self.assertEqual(recovered, true_iters)
+
+    def test_conversion_is_idempotent_on_iter_only_history(self):
+        # Re-running the migration on an already-migrated history is a no-op:
+        # the stored iterations are read back unchanged and nothing is flagged.
+        iter_history = [
+            [{"theta": 11.0, "iter": 100}],
+            [{"theta": 12.0, "iter": 200}],
+        ]
+        doc = {
+            "start_time": datetime(2025, 4, 20, tzinfo=UTC),
+            "args": {
+                "num_games": 2000,
+                "spsa": {
+                    "iter": 200,
+                    "num_iter": 1000,
+                    "gamma": 0.101,
+                    "params": [{"theta": 12.0, "c": 1.6}],
+                    "param_history": iter_history,
+                },
+            },
+        }
+
+        report = SPSA_PARAM_HISTORY_TOOL._build_history_conversion_report(
+            doc,
+            iter_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_ITER_TOLERANCE,
+            c_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_C_TOLERANCE,
+            r_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_R_TOLERANCE,
+            chart_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_CHART_TOLERANCE,
+        )
+
+        self.assertEqual(report.errors, [])
+        self.assertEqual(report.recovery_errors, [])
+        self.assertEqual(report.converted_history, iter_history)
+
+    def test_orig_stage_round_trips_history_byte_equal(self):
+        # Rollback safety: the orig snapshot restores the original history
+        # byte-equal, and as an independent copy so staging cannot mutate the run.
+        original_history = [
+            [{"theta": 11.0, "R": 0.09, "c": 1.5}],
+            [{"theta": 12.0, "R": 0.08, "c": 1.4}],
+        ]
+        doc = {
+            "_id": "run-rollback",
+            "start_time": datetime(2025, 4, 20, tzinfo=UTC),
+            "args": {
+                "username": "tester",
+                "tc": "10+0.1",
+                "num_games": 500,
+                "spsa": {
+                    "iter": 200,
+                    "num_iter": 250,
+                    "gamma": 0.101,
+                    "params": [{"theta": 12.5, "c": 1.6}],
+                    "param_history": original_history,
+                },
+            },
+        }
+
+        result = SPSA_PARAM_HISTORY_TOOL._build_spsa_orig_stage(
+            doc,
+            source_collection="runs",
+        )
+        restored = SPSA_PARAM_HISTORY_TOOL._read_stage_history_for_apply(
+            result.stage_doc,
+            allow_validation_errors=False,
+        )
+
+        self.assertEqual(restored, original_history)
+        self.assertIsNot(restored, original_history)
+        self.assertIsNot(restored[0], original_history[0])
+
+    def test_build_history_conversion_report_flags_mixed_migrated_and_legacy_history(
+        self,
+    ):
+        # A partially migrated run (one iter-only row, one legacy row) cannot be
+        # converted faithfully: the iter-only row carries no c/R to recover, so
+        # the recovery gate refuses the run.
+        gamma = 0.101
+        base_c = 1.6
+        doc = {
+            "start_time": datetime(2025, 4, 20, tzinfo=UTC),
+            "args": {
+                "num_games": 500,
+                "spsa": {
+                    "iter": 200,
+                    "num_iter": 250,
+                    "gamma": gamma,
+                    "params": [{"theta": 12.5, "c": base_c}],
+                    "param_history": [
+                        [{"theta": 11.0, "iter": 50}],
+                        [{"theta": 12.0, "c": base_c / (101**gamma)}],
+                    ],
+                },
+            },
+        }
+
+        report = SPSA_PARAM_HISTORY_TOOL._build_history_conversion_report(
+            doc,
+            iter_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_ITER_TOLERANCE,
+            c_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_C_TOLERANCE,
+            r_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_R_TOLERANCE,
+            chart_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_CHART_TOLERANCE,
+        )
+
+        self.assertGreater(len(report.recovery_errors), 0)
 
     def test_history_field_is_constant_detects_constant_c_vectors(self):
         doc = {
