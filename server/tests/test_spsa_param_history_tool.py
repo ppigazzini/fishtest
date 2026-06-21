@@ -49,6 +49,29 @@ class _FakeFindOneCollection:
         return self._doc
 
 
+class _FakeDatabase:
+    def __getitem__(self, name):
+        del name
+        return object()
+
+
+class _FakeMongoClient:
+    def __getitem__(self, name):
+        del name
+        return _FakeDatabase()
+
+
+class _FakeClientContextFor:
+    def __init__(self, client):
+        self._client = client
+
+    def __enter__(self):
+        return self._client
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
 class SpsaParamHistoryToolTests(unittest.TestCase):
     def test_command_registry_keeps_staged_workflow_and_resample(self):
         self.assertEqual(
@@ -77,6 +100,44 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
             read_parser.parse_args([]).db,
             SPSA_PARAM_HISTORY_TOOL.DEFAULT_DB,
         )
+
+    def test_stage_new_scans_snapshot_with_unfiltered_query(self):
+        # stage-new reads the spsa_orig snapshot, whose docs carry no
+        # finished/deleted fields, so it must use the unfiltered stage query;
+        # stage-orig reads runs and must keep the finished/non-deleted filter.
+        captured: dict[str, object] = {}
+
+        def fake_find_runs(collection, query, *, projection=None, limit=None):
+            del collection, projection, limit
+            captured["query"] = query
+            return iter(())
+
+        def run(main):
+            with (
+                patch.object(
+                    SPSA_PARAM_HISTORY_TOOL,
+                    "_connect",
+                    return_value=_FakeClientContextFor(_FakeMongoClient()),
+                ),
+                patch.object(
+                    SPSA_PARAM_HISTORY_TOOL,
+                    "_runs_collection",
+                    return_value=object(),
+                ),
+                patch.object(
+                    SPSA_PARAM_HISTORY_TOOL,
+                    "_find_runs",
+                    side_effect=fake_find_runs,
+                ),
+                redirect_stdout(io.StringIO()),
+            ):
+                main(["--db", "fishtest"])
+
+        run(SPSA_PARAM_HISTORY_TOOL.main_stage_converted_history)
+        self.assertNotIn("finished", captured["query"])
+
+        run(SPSA_PARAM_HISTORY_TOOL.main_stage_original_history)
+        self.assertEqual(captured["query"].get("finished"), True)
 
     def test_runs_query_filters_finished_non_deleted_but_stage_query_does_not(self):
         args = SimpleNamespace(run_id=None)

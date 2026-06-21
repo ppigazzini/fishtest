@@ -3561,7 +3561,10 @@ def main_stage_converted_history(argv: Sequence[str] | None = None) -> int:
         help="Maximum absolute/relative chart payload error tolerated after conversion",
     )
     args = parser.parse_args(argv)
-    query = _build_spsa_query(args)
+    # stage-new reads the spsa_orig snapshot (already restricted to finished,
+    # non-deleted runs by stage-orig), so it must use the unfiltered stage query;
+    # the snapshot docs carry no finished/deleted fields.
+    query = _build_stage_query(args)
     action = f"stage converted SPSA history in {args.target_collection}"
     with _connect(args) as client:
         db = client[args.db]
