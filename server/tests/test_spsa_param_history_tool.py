@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import io
 import sys
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -59,6 +60,108 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
                 "resample-dense-histories",
             },
         )
+
+    def test_write_commands_require_explicit_db(self):
+        # A write-capable parser must not fall back to a baked-in database name.
+        write_parser = argparse.ArgumentParser()
+        SPSA_PARAM_HISTORY_TOOL._add_connection_args(write_parser, require_db=True)
+        with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
+            write_parser.parse_args([])
+        self.assertEqual(write_parser.parse_args(["--db", "fishtest"]).db, "fishtest")
+
+        read_parser = argparse.ArgumentParser()
+        SPSA_PARAM_HISTORY_TOOL._add_connection_args(read_parser)
+        self.assertEqual(
+            read_parser.parse_args([]).db,
+            SPSA_PARAM_HISTORY_TOOL.DEFAULT_DB,
+        )
+
+    def test_runs_query_filters_finished_non_deleted_but_stage_query_does_not(self):
+        args = SimpleNamespace(run_id=None)
+        self.assertEqual(
+            SPSA_PARAM_HISTORY_TOOL._build_spsa_query(args),
+            {
+                "args.spsa": {"$exists": True},
+                "finished": True,
+                "deleted": {"$ne": True},
+            },
+        )
+        self.assertEqual(
+            SPSA_PARAM_HISTORY_TOOL._build_stage_query(args),
+            {"args.spsa": {"$exists": True}},
+        )
+
+    def test_execute_bulk_write_fails_closed_on_partial_error(self):
+        class _BulkErrorCollection:
+            def bulk_write(self, operations, ordered=False):
+                del operations, ordered
+                raise SPSA_PARAM_HISTORY_TOOL.BulkWriteError(
+                    {"writeErrors": [{"errmsg": "duplicate key"}]}
+                )
+
+        operation = SPSA_PARAM_HISTORY_TOOL.UpdateOne({"_id": 1}, {"$set": {"x": 1}})
+        with self.assertRaises(RuntimeError) as raised:
+            SPSA_PARAM_HISTORY_TOOL._execute_bulk_write(
+                _BulkErrorCollection(), [operation]
+            )
+        self.assertIn("bulk write failed", str(raised.exception))
+        # No operations means no write is attempted.
+        self.assertEqual(
+            SPSA_PARAM_HISTORY_TOOL._execute_bulk_write(_BulkErrorCollection(), []),
+            0,
+        )
+
+    def test_stage_apply_drift_guard_detects_changed_target(self):
+        legacy_history = [
+            [{"theta": 11.0, "c": 1.5}],
+            [{"theta": 12.0, "c": 1.4}],
+        ]
+        target_doc = {
+            "_id": "run-1",
+            "finished": True,
+            "args": {"spsa": {"param_history": legacy_history}},
+        }
+        stage_doc = {
+            "_id": "run-1",
+            "stage": {
+                "kind": SPSA_PARAM_HISTORY_TOOL.DEFAULT_NEW_COLLECTION,
+                "source_history_shape": SPSA_PARAM_HISTORY_TOOL._history_shape(
+                    target_doc
+                ),
+                "source_history_len": len(legacy_history),
+            },
+        }
+
+        # Unchanged finished target with the staged snapshot shape: no drift.
+        self.assertIsNone(
+            SPSA_PARAM_HISTORY_TOOL._stage_apply_drift_reason(
+                _FakeFindOneCollection(target_doc), stage_doc
+            )
+        )
+        # Missing target.
+        self.assertIsNotNone(
+            SPSA_PARAM_HISTORY_TOOL._stage_apply_drift_reason(
+                _FakeFindOneCollection(None), stage_doc
+            )
+        )
+        # No longer finished.
+        unfinished = {**target_doc, "finished": False}
+        self.assertIsNotNone(
+            SPSA_PARAM_HISTORY_TOOL._stage_apply_drift_reason(
+                _FakeFindOneCollection(unfinished), stage_doc
+            )
+        )
+        # History changed since staging (length differs).
+        changed = {
+            "_id": "run-1",
+            "finished": True,
+            "args": {"spsa": {"param_history": legacy_history[:1]}},
+        }
+        reason = SPSA_PARAM_HISTORY_TOOL._stage_apply_drift_reason(
+            _FakeFindOneCollection(changed), stage_doc
+        )
+        self.assertIsNotNone(reason)
+        self.assertIn("length changed", reason)
 
     def test_history_field_is_constant_detects_constant_c_vectors(self):
         doc = {

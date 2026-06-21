@@ -32,6 +32,7 @@ from bson import ObjectId
 from bson.errors import InvalidId
 from pymongo import MongoClient, ReplaceOne, UpdateOne
 from pymongo.collection import Collection
+from pymongo.errors import BulkWriteError
 
 from fishtest.spsa_workflow import (
     build_spsa_chart_payload,
@@ -349,9 +350,20 @@ def _runs_collection(
     return client[args.db][args.collection]
 
 
-def _add_connection_args(parser: argparse.ArgumentParser) -> None:
+def _add_connection_args(
+    parser: argparse.ArgumentParser, *, require_db: bool = False
+) -> None:
     parser.add_argument("--uri", default=DEFAULT_URI, help="MongoDB connection URI")
-    parser.add_argument("--db", default=DEFAULT_DB, help="MongoDB database name")
+    if require_db:
+        # Write commands must name the database explicitly so a mutation cannot
+        # silently target the wrong database via a baked-in default.
+        parser.add_argument(
+            "--db",
+            required=True,
+            help="MongoDB database name (required for write operations)",
+        )
+    else:
+        parser.add_argument("--db", default=DEFAULT_DB, help="MongoDB database name")
     parser.add_argument(
         "--collection",
         default=DEFAULT_COLLECTION,
@@ -379,7 +391,7 @@ def _add_run_filter_arg(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_mutation_args(parser: argparse.ArgumentParser) -> None:
-    _add_connection_args(parser)
+    _add_connection_args(parser, require_db=True)
     _add_run_filter_arg(parser)
     _add_limit_arg(parser)
     parser.add_argument(
@@ -396,10 +408,48 @@ def _add_mutation_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _build_spsa_query(args: argparse.Namespace) -> Document:
+    # Runs query: restrict to finished, non-deleted SPSA runs. An in-progress run
+    # still appends history, so migrating it would race the worker; a deleted run
+    # must never be rewritten.
+    query: Document = {
+        "args.spsa": {"$exists": True},
+        "finished": True,
+        "deleted": {"$ne": True},
+    }
+    if getattr(args, "run_id", None) is not None:
+        query["_id"] = args.run_id
+    return query
+
+
+def _build_stage_query(args: argparse.Namespace) -> Document:
+    # Stage collections (spsa_orig / spsa_new) hold snapshot docs that have no
+    # finished/deleted fields, so apply scans them without those filters.
     query: Document = {"args.spsa": {"$exists": True}}
     if getattr(args, "run_id", None) is not None:
         query["_id"] = args.run_id
     return query
+
+
+def _execute_bulk_write(
+    collection: Collection[Document],
+    operations: list[Any],
+) -> int:
+    # Fail closed on partial failure: a BulkWriteError means some operations in
+    # the batch did not apply, which would leave the collection half-migrated.
+    # Surface it instead of swallowing it so the operator can resume safely.
+    if not operations:
+        return 0
+    try:
+        result = collection.bulk_write(operations, ordered=False)
+    except BulkWriteError as error:
+        details = error.details or {}
+        write_errors = details.get("writeErrors", [])
+        raise RuntimeError(
+            f"bulk write failed after partial application: "
+            f"{len(write_errors)} of {len(operations)} operations errored; "
+            f"first error: {write_errors[0] if write_errors else error}"
+        ) from error
+    return result.modified_count
 
 
 def _find_runs(
@@ -2592,15 +2642,10 @@ def _apply_history_mutation(
             )
         )
         if len(operations) >= batch_size:
-            modified_count += collection.bulk_write(
-                operations, ordered=False
-            ).modified_count
+            modified_count += _execute_bulk_write(collection, operations)
             operations.clear()
 
-    if operations:
-        modified_count += collection.bulk_write(
-            operations, ordered=False
-        ).modified_count
+    modified_count += _execute_bulk_write(collection, operations)
     return modified_count
 
 
@@ -3102,12 +3147,12 @@ def _write_stage_collection(
             ReplaceOne({"_id": doc["_id"]}, result.stage_doc, upsert=True)
         )
         if len(operations) >= batch_size:
-            target_collection.bulk_write(operations, ordered=False)
+            _execute_bulk_write(target_collection, operations)
             written += len(operations)
             operations.clear()
 
     if operations:
-        target_collection.bulk_write(operations, ordered=False)
+        _execute_bulk_write(target_collection, operations)
         written += len(operations)
     return written
 
@@ -3190,8 +3235,53 @@ def _read_stage_history_for_apply(
     return _read_param_history(doc)
 
 
+def _stage_apply_drift_reason(
+    target_collection: Collection[Document],
+    stage_doc: Document,
+) -> str | None:
+    # Guard the apply against a target run that changed since it was staged.
+    # Staging only snapshots finished, non-deleted runs, so any drift here means
+    # the run was deleted, reopened, or edited out of band and must not be
+    # overwritten from a stale snapshot.
+    run_id = stage_doc.get("_id")
+    stage = stage_doc.get("stage")
+    kind = stage.get("kind") if isinstance(stage, Mapping) else None
+    target = target_collection.find_one(
+        {"_id": run_id},
+        {"args.spsa.param_history": 1, "finished": 1, "deleted": 1},
+    )
+    if target is None:
+        return "target run no longer exists"
+    if target.get("deleted") is True:
+        return "target run is deleted"
+    if target.get("finished") is not True:
+        return "target run is no longer finished"
+
+    # A forward ('new') apply replaces the original history, so the target must
+    # still hold the snapshot the conversion was validated against. A rollback
+    # ('orig') intentionally overwrites whatever is there, so only existence and
+    # status are checked above.
+    if kind == DEFAULT_NEW_COLLECTION and isinstance(stage, Mapping):
+        expected_shape = stage.get("source_history_shape")
+        expected_len = stage.get("source_history_len")
+        current_shape = _history_shape(target)
+        current_len = len(_read_param_history(target))
+        if expected_shape is not None and current_shape != expected_shape:
+            return (
+                "target history shape changed since staging "
+                f"(staged {expected_shape!r}, now {current_shape!r})"
+            )
+        if expected_len is not None and current_len != expected_len:
+            return (
+                "target history length changed since staging "
+                f"(staged {expected_len}, now {current_len})"
+            )
+    return None
+
+
 def _collect_apply_stage_stats(
     collection: Collection[Document],
+    target_collection: Collection[Document],
     query: Document,
     *,
     limit: int | None,
@@ -3213,6 +3303,12 @@ def _collect_apply_stage_stats(
         except ValueError as error:
             stats.skipped += 1
             stats.errors.append(f"{run_id}: {error}")
+            continue
+
+        drift_reason = _stage_apply_drift_reason(target_collection, doc)
+        if drift_reason is not None:
+            stats.skipped += 1
+            stats.errors.append(f"{run_id}: {drift_reason}")
             continue
 
         stats.ready += 1
@@ -3246,6 +3342,11 @@ def _apply_stage_history(
         except ValueError:
             continue
 
+        # Re-check drift in the write pass: the dry run and the write are
+        # separate reads, so a run could change in between.
+        if _stage_apply_drift_reason(target_collection, doc) is not None:
+            continue
+
         operations.append(
             UpdateOne(
                 {"_id": doc["_id"]},
@@ -3253,12 +3354,12 @@ def _apply_stage_history(
             )
         )
         if len(operations) >= batch_size:
-            target_collection.bulk_write(operations, ordered=False)
+            _execute_bulk_write(target_collection, operations)
             written += len(operations)
             operations.clear()
 
     if operations:
-        target_collection.bulk_write(operations, ordered=False)
+        _execute_bulk_write(target_collection, operations)
         written += len(operations)
     return written
 
@@ -3529,7 +3630,7 @@ def main_apply_staged_history(argv: Sequence[str] | None = None) -> int:
         help="Allow applying validation-failed spsa_new docs when they still carry iter-only history",
     )
     args = parser.parse_args(argv)
-    query = _build_spsa_query(args)
+    query = _build_stage_query(args)
     source_collection = (
         DEFAULT_ORIG_COLLECTION if args.stage_kind == "orig" else DEFAULT_NEW_COLLECTION
     )
@@ -3539,6 +3640,7 @@ def main_apply_staged_history(argv: Sequence[str] | None = None) -> int:
         target = _runs_collection(client, args)
         stats = _collect_apply_stage_stats(
             source,
+            target,
             query,
             limit=args.limit,
             allow_validation_errors=args.allow_validation_errors,
