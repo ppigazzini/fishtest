@@ -520,7 +520,7 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         assert converted is not None
         self.assertEqual(converted[0][0]["iter"], exact_iter)
 
-    def test_convert_history_c_to_iter_uses_master_chart_when_c_and_r_are_constant(
+    def test_build_history_conversion_report_flags_master_chart_fallback_when_c_and_r_are_constant(
         self,
     ):
         doc = {
@@ -567,10 +567,90 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
             chart_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_CHART_TOLERANCE,
         )
 
-        self.assertEqual(report.errors, [])
+        # Constant c and constant R make every iteration unrecoverable, so the
+        # recovery gate refuses the synthetic master-chart spacing rather than
+        # certifying it.
         self.assertEqual(report.c_check.checked_values, 0)
         self.assertEqual(report.r_check.checked_values, 0)
-        self.assertEqual(report.chart_check.mismatched_rows, 0)
+        self.assertGreater(len(report.recovery_errors), 0)
+        self.assertTrue(
+            any("independently recoverable" in error for error in report.errors),
+            report.errors,
+        )
+
+    def test_build_history_conversion_report_flags_non_monotonic_recovered_iters(self):
+        # The c values are individually invertible, but they decode to iters that
+        # run backward (20 then 10). A forward SPSA run can only append in
+        # increasing iteration order, so the recovery gate must refuse it.
+        gamma = 0.101
+        base_c = 1.6
+        doc = {
+            "start_time": datetime(2025, 4, 20, tzinfo=UTC),
+            "args": {
+                "num_games": 500,
+                "spsa": {
+                    "iter": 120,
+                    "num_iter": 250,
+                    "gamma": gamma,
+                    "params": [{"theta": 12.5, "c": base_c}],
+                    "param_history": [
+                        [{"theta": 11.0, "c": base_c / (21**gamma)}],
+                        [{"theta": 12.0, "c": base_c / (11**gamma)}],
+                    ],
+                },
+            },
+        }
+
+        report = SPSA_PARAM_HISTORY_TOOL._build_history_conversion_report(
+            doc,
+            iter_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_ITER_TOLERANCE,
+            c_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_C_TOLERANCE,
+            r_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_R_TOLERANCE,
+            chart_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_CHART_TOLERANCE,
+        )
+
+        self.assertEqual(report.c_check.mismatched_values, 0)
+        self.assertTrue(
+            any("strictly increasing" in error for error in report.recovery_errors),
+            report.recovery_errors,
+        )
+
+    def test_build_history_conversion_report_accepts_recoverable_monotonic_history(
+        self,
+    ):
+        # Two c-invertible samples that decode to strictly increasing iters
+        # convert cleanly: no recovery error, no chart error.
+        gamma = 0.101
+        base_c = 1.6
+        doc = {
+            "start_time": datetime(2025, 4, 20, tzinfo=UTC),
+            "args": {
+                "num_games": 800,
+                "spsa": {
+                    "iter": 400,
+                    "num_iter": 400,
+                    "gamma": gamma,
+                    "params": [{"theta": 12.5, "c": base_c}],
+                    "param_history": [
+                        [{"theta": 11.0, "c": base_c / (101**gamma)}],
+                        [{"theta": 12.0, "c": base_c / (201**gamma)}],
+                    ],
+                },
+            },
+        }
+
+        report = SPSA_PARAM_HISTORY_TOOL._build_history_conversion_report(
+            doc,
+            iter_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_ITER_TOLERANCE,
+            c_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_C_TOLERANCE,
+            r_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_R_TOLERANCE,
+            chart_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_CHART_TOLERANCE,
+        )
+
+        self.assertEqual(report.recovery_errors, [])
+        self.assertEqual(report.errors, [])
+        self.assertEqual(report.converted_history[0][0]["iter"], 100)
+        self.assertEqual(report.converted_history[1][0]["iter"], 200)
 
     def test_build_history_conversion_report_uses_r_roundtrip_when_c_is_constant(self):
         exact_iter = 80
@@ -898,7 +978,10 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         self.assertEqual(converted[1][0]["theta"], 12.0)
         self.assertEqual(converted[1][0]["iter"], 20)
 
-    def test_convert_history_c_to_iter_transform_accepts_partial_legacy_recovery(self):
+    def test_convert_history_c_to_iter_transform_skips_partial_legacy_recovery(self):
+        # Only the second sample is c-invertible; the first has neither c nor R.
+        # A partially recoverable run cannot be migrated faithfully, so the
+        # transform refuses it rather than storing one synthetic iteration.
         doc = {
             "start_time": datetime(2020, 4, 2, tzinfo=UTC),
             "args": {
@@ -922,15 +1005,9 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
             chart_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_CHART_TOLERANCE,
         )
 
-        converted = transform(doc)
-
-        self.assertEqual(transform.roundtrip_stats.checked_values, 1)
-        self.assertEqual(transform.roundtrip_stats.mismatched_values, 0)
-        self.assertEqual(transform.roundtrip_stats.mismatch_runs, 0)
-        self.assertEqual(transform.roundtrip_stats.previews, [])
-        assert converted is not None
-        self.assertEqual(converted[0][0]["iter"], 10)
-        self.assertEqual(converted[1][0]["iter"], 20)
+        with self.assertRaises(ValueError) as raised:
+            transform(doc)
+        self.assertIn("independently recoverable", str(raised.exception))
 
     def test_inspect_chart_roundtrip_detects_chart_mismatch(self):
         doc = {
@@ -1161,9 +1238,12 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         self.assertEqual(check.mismatched_rows, 0)
         self.assertIsNone(check.first_mismatch)
 
-    def test_convert_history_c_to_iter_transform_records_chart_mismatch_without_failing(
+    def test_convert_history_c_to_iter_transform_skips_unrecoverable_sample(
         self,
     ):
+        # Sample 1 has no c and no R, so its iteration cannot be independently
+        # recovered. The transform must refuse the run instead of writing a
+        # synthetic-spacing iteration for that sample.
         doc = {
             "start_time": datetime(2020, 4, 2, tzinfo=UTC),
             "args": {
@@ -1180,10 +1260,6 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
                 },
             },
         }
-        bad_history = [
-            [{"theta": 11.0, "iter": 1}],
-            [{"theta": 12.0, "iter": 20}],
-        ]
 
         transform = SPSA_PARAM_HISTORY_TOOL._ConvertHistoryCToIterTransform(
             iter_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_ITER_TOLERANCE,
@@ -1191,19 +1267,9 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
             chart_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_CHART_TOLERANCE,
         )
 
-        with patch.object(
-            SPSA_PARAM_HISTORY_TOOL,
-            "_convert_history_c_to_iter",
-            return_value=bad_history,
-        ):
-            converted = transform(doc)
-
-        self.assertEqual(converted, bad_history)
-        self.assertEqual(transform.roundtrip_stats.checked_values, 1)
-        self.assertEqual(transform.roundtrip_stats.mismatched_values, 0)
-        self.assertEqual(transform.chart_stats.checked_rows, 4)
-        self.assertGreater(transform.chart_stats.mismatched_rows, 0)
-        self.assertEqual(transform.chart_stats.mismatch_runs, 1)
+        with self.assertRaises(ValueError) as raised:
+            transform(doc)
+        self.assertIn("independently recoverable", str(raised.exception))
 
     def test_run_history_mutation_dry_run_prints_c_roundtrip_summary(self):
         transform = SPSA_PARAM_HISTORY_TOOL._ConvertHistoryCToIterTransform(

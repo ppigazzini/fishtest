@@ -131,6 +131,7 @@ class HistoryConversionReport:
     chart_check: ChartEquivalenceCheck
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    recovery_errors: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -1301,6 +1302,64 @@ def _history_roundtrip_requirements(doc: Document) -> _HistoryRoundtripRequireme
     )
 
 
+def _history_is_iter_only(history: Sequence[object]) -> bool:
+    return all(
+        isinstance(sample, list) and (not sample or _iter_sample_is_iter_only(sample))
+        for sample in history
+    )
+
+
+def _collect_history_recovery_errors(
+    doc: Document,
+    *,
+    tolerance: float,
+) -> list[str]:
+    # Refuse to certify a legacy conversion whose iterations are not independently
+    # recoverable from c or R: a fallback-derived iteration is synthetic spacing,
+    # not the true checkpoint, and iterations that do not strictly increase signal
+    # a recovery error or out-of-order data. Already-migrated iter-only histories
+    # carry no c/R signal and are skipped here.
+    history = _read_param_history(doc)
+    if not _history_has_non_empty_samples(history) or _history_is_iter_only(history):
+        return []
+
+    resolved_iters = _resolve_history_sample_iters(doc, history, tolerance=tolerance)
+    records = _integerize_resolved_history_iter_records(
+        doc,
+        resolved_iters,
+        tolerance=tolerance,
+    )
+
+    errors: list[str] = []
+    fallback_samples = [
+        index + 1
+        for index, record in enumerate(records)
+        if record.value is not None and record.source == "fallback"
+    ]
+    if fallback_samples:
+        errors.append(
+            "history samples "
+            f"{fallback_samples} have no iteration independently recoverable "
+            "from c or R; recovery fell back to synthetic spacing"
+        )
+
+    non_increasing_samples: list[int] = []
+    previous_value: int | None = None
+    for index, record in enumerate(records):
+        if record.value is None:
+            continue
+        if previous_value is not None and record.value <= previous_value:
+            non_increasing_samples.append(index + 1)
+        previous_value = record.value
+    if non_increasing_samples:
+        errors.append(
+            "recovered history iterations are not strictly increasing at samples "
+            f"{non_increasing_samples}"
+        )
+
+    return errors
+
+
 def _build_history_conversion_report(
     doc: Document,
     *,
@@ -1358,6 +1417,9 @@ def _build_history_conversion_report(
     if requirements.require_r_roundtrip and r_check.mismatched_values > 0:
         warnings.append(_format_r_roundtrip_failure(r_check))
 
+    recovery_errors = _collect_history_recovery_errors(doc, tolerance=iter_tolerance)
+    errors.extend(recovery_errors)
+
     return HistoryConversionReport(
         converted_history=converted_history,
         c_check=c_check,
@@ -1365,6 +1427,7 @@ def _build_history_conversion_report(
         chart_check=chart_check,
         errors=errors,
         warnings=warnings,
+        recovery_errors=recovery_errors,
     )
 
 
@@ -1427,6 +1490,9 @@ class _ConvertHistoryCToIterTransform:
                 )
 
             raise ValueError(_format_r_roundtrip_failure(report.r_check))
+
+        if report.recovery_errors:
+            raise ValueError("; ".join(report.recovery_errors))
 
         self.chart_stats.checked_rows += report.chart_check.checked_rows
         self.chart_stats.mismatched_rows += report.chart_check.mismatched_rows
@@ -2097,19 +2163,31 @@ def _refine_integer_history_sample_iter(
     return best_candidate
 
 
-def _integerize_resolved_history_iters(
+@dataclass(slots=True)
+class _HistorySampleIterRecord:
+    value: int | None
+    # How the integer iter was obtained: "empty" (no sample), "c" or "r" (an
+    # independent inversion of a varying signal), or "fallback" (synthetic
+    # spacing because neither c nor R carried recoverable information).
+    source: str
+
+
+def _integerize_resolved_history_iter_records(
     doc: Document,
     resolved_iters: Sequence[float | int | None],
     *,
     tolerance: float,
-) -> list[int | None]:
+) -> list[_HistorySampleIterRecord]:
+    records: list[_HistorySampleIterRecord] = [
+        _HistorySampleIterRecord(None, "empty") for _ in resolved_iters
+    ]
     non_empty_positions = [
         index
         for index, sample_iter in enumerate(resolved_iters)
         if sample_iter is not None
     ]
     if not non_empty_positions:
-        return [None] * len(resolved_iters)
+        return records
 
     history = _read_param_history(doc)
     spsa = _read_spsa(doc)
@@ -2133,7 +2211,6 @@ def _integerize_resolved_history_iters(
         tolerance=DEFAULT_R_TOLERANCE,
     )
 
-    integerized: list[int | None] = [None] * len(resolved_iters)
     for position in non_empty_positions:
         resolved_estimate = _as_nonnegative_float_value(
             resolved_iters[position],
@@ -2184,9 +2261,9 @@ def _integerize_resolved_history_iters(
         if r_informative:
             estimates.append(r_estimate)
         if not estimates:
-            integerized[position] = max(
-                lower_bound,
-                min(int(floor(resolved_estimate + 0.5)), upper_bound),
+            records[position] = _HistorySampleIterRecord(
+                max(lower_bound, min(int(floor(resolved_estimate + 0.5)), upper_bound)),
+                "fallback",
             )
             continue
 
@@ -2219,9 +2296,28 @@ def _integerize_resolved_history_iters(
             candidate=candidate,
         )
 
-        integerized[position] = candidate
+        records[position] = _HistorySampleIterRecord(
+            candidate,
+            "c" if c_informative else "r",
+        )
 
-    return integerized
+    return records
+
+
+def _integerize_resolved_history_iters(
+    doc: Document,
+    resolved_iters: Sequence[float | int | None],
+    *,
+    tolerance: float,
+) -> list[int | None]:
+    return [
+        record.value
+        for record in _integerize_resolved_history_iter_records(
+            doc,
+            resolved_iters,
+            tolerance=tolerance,
+        )
+    ]
 
 
 def _resolve_history_sample_iter(
