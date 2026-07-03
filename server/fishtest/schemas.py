@@ -815,9 +815,17 @@ runs_schema = intersect(
                         },
                         ...,
                     ],
+                    # ISSUE-57 M6 Phase 0: transitional union. New runs are born
+                    # in the lean {theta, iter} shape, but unmigrated legacy runs
+                    # still carry {theta, R, c} and must validate when re-saved
+                    # during the migration window. Tighten back to the lean shape
+                    # only once every SPSA run is migrated.
                     "param_history?": [
                         [
-                            {"theta": float, "iter": sunumber},
+                            union(
+                                {"theta": float, "iter": sunumber},
+                                {"theta": float, "R": unumber, "c": unumber},
+                            ),
                             ...,
                         ],
                         ...,
