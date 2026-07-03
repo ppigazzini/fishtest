@@ -1429,10 +1429,19 @@ def _build_history_conversion_report(
         if requirements.require_r_roundtrip
         else RRoundTripCheck()
     )
-    chart_check = _inspect_chart_roundtrip(
-        doc,
-        converted_history,
-        tolerance=chart_sanity_tolerance,
+    # ISSUE-57 ANNEX H perf: the chart round-trip rebuilds the legacy reference
+    # through the same ill-conditioned resolve for every run, but its result is
+    # only surfaced (below) when neither c nor R varies. Compute it only then --
+    # runs with a varying signal are already covered by the c/R sanity check --
+    # so the dominant gamma>0 majority no longer pays for the reference chart.
+    chart_check = (
+        _inspect_chart_roundtrip(
+            doc,
+            converted_history,
+            tolerance=chart_sanity_tolerance,
+        )
+        if requirements.require_chart_equivalence
+        else ChartEquivalenceCheck()
     )
 
     errors: list[str] = []
@@ -2380,20 +2389,27 @@ def _drop_history_r(doc: Document) -> list[list[dict[str, Any]]] | None:
     return new_history if new_history != history else None
 
 
+def _history_sample_presence_mask(
+    history: Sequence[object],
+) -> list[float | None]:
+    # ISSUE-57 ANNEX H perf: index-based recovery places each sample from its
+    # ordinal position among the non-empty rows, so the integerizer only needs
+    # to know which rows are non-empty and discards the c/R-inverted float
+    # estimate entirely. Mark presence directly instead of running the
+    # ill-conditioned full resolve; malformed rows still raise downstream when
+    # the converted history is rebuilt.
+    return [1.0 if isinstance(sample, list) and sample else None for sample in history]
+
+
 def _convert_history_c_to_iter(
     doc: Document,
     *,
     tolerance: float,
 ) -> list[list[dict[str, Any]]] | None:
     history = _read_param_history(doc)
-    resolved_iters = _resolve_history_sample_iters(
-        doc,
-        history,
-        tolerance=tolerance,
-    )
     resolved_iters = _integerize_resolved_history_iters(
         doc,
-        resolved_iters,
+        _history_sample_presence_mask(history),
         tolerance=tolerance,
     )
     new_history: list[list[dict[str, Any]]] = []
