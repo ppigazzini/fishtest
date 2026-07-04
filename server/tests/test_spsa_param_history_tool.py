@@ -231,7 +231,7 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         # worker formula at known iterations, then assert the migration recovers
         # exactly those iterations -- not a self-consistent but wrong answer.
         spsa = {
-            "iter": 1000,
+            "iter": 50,
             "num_iter": 1000,
             "A": 5000,
             "alpha": 0.602,
@@ -249,9 +249,12 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
             ],
         }
         param = spsa["params"][0]
-        # Forward-truth iterations are the even index positions the migration now
-        # recovers: k / (n + 1) * V for k = 1..n with n = 4 samples and V = 1000.
-        true_iters = [200, 400, 600, 800]
+        # Forward-truth iterations are the real sampler boundaries for a run
+        # created under the 2025 regime with num_iter = num_games // 2 = 1000 and
+        # one param: period = 1000 / 100 = 10 (inclusive-le), so a run stopped at
+        # iter 50 stored samples at 10, 20, 30, 40, 50. The migration must recover
+        # exactly those from the historical algorithm plus the stored c/R.
+        true_iters = [10, 20, 30, 40, 50]
         history = [
             [
                 {
@@ -283,6 +286,39 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         self.assertEqual(report.recovery_errors, [])
         recovered = [row[0]["iter"] for row in report.converted_history]
         self.assertEqual(recovered, true_iters)
+
+    def test_convert_history_c_to_iter_falls_back_to_even_spacing_off_regime(self):
+        # When the observed sample count is inconsistent with the reconstructed
+        # regime (here 4 samples for a run whose 2025-regime period of 10 predicts
+        # ~100 by iter 1000), the sampler windows are rejected and the recovery
+        # falls back to strictly-increasing even spacing rather than forcing the
+        # samples onto boundaries that do not describe this history.
+        gamma = 0.101
+        base_c = 1.6
+        doc = {
+            "start_time": datetime(2025, 6, 1, tzinfo=UTC),
+            "args": {
+                "num_games": 2000,
+                "spsa": {
+                    "iter": 1000,
+                    "num_iter": 1000,
+                    "gamma": gamma,
+                    "params": [{"theta": 12.5, "c": base_c}],
+                    "param_history": [
+                        [{"theta": 11.0, "c": base_c / ((sample_iter + 1) ** gamma)}]
+                        for sample_iter in (200, 400, 600, 800)
+                    ],
+                },
+            },
+        }
+
+        converted = SPSA_PARAM_HISTORY_TOOL._convert_history_c_to_iter(
+            doc,
+            tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_ITER_TOLERANCE,
+        )
+
+        # n = 4, V = 1000 -> k / (n + 1) * V = 200, 400, 600, 800.
+        self.assertEqual([row[0]["iter"] for row in converted], [200, 400, 600, 800])
 
     def test_conversion_is_idempotent_on_iter_only_history(self):
         # Re-running the migration on an already-migrated history is a no-op:
@@ -422,24 +458,32 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
             )
         )
 
-    def test_convert_history_c_to_iter_respaces_all_rows_when_one_legacy_sample_is_missing_c(
-        self,
-    ):
+    def test_convert_history_c_to_iter_anchors_missing_c_sample_to_its_window(self):
+        # A sample with no usable c/R cannot be pinned inside its window, so it
+        # anchors to that window's historical boundary while its neighbours are
+        # refined from c. Under the 2025 regime (period 10) a run stopped at iter
+        # 40 has windows at 10/20/30/40; the third sample (c = None) still lands
+        # on its own boundary (30) instead of being dropped or displaced.
         gamma = 0.101
         base_c = 1.6
-        sample_iter = 20
+
+        def sample_c(sample_iter):
+            return base_c / ((sample_iter + 1) ** gamma)
+
         doc = {
-            "start_time": datetime(2020, 4, 2, tzinfo=UTC),
+            "start_time": datetime(2025, 6, 1, tzinfo=UTC),
             "args": {
-                "num_games": 500,
+                "num_games": 2000,
                 "spsa": {
-                    "iter": 20,
-                    "num_iter": 250,
+                    "iter": 40,
+                    "num_iter": 1000,
                     "gamma": gamma,
                     "params": [{"theta": 12.5, "start": 10, "c": base_c}],
                     "param_history": [
-                        [{"theta": 11.0, "c": None}],
-                        [{"theta": 12.0, "c": base_c / ((sample_iter + 1) ** gamma)}],
+                        [{"theta": 11.0, "c": sample_c(10)}],
+                        [{"theta": 12.0, "c": sample_c(20)}],
+                        [{"theta": 13.0, "c": None}],
+                        [{"theta": 14.0, "c": sample_c(40)}],
                     ],
                 },
             },
@@ -451,10 +495,7 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         )
 
         assert converted is not None
-        # V = 20, n = 2 -> [round(20/3) = 7, round(40/3) = 13]: every row is
-        # re-spaced by index regardless of whether its c is recoverable.
-        self.assertEqual(converted[0][0]["iter"], 7)
-        self.assertEqual(converted[1][0]["iter"], 13)
+        self.assertEqual([row[0]["iter"] for row in converted], [10, 20, 30, 40])
 
     def test_estimate_history_sample_iter_from_r_exact_for_gamma_zero(self):
         target = SPSA_PARAM_HISTORY_TOOL._HistorySampleValidationTarget(
@@ -759,19 +800,24 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         self.assertIn("Best iter in window: 9", output)
         self.assertIn("Stored R targets: 1", output)
 
-    def test_convert_history_c_to_iter_estimates_gamma_zero_samples(self):
+    def test_convert_history_c_to_iter_anchors_constant_c_to_sampler_boundaries(self):
+        # gamma = 0 makes c constant, so it cannot pin the iter within a window;
+        # the recovery anchors each sample to its historical boundary. Under the
+        # 2025 regime with num_iter = num_games // 2 = 1000 and one param the
+        # period is 10, so a run stopped at iter 30 recovers 10, 20, 30.
         doc = {
-            "start_time": datetime(2025, 4, 20, tzinfo=UTC),
+            "start_time": datetime(2025, 6, 1, tzinfo=UTC),
             "args": {
-                "num_games": 500,
+                "num_games": 2000,
                 "spsa": {
-                    "iter": 5,
-                    "num_iter": 250,
+                    "iter": 30,
+                    "num_iter": 1000,
                     "gamma": 0,
                     "params": [{"c": 1.0}],
                     "param_history": [
                         [{"theta": 12.0, "c": 1.0}],
                         [{"theta": 13.0, "c": 1.0}],
+                        [{"theta": 14.0, "c": 1.0}],
                     ],
                 },
             },
@@ -782,27 +828,32 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
             tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_ITER_TOLERANCE,
         )
 
-        self.assertEqual(len(converted), 2)
-        self.assertEqual(converted[0][0]["theta"], 12.0)
-        self.assertEqual(converted[0][0]["iter"], 2)
-        self.assertEqual(converted[1][0]["theta"], 13.0)
-        self.assertEqual(converted[1][0]["iter"], 3)
+        self.assertEqual([row[0]["theta"] for row in converted], [12.0, 13.0, 14.0])
+        self.assertEqual([row[0]["iter"] for row in converted], [10, 20, 30])
 
-    def test_convert_history_c_to_iter_respaces_unrecoverable_legacy_samples(
-        self,
-    ):
+    def test_convert_history_c_to_iter_recovers_strict_lt_samples_from_c(self):
+        # Pre-2025 runs used the strict-lt append rule, so the first sample was
+        # stored on the first update (iter ~ 0), not near one period. A run
+        # created 2020 with num_iter = num_games // 2 = 1000 and one param uses
+        # period = max(100, 25) = 100, giving windows [1,100], [101,200],
+        # [201,250]. The stored c pins each sample inside its window, so a first
+        # sample whose c decodes to iter 30 is recovered at 30 -- not the window
+        # anchor (1) and not an even-spacing guess.
+        gamma = 0.101
+        base_c = 1.6
+        true_iters = [30, 130, 230]
         doc = {
-            "start_time": datetime(2020, 4, 2, tzinfo=UTC),
+            "start_time": datetime(2020, 6, 1, tzinfo=UTC),
             "args": {
-                "num_games": 500,
+                "num_games": 2000,
                 "spsa": {
-                    "iter": 200,
-                    "num_iter": 250,
-                    "gamma": 0.101,
-                    "params": [{"theta": 12.5, "c": 1.6}],
+                    "iter": 250,
+                    "num_iter": 1000,
+                    "gamma": gamma,
+                    "params": [{"theta": 12.5, "c": base_c}],
                     "param_history": [
-                        [{"theta": 11.0, "c": None}],
-                        [{"theta": 12.0, "c": 1.6 / (21**0.101)}],
+                        [{"theta": 11.0, "c": base_c / ((sample_iter + 1) ** gamma)}]
+                        for sample_iter in true_iters
                     ],
                 },
             },
@@ -813,12 +864,7 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
             tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_ITER_TOLERANCE,
         )
 
-        # V = 200, n = 2 -> [round(200/3) = 67, round(400/3) = 133].
-        self.assertEqual(len(converted), 2)
-        self.assertEqual(converted[0][0]["theta"], 11.0)
-        self.assertEqual(converted[0][0]["iter"], 67)
-        self.assertEqual(converted[1][0]["theta"], 12.0)
-        self.assertEqual(converted[1][0]["iter"], 133)
+        self.assertEqual([row[0]["iter"] for row in converted], true_iters)
 
     def test_inspect_chart_roundtrip_detects_chart_mismatch(self):
         doc = {

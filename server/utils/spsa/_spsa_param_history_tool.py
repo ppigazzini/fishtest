@@ -288,7 +288,10 @@ def _whole_interval_samples_2025_02_16(*, num_iter: int, param_count: int) -> in
 
 _HISTORY_SAMPLING_REGIMES = (
     (
-        datetime(2025, 2, 16, 20, 23, 47, tzinfo=UTC),
+        # Commit 59290956 (inclusive-le + 100 samples). Its author timestamp is
+        # 2025-02-16 20:23:47 +0100, i.e. 19:23:47 UTC -- the boundary must be the
+        # true UTC instant, not the local wall-clock.
+        datetime(2025, 2, 16, 19, 23, 47, tzinfo=UTC),
         "2025-02-16-100",
         _whole_interval_samples_2025_02_16,
     ),
@@ -303,8 +306,12 @@ _HISTORY_SAMPLING_REGIMES = (
         _whole_interval_samples_2021_09_07,
     ),
     (
-        datetime(2018, 4, 25, 6, 40, 58, tzinfo=UTC),
-        "2018-04-25-freq",
+        # The freq = max(100, 25 * param_count) rule went live with commit
+        # 80c9f964, deployed 2018-03-27 19:16:15 UTC. Its author date collides
+        # with the previous (three-tier) regime, so the boundary uses the deploy
+        # timestamp; commit 91b9b303 (2018-04-25) only refactored it, unchanged.
+        datetime(2018, 3, 27, 19, 16, 15, tzinfo=UTC),
+        "2018-03-27-freq",
         _whole_interval_samples_2018_04_25,
     ),
     (
@@ -1679,7 +1686,7 @@ def _history_sampling_prior(
             max_history_length=max_history_length,
         )
 
-    if regime_name == "2018-04-25-freq":
+    if regime_name == "2018-03-27-freq":
         if param_count <= 0:
             return _HistorySamplingPrior(
                 regime_name=regime_name,
@@ -2218,10 +2225,122 @@ def _refine_integer_history_sample_iter(
 @dataclass(slots=True)
 class _HistorySampleIterRecord:
     value: int | None
-    # How the integer iter was obtained: "empty" (no sample), "c" or "r" (an
-    # independent inversion of a varying signal), or "fallback" (synthetic
-    # spacing because neither c nor R carried recoverable information).
+    # How the integer iter was obtained: "empty" (no sample), "sampler" (the
+    # dated historical sampling regime placed it, optionally refined by c/R
+    # within its window), or "fallback" (even spacing because the regime could
+    # not be reconstructed for this run).
     source: str
+
+
+def _history_sampler_windows(
+    doc: Document,
+    *,
+    sample_count: int,
+    terminal_iter: int,
+    tolerance: float,
+) -> list[tuple[int, int]] | None:
+    # ISSUE-57 ANNEX H: reconstruct, from the dated sampling regime that was live
+    # when the run was created, the [lower, upper] iteration window each stored
+    # sample must fall in. Historically _add_to_history appended sample k at the
+    # first update whose iter crossed the k-th regime boundary, so the true iter
+    # lies in [boundary_k, boundary_{k+1}); the boundary and the append rule are
+    # fully determined by the run date, num_iter and param_count. Returns None
+    # when the regime cannot be reconstructed (missing date, degenerate config)
+    # or is inconsistent with the observed sample count (misidentified regime or
+    # resampled history), so the caller can fall back to even spacing.
+    if sample_count <= 0:
+        return None
+    try:
+        created = _read_run_start_time(doc)
+        num_iter = _read_num_iter_for_history(doc)
+    except ValueError:
+        return None
+    param_count = len(_read_params(_read_spsa(doc)))
+    prior = _history_sampling_prior(
+        created=created,
+        num_iter=num_iter,
+        param_count=param_count,
+    )
+    if prior.period <= 0:
+        return None
+    # The observed sample count must match what the regime predicts at the
+    # terminal iter (a faithful, non-resampled history has exactly one sample per
+    # crossed boundary; allow one for the terminal batch granularity). A
+    # mismatch means the reconstructed period does not describe this run
+    # (misidentified regime, resampled or truncated history), so fall back.
+    expected = _history_sample_count_at_iter(terminal_iter, prior, tolerance=tolerance)
+    if expected <= 0 or abs(sample_count - expected) > 1:
+        return None
+    windows: list[tuple[int, int]] = []
+    for sample_index in range(1, sample_count + 1):
+        lower = min(
+            _history_sample_lower_bound(
+                prior=prior, sample_index=sample_index, tolerance=tolerance
+            ),
+            terminal_iter,
+        )
+        next_lower = _history_sample_lower_bound(
+            prior=prior, sample_index=sample_index + 1, tolerance=tolerance
+        )
+        upper = min(next_lower - 1, terminal_iter)
+        windows.append((lower, max(lower, upper)))
+    return windows
+
+
+def _refine_sample_iter_in_window(
+    sample: list[Any],
+    params: Sequence[Mapping[str, Any]],
+    *,
+    A: float | None,
+    alpha: float | None,
+    gamma: float,
+    lower: int,
+    upper: int,
+    sample_index: int,
+) -> int:
+    # The historical window brackets the sample; use the stored c/R to pin the
+    # exact iter inside it. This is a bounded search around a strong prior, so it
+    # avoids the global c-inversion instability -- the estimate is clamped to the
+    # window and the samples stay ordered by construction. Anchor to the window's
+    # lower boundary (the sampler's own guarantee) when c/R is constant, missing,
+    # or points outside the window.
+    if upper <= lower:
+        return lower
+    try:
+        targets = _history_sample_validation_targets(
+            sample, params, sample_index=sample_index
+        )
+    except ValueError:
+        return lower
+    if not targets:
+        return lower
+    estimates: list[float] = []
+    c_estimate = _estimate_history_sample_iter_from_c(targets, gamma=gamma)
+    if c_estimate is not None:
+        estimates.append(c_estimate)
+    r_estimate = _estimate_history_sample_iter_from_r(
+        targets,
+        A=A,
+        alpha=alpha,
+        gamma=gamma,
+        seed=c_estimate if c_estimate is not None else float(lower),
+        upper_bound=upper,
+    )
+    if r_estimate is not None:
+        estimates.append(r_estimate)
+    in_window = [
+        int(floor(min(max(estimate, lower), upper) + 0.5))
+        for estimate in estimates
+        if lower - 1.0 <= estimate <= upper + 1.0
+    ]
+    if not in_window:
+        return lower
+    return min(
+        in_window,
+        key=lambda sample_iter: _score_history_sample_iter_validation_priority(
+            targets, A=A, alpha=alpha, gamma=gamma, sample_iter=sample_iter
+        ),
+    )
 
 
 def _integerize_resolved_history_iter_records(
@@ -2247,26 +2366,56 @@ def _integerize_resolved_history_iter_records(
             "non-empty param_history requires a positive terminal SPSA iter"
         )
 
-    # ISSUE-57 ANNEX G: recover each sampled iteration from its even index
-    # position rather than by inverting the decay law c = base_c / (iter + 1) **
-    # gamma. With gamma ~ 0.1 that inversion amplifies rounding noise in the
-    # stored c by 1 / gamma ~ 10x, so the recovered iter is unstable and often
-    # non-monotonic. _add_to_history samples at even period boundaries, so the
-    # k-th of n samples sits at ~ k / (n + 1) of the terminal iteration (the
-    # trailing live point occupies the final slot and is charted separately).
-    # This is strictly increasing by construction and, once the even-period
-    # cadence settles, reproduces the stored c closely; the earliest samples can
-    # drift more, which the loose c/R sanity check reports as a warning.
+    # ISSUE-57 ANNEX H: recover each sampled iteration from the historical
+    # sampling algorithm that actually wrote it, not by interpolation. The dated
+    # regime fixes the iteration window each sample was saved in, and the stored
+    # c/R pins the exact position inside that window. This reconstructs the true
+    # iterations -- correct for early-stopped runs and for the append-rule offset
+    # of the first sample -- is strictly increasing by construction, and only
+    # falls back to even spacing when the regime cannot be reconstructed.
     #
     # A stored history row is always a post-start checkpoint; the starting theta
     # vector at iter=0 is implicit and is never written to param_history.
+    windows = _history_sampler_windows(
+        doc,
+        sample_count=len(non_empty_positions),
+        terminal_iter=actual_iter,
+        tolerance=tolerance,
+    )
+    spsa = _read_spsa(doc)
+    params = _read_params(spsa)
+    A = _as_optional_nonnegative_float_value(spsa.get("A"))
+    alpha = _as_optional_nonnegative_float_value(spsa.get("alpha"))
+    gamma = _as_nonnegative_float_value(spsa.get("gamma"), field_name="args.spsa.gamma")
+    history = _read_param_history(doc)
     total_points = len(non_empty_positions) + 1
+
     previous_value = 0
     for order, position in enumerate(non_empty_positions, start=1):
-        even_iter = order / total_points * actual_iter
-        candidate = min(int(floor(even_iter + 0.5)), actual_iter)
-        candidate = max(candidate, previous_value + 1)
-        records[position] = _HistorySampleIterRecord(candidate, "period")
+        if windows is not None:
+            lower, upper = windows[order - 1]
+            lower = max(lower, previous_value + 1)
+            upper = max(min(upper, actual_iter), lower)
+            sample = history[position]
+            if not isinstance(sample, list):
+                raise ValueError(f"history sample {position + 1} is not a list")
+            candidate = _refine_sample_iter_in_window(
+                sample,
+                params,
+                A=A,
+                alpha=alpha,
+                gamma=gamma,
+                lower=lower,
+                upper=upper,
+                sample_index=position + 1,
+            )
+            source = "sampler"
+        else:
+            even_iter = order / total_points * actual_iter
+            candidate = min(int(floor(even_iter + 0.5)), actual_iter)
+            source = "fallback"
+        candidate = max(previous_value + 1, min(candidate, actual_iter))
+        records[position] = _HistorySampleIterRecord(candidate, source)
         previous_value = candidate
 
     return records
