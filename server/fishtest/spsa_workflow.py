@@ -1346,28 +1346,40 @@ def spsa_history_sampler_windows(
     if prior.period < 1.0:
         return None
     # The observed sample count must match what the regime predicts at the
-    # terminal iter: a faithful, non-resampled history has exactly one sample per
-    # crossed boundary. Reject more samples than the regime can place (that would
-    # push the trailing windows past the terminal iter), and allow at most one
-    # fewer for the terminal batch granularity. Any larger mismatch means the
-    # period does not describe this run (misidentified regime, resampled or
-    # truncated history), so fall back.
+    # terminal iter, within one either way. A faithful history has one sample per
+    # crossed boundary; a difference of one covers the terminal batch granularity
+    # -- either one fewer (the last boundary not yet flushed) or one MORE (a
+    # trailing checkpoint at run end, or a period reconstructed a hair too large).
+    # A larger mismatch means the period does not describe this run (misidentified
+    # regime, resampled or truncated history), so fall back.
+    #
+    # When there is one extra sample, place the regime samples in
+    # [.., terminal - 1] and pin the extra last sample at the terminal iter; this
+    # re-admits the +1 case (dropped to even spacing before) while structurally
+    # keeping every recovered iter <= terminal (no monotonic-clamp overflow).
     expected = _history_sample_count_at_iter(terminal_iter, prior, tolerance=tolerance)
-    if expected <= 0 or sample_count > expected or expected - sample_count > 1:
+    if expected < 0 or sample_count - expected > 1 or expected - sample_count > 1:
+        return None
+    trailing_flush = sample_count == expected + 1
+    regime_samples = sample_count - 1 if trailing_flush else sample_count
+    regime_ceiling = terminal_iter - 1 if trailing_flush else terminal_iter
+    if regime_ceiling < regime_samples:
         return None
     windows: list[tuple[int, int]] = []
-    for sample_index in range(1, sample_count + 1):
+    for sample_index in range(1, regime_samples + 1):
         lower = min(
             _history_sample_lower_bound(
                 prior=prior, sample_index=sample_index, tolerance=tolerance
             ),
-            terminal_iter,
+            regime_ceiling,
         )
         next_lower = _history_sample_lower_bound(
             prior=prior, sample_index=sample_index + 1, tolerance=tolerance
         )
-        upper = min(next_lower - 1, terminal_iter)
+        upper = min(next_lower - 1, regime_ceiling)
         windows.append((lower, max(lower, upper)))
+    if trailing_flush:
+        windows.append((terminal_iter, terminal_iter))
     return windows
 
 
