@@ -66,7 +66,6 @@ DEFAULT_PREVIEW_COUNT = 10
 # passes so a multi-thousand-run migration is not a silent multi-minute wait.
 DEFAULT_PROGRESS_INTERVAL = 500
 DEFAULT_RESAMPLE_LIMIT = 101
-DEFAULT_ITER_REFINEMENT_RADIUS = 8
 
 Document = dict[str, Any]
 HistoryTransform = Callable[[Document], list[list[dict[str, Any]]] | None]
@@ -1385,13 +1384,15 @@ def _collect_history_recovery_errors(
     *,
     tolerance: float,
 ) -> list[str]:
-    # ISSUE-57 ANNEX G: iterations are now recovered from each sample's even
-    # index position (see _integerize_resolved_history_iter_records), which is
-    # strictly increasing by construction and always defined -- there is no
-    # ill-conditioned c inversion to fail and no synthetic-spacing fallback to
-    # refuse. The recovered iterations therefore raise no recovery error; the c
-    # and R round-trips downgrade to loose sanity warnings in
-    # _build_history_conversion_report. Retained for call-site stability.
+    # ISSUE-57 ANNEX I: iterations are recovered from the historical sampler
+    # windows (see _integerize_resolved_history_iters), strictly increasing by
+    # construction and always defined -- there is no ill-conditioned global c
+    # inversion to fail and no un-refusable synthetic spacing. The recovered
+    # iterations therefore raise no blocking recovery error; the c/R round-trips
+    # downgrade to loose sanity warnings, and a regime that cannot be
+    # reconstructed downgrades to an even-spacing fallback warning
+    # (_history_uses_recovery_fallback), both in _build_history_conversion_report.
+    # Retained for call-site and report-field stability.
     del doc, tolerance
     return []
 
@@ -1455,6 +1456,17 @@ def _build_history_conversion_report(
     warnings: list[str] = []
     if _history_has_non_empty_samples(history):
         warnings.extend(_collect_invalid_history_base_c_warnings(doc))
+        # ISSUE-57 ANNEX I: flag runs whose iterations were interpolated by even
+        # spacing because the historical sampling regime could not be
+        # reconstructed -- an approximate chart, not a genuine recovery.
+        if _history_uses_recovery_fallback(doc, tolerance=iter_tolerance):
+            warnings.append(
+                "history iterations were interpolated by even spacing: the "
+                "sampling regime could not be reconstructed for this run (missing "
+                "date, degenerate config, or a sample count inconsistent with the "
+                "regime), so the chart positions are approximate, not recovered "
+                "from the sampler"
+            )
     else:
         warnings.extend(
             (
@@ -1463,12 +1475,13 @@ def _build_history_conversion_report(
             )
             for error in _collect_invalid_base_c_errors(doc)
         )
-    # ISSUE-57 ANNEX G: c/R/chart drift beyond the loose sanity tolerance is a
-    # warning, not an error. Index-based recovery cannot reproduce the stored
-    # decay exactly, so blocking on an exact round-trip would refuse ~79% of real
-    # runs; the strictly-increasing recovered iteration is the correctness
-    # guarantee, and the sanity checks surface any genuinely large drift for an
-    # operator to inspect.
+    # ISSUE-57 ANNEX I: c/R/chart drift beyond the loose sanity tolerance is a
+    # warning, not an error. Sampler recovery reproduces the stored decay to
+    # machine precision on regime-consistent runs, but the last sample's wide
+    # window and the off-regime even-spacing fallback can still drift; blocking on
+    # an exact round-trip would refuse those. The strictly-increasing recovered
+    # iteration is the correctness guarantee, and the sanity checks surface any
+    # genuinely large drift for an operator to inspect.
     if requirements.require_c_roundtrip and c_check.mismatched_values > 0:
         warnings.append(_format_c_roundtrip_failure(c_check))
     if requirements.require_chart_equivalence and chart_check.mismatched_rows > 0:
@@ -2051,14 +2064,17 @@ def _estimate_history_sample_iter_from_r_target(
     iter_local = max(seed + 1.0, 1.0)
     for _ in range(24):
         sample_iter = iter_local - 1.0
-        recomputed_r = _recompute_sample_r_from_iter(
-            base_a=target.base_a,
-            base_c=target.base_c,
-            A=A,
-            alpha=alpha,
-            gamma=gamma,
-            sample_iter=sample_iter,
-        )
+        try:
+            recomputed_r = _recompute_sample_r_from_iter(
+                base_a=target.base_a,
+                base_c=target.base_c,
+                A=A,
+                alpha=alpha,
+                gamma=gamma,
+                sample_iter=sample_iter,
+            )
+        except ArithmeticError, OverflowError, ValueError, ZeroDivisionError:
+            return None
         if recomputed_r <= 0 or not isfinite(recomputed_r):
             return None
 
@@ -2154,84 +2170,6 @@ def _estimate_history_sample_iter_from_r(
     return sample_iters[len(sample_iters) // 2]
 
 
-def _distance_to_history_sample_iter_estimates(
-    sample_iter: int,
-    estimates: Sequence[float],
-) -> float:
-    if not estimates:
-        return 0.0
-    return min(abs(sample_iter - estimate) for estimate in estimates)
-
-
-def _signal_estimate_is_informative(
-    estimate: float | None,
-    *,
-    is_constant: bool,
-    requires_positive_exponent: float | None = None,
-) -> bool:
-    if estimate is None or is_constant:
-        return False
-    if requires_positive_exponent is None:
-        return True
-    return isfinite(requires_positive_exponent) and requires_positive_exponent > 0
-
-
-def _refine_integer_history_sample_iter(
-    *,
-    validation_targets: Sequence[_HistorySampleValidationTarget],
-    A: float | None,
-    alpha: float | None,
-    gamma: float,
-    estimates: Sequence[float],
-    lower_bound: int,
-    upper_bound: int,
-    candidate: int,
-) -> int:
-    if not validation_targets or lower_bound >= upper_bound:
-        return candidate
-
-    search_candidates: set[int] = {candidate}
-    for estimate in estimates:
-        seed = int(floor(estimate + 0.5))
-        seed = max(lower_bound, min(seed, upper_bound))
-        search_lower = max(lower_bound, seed - DEFAULT_ITER_REFINEMENT_RADIUS)
-        search_upper = min(upper_bound, seed + DEFAULT_ITER_REFINEMENT_RADIUS)
-        search_candidates.update(range(search_lower, search_upper + 1))
-
-    best_candidate = candidate
-    best_score = _score_history_sample_iter_validation_priority(
-        validation_targets,
-        A=A,
-        alpha=alpha,
-        gamma=gamma,
-        sample_iter=candidate,
-    ) + (_distance_to_history_sample_iter_estimates(candidate, estimates),)
-
-    for neighbor in sorted(search_candidates):
-        score = _score_history_sample_iter_validation_priority(
-            validation_targets,
-            A=A,
-            alpha=alpha,
-            gamma=gamma,
-            sample_iter=neighbor,
-        ) + (_distance_to_history_sample_iter_estimates(neighbor, estimates),)
-        if score < best_score:
-            best_candidate = neighbor
-            best_score = score
-
-    return best_candidate
-
-
-@dataclass(slots=True)
-class _HistorySampleIterRecord:
-    value: int | None
-    # How the integer iter was obtained: "empty" (no sample), "sampler" (the
-    # dated historical sampling regime placed it, optionally refined by c/R
-    # within its window), or "fallback" (even spacing because the regime could
-    # not be reconstructed for this run).
-    source: str
-
-
 def _history_sampler_windows(
     doc: Document,
     *,
@@ -2239,7 +2177,7 @@ def _history_sampler_windows(
     terminal_iter: int,
     tolerance: float,
 ) -> list[tuple[int, int]] | None:
-    # ISSUE-57 ANNEX H: reconstruct, from the dated sampling regime that was live
+    # ISSUE-57 ANNEX I: reconstruct, from the dated sampling regime that was live
     # when the run was created, the [lower, upper] iteration window each stored
     # sample must fall in. Historically _add_to_history appended sample k at the
     # first update whose iter crossed the k-th regime boundary, so the true iter
@@ -2261,15 +2199,20 @@ def _history_sampler_windows(
         num_iter=num_iter,
         param_count=param_count,
     )
-    if prior.period <= 0:
+    # A period below one iteration per sample cannot be reconstructed (the
+    # per-update cadence is finer than the sample spacing), so fall back rather
+    # than build degenerate, colliding windows.
+    if prior.period < 1.0:
         return None
     # The observed sample count must match what the regime predicts at the
-    # terminal iter (a faithful, non-resampled history has exactly one sample per
-    # crossed boundary; allow one for the terminal batch granularity). A
-    # mismatch means the reconstructed period does not describe this run
-    # (misidentified regime, resampled or truncated history), so fall back.
+    # terminal iter: a faithful, non-resampled history has exactly one sample per
+    # crossed boundary. Reject more samples than the regime can place (that would
+    # push the trailing windows past the terminal iter), and allow at most one
+    # fewer for the terminal batch granularity. Any larger mismatch means the
+    # period does not describe this run (misidentified regime, resampled or
+    # truncated history), so fall back.
     expected = _history_sample_count_at_iter(terminal_iter, prior, tolerance=tolerance)
-    if expected <= 0 or abs(sample_count - expected) > 1:
+    if expected <= 0 or sample_count > expected or expected - sample_count > 1:
         return None
     windows: list[tuple[int, int]] = []
     for sample_index in range(1, sample_count + 1):
@@ -2306,59 +2249,60 @@ def _refine_sample_iter_in_window(
     # or points outside the window.
     if upper <= lower:
         return lower
+    # Any arithmetic failure while inverting or scoring c/R (overflow at extreme
+    # gamma, a Newton blow-up, an invalid base_c) anchors to the window's lower
+    # boundary rather than aborting the whole run's conversion.
     try:
         targets = _history_sample_validation_targets(
             sample, params, sample_index=sample_index
         )
-    except ValueError:
+        if not targets:
+            return lower
+        estimates: list[float] = []
+        c_estimate = _estimate_history_sample_iter_from_c(targets, gamma=gamma)
+        if c_estimate is not None:
+            estimates.append(c_estimate)
+        r_estimate = _estimate_history_sample_iter_from_r(
+            targets,
+            A=A,
+            alpha=alpha,
+            gamma=gamma,
+            seed=c_estimate if c_estimate is not None else float(lower),
+            upper_bound=upper,
+        )
+        if r_estimate is not None:
+            estimates.append(r_estimate)
+        in_window = [
+            int(floor(min(max(estimate, lower), upper) + 0.5))
+            for estimate in estimates
+            if lower - 1.0 <= estimate <= upper + 1.0
+        ]
+        if not in_window:
+            return lower
+        return min(
+            in_window,
+            key=lambda sample_iter: _score_history_sample_iter_validation_priority(
+                targets, A=A, alpha=alpha, gamma=gamma, sample_iter=sample_iter
+            ),
+        )
+    except ArithmeticError, OverflowError, ValueError, ZeroDivisionError:
         return lower
-    if not targets:
-        return lower
-    estimates: list[float] = []
-    c_estimate = _estimate_history_sample_iter_from_c(targets, gamma=gamma)
-    if c_estimate is not None:
-        estimates.append(c_estimate)
-    r_estimate = _estimate_history_sample_iter_from_r(
-        targets,
-        A=A,
-        alpha=alpha,
-        gamma=gamma,
-        seed=c_estimate if c_estimate is not None else float(lower),
-        upper_bound=upper,
-    )
-    if r_estimate is not None:
-        estimates.append(r_estimate)
-    in_window = [
-        int(floor(min(max(estimate, lower), upper) + 0.5))
-        for estimate in estimates
-        if lower - 1.0 <= estimate <= upper + 1.0
-    ]
-    if not in_window:
-        return lower
-    return min(
-        in_window,
-        key=lambda sample_iter: _score_history_sample_iter_validation_priority(
-            targets, A=A, alpha=alpha, gamma=gamma, sample_iter=sample_iter
-        ),
-    )
 
 
-def _integerize_resolved_history_iter_records(
+def _integerize_resolved_history_iters(
     doc: Document,
     resolved_iters: Sequence[float | int | None],
     *,
     tolerance: float,
-) -> list[_HistorySampleIterRecord]:
-    records: list[_HistorySampleIterRecord] = [
-        _HistorySampleIterRecord(None, "empty") for _ in resolved_iters
-    ]
+) -> list[int | None]:
+    resolved: list[int | None] = [None for _ in resolved_iters]
     non_empty_positions = [
         index
         for index, sample_iter in enumerate(resolved_iters)
         if sample_iter is not None
     ]
     if not non_empty_positions:
-        return records
+        return resolved
 
     actual_iter = _read_history_terminal_iter(doc, tolerance=tolerance)
     if actual_iter < 1:
@@ -2366,13 +2310,15 @@ def _integerize_resolved_history_iter_records(
             "non-empty param_history requires a positive terminal SPSA iter"
         )
 
-    # ISSUE-57 ANNEX H: recover each sampled iteration from the historical
+    # ISSUE-57 ANNEX I: recover each sampled iteration from the historical
     # sampling algorithm that actually wrote it, not by interpolation. The dated
     # regime fixes the iteration window each sample was saved in, and the stored
     # c/R pins the exact position inside that window. This reconstructs the true
     # iterations -- correct for early-stopped runs and for the append-rule offset
     # of the first sample -- is strictly increasing by construction, and only
-    # falls back to even spacing when the regime cannot be reconstructed.
+    # falls back to even spacing when the regime cannot be reconstructed (the
+    # report surfaces that fallback as a warning, see
+    # _history_uses_recovery_fallback).
     #
     # A stored history row is always a post-start checkpoint; the starting theta
     # vector at iter=0 is implicit and is never written to param_history.
@@ -2409,32 +2355,35 @@ def _integerize_resolved_history_iter_records(
                 upper=upper,
                 sample_index=position + 1,
             )
-            source = "sampler"
         else:
             even_iter = order / total_points * actual_iter
             candidate = min(int(floor(even_iter + 0.5)), actual_iter)
-            source = "fallback"
         candidate = max(previous_value + 1, min(candidate, actual_iter))
-        records[position] = _HistorySampleIterRecord(candidate, source)
+        resolved[position] = candidate
         previous_value = candidate
 
-    return records
+    return resolved
 
 
-def _integerize_resolved_history_iters(
-    doc: Document,
-    resolved_iters: Sequence[float | int | None],
-    *,
-    tolerance: float,
-) -> list[int | None]:
-    return [
-        record.value
-        for record in _integerize_resolved_history_iter_records(
-            doc,
-            resolved_iters,
-            tolerance=tolerance,
+def _history_uses_recovery_fallback(doc: Document, *, tolerance: float) -> bool:
+    # A legacy history is placed either entirely from the historical sampler
+    # windows or, when those cannot be reconstructed, entirely by even-spacing
+    # interpolation (see _integerize_resolved_history_iters). Report the latter so
+    # an interpolated chart is never trusted as a genuine recovery.
+    history = _read_param_history(doc)
+    if not _history_has_non_empty_samples(history) or _history_is_iter_only(history):
+        return False
+    non_empty = sum(1 for sample in history if isinstance(sample, list) and sample)
+    try:
+        terminal = _read_history_terminal_iter(doc, tolerance=tolerance)
+    except ValueError:
+        return False
+    return (
+        _history_sampler_windows(
+            doc, sample_count=non_empty, terminal_iter=terminal, tolerance=tolerance
         )
-    ]
+        is None
+    )
 
 
 def _resolve_history_sample_iter(

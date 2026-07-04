@@ -320,6 +320,56 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         # n = 4, V = 1000 -> k / (n + 1) * V = 200, 400, 600, 800.
         self.assertEqual([row[0]["iter"] for row in converted], [200, 400, 600, 800])
 
+        # The interpolated (not recovered) run is flagged in the report.
+        report = SPSA_PARAM_HISTORY_TOOL._build_history_conversion_report(
+            doc,
+            iter_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_ITER_TOLERANCE,
+            c_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_C_TOLERANCE,
+            r_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_R_TOLERANCE,
+            chart_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_CHART_TOLERANCE,
+        )
+        self.assertEqual(report.errors, [])
+        self.assertTrue(
+            any(
+                "interpolated by even spacing" in warning for warning in report.warnings
+            ),
+            report.warnings,
+        )
+
+    def test_convert_history_c_to_iter_admits_no_iter_beyond_terminal(self):
+        # More stored samples than the regime can place (3 for a period-100,
+        # terminal-250 run whose regime predicts 2) must not push an iteration
+        # past the terminal via the monotonic clamp: the windows are rejected and
+        # the run falls back to strictly-increasing even spacing bounded by V.
+        gamma = 0.101
+        base_c = 1.6
+        doc = {
+            "start_time": datetime(2025, 6, 1, tzinfo=UTC),
+            "args": {
+                "num_games": 20000,
+                "spsa": {
+                    "iter": 250,
+                    "num_iter": 10000,
+                    "gamma": gamma,
+                    "params": [{"theta": 12.5, "c": base_c}],
+                    "param_history": [
+                        [{"theta": 11.0, "c": base_c / ((sample_iter + 1) ** gamma)}]
+                        for sample_iter in (80, 180, 250)
+                    ],
+                },
+            },
+        }
+
+        converted = SPSA_PARAM_HISTORY_TOOL._convert_history_c_to_iter(
+            doc,
+            tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_ITER_TOLERANCE,
+        )
+        iters = [row[0]["iter"] for row in converted]
+        self.assertTrue(all(1 <= value <= 250 for value in iters), iters)
+        self.assertTrue(
+            all(iters[i] < iters[i + 1] for i in range(len(iters) - 1)), iters
+        )
+
     def test_conversion_is_idempotent_on_iter_only_history(self):
         # Re-running the migration on an already-migrated history is a no-op:
         # the stored iterations are read back unchanged and nothing is flagged.
