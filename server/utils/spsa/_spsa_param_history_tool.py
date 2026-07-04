@@ -27,7 +27,7 @@ from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from math import floor, isclose, isfinite, log
+from math import floor, isclose, isfinite, log, nextafter
 from typing import Any, cast
 
 from bson import ObjectId
@@ -1334,16 +1334,17 @@ def _build_history_conversion_report(
     warnings: list[str] = []
     if _history_has_non_empty_samples(history):
         warnings.extend(_collect_invalid_history_base_c_warnings(doc))
-        # ISSUE-57 ANNEX I: flag runs whose iterations were interpolated by even
-        # spacing because the historical sampling regime could not be
-        # reconstructed -- an approximate chart, not a genuine recovery.
+        # ISSUE-57 ANNEX K: flag runs whose sampling regime could not be
+        # reconstructed. Their stored iters are the c/R-inverted chart positions
+        # the runtime renders (so the migrated chart matches the legacy chart),
+        # not true optimizer iterations -- a chart-faithful fallback, not a
+        # genuine recovery.
         if _history_uses_recovery_fallback(doc, tolerance=iter_tolerance):
             warnings.append(
-                "history iterations were interpolated by even spacing: the "
-                "sampling regime could not be reconstructed for this run (missing "
-                "date, degenerate config, or a sample count inconsistent with the "
-                "regime), so the chart positions are approximate, not recovered "
-                "from the sampler"
+                "history sampling regime could not be reconstructed for this run "
+                "(missing date, degenerate config, or a sample count inconsistent "
+                "with the regime); stored iters are chart-faithful c/R-inverted "
+                "positions, not true optimizer iterations"
             )
     else:
         warnings.extend(
@@ -1946,13 +1947,48 @@ def _refine_sample_iter_in_window(
         return lower
 
 
+def _fractional_fallback_history_iters(
+    doc: Document,
+    non_empty_positions: Sequence[int],
+    *,
+    actual_iter: int,
+    tolerance: float,
+    length: int,
+) -> list[float | int | None]:
+    # ISSUE-57 ANNEX K: for a run whose sampling regime cannot be reconstructed
+    # there is no true iteration to recover, so store the c/R-inverted chart
+    # position that the runtime and the migration chart reference render
+    # (resolve_spsa_history_samples through `created`), not even spacing. The
+    # migrated `% c` chart then reproduces the legacy chart exactly instead of
+    # scattering points by up to half the chart width. These stored iters are
+    # chart-faithful positions, not true optimizer iterations (the run stays
+    # flagged); `iter` is a schema float (sunumber), so a fractional position is
+    # valid and, at the first sample (stored c ~ base_c inverts to iter ~ 0),
+    # reproduces c far better than an integer floor of 1 would.
+    resolved: list[float | int | None] = [None] * length
+    history = _read_param_history(doc)
+    positions = _resolve_history_sample_iters(doc, history, tolerance=tolerance)
+    previous = 0.0
+    for position in non_empty_positions:
+        value = positions[position]
+        if value is None:
+            raise ValueError(f"history sample {position + 1} did not resolve to iter")
+        value = min(float(value), float(actual_iter))
+        if value <= previous:
+            value = min(nextafter(previous, float("inf")), float(actual_iter))
+        resolved[position] = value
+        previous = value
+    return resolved
+
+
 def _integerize_resolved_history_iters(
     doc: Document,
     resolved_iters: Sequence[float | int | None],
     *,
     tolerance: float,
-) -> list[int | None]:
-    resolved: list[int | None] = [None for _ in resolved_iters]
+    fractional_fallback: bool = False,
+) -> list[float | int | None]:
+    resolved: list[float | int | None] = [None for _ in resolved_iters]
     non_empty_positions = [
         index
         for index, sample_iter in enumerate(resolved_iters)
@@ -1985,6 +2021,14 @@ def _integerize_resolved_history_iters(
         terminal_iter=actual_iter,
         tolerance=tolerance,
     )
+    if windows is None and fractional_fallback:
+        return _fractional_fallback_history_iters(
+            doc,
+            non_empty_positions,
+            actual_iter=actual_iter,
+            tolerance=tolerance,
+            length=len(resolved_iters),
+        )
     spsa = _read_spsa(doc)
     params = _read_params(spsa)
     A = _as_optional_nonnegative_float_value(spsa.get("A"))
@@ -2171,6 +2215,7 @@ def _convert_history_c_to_iter(
         doc,
         _history_sample_presence_mask(history),
         tolerance=tolerance,
+        fractional_fallback=True,
     )
     new_history: list[list[dict[str, Any]]] = []
     for sample_index, sample in enumerate(history, start=1):

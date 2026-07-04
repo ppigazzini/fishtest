@@ -287,12 +287,13 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         recovered = [row[0]["iter"] for row in report.converted_history]
         self.assertEqual(recovered, true_iters)
 
-    def test_convert_history_c_to_iter_falls_back_to_even_spacing_off_regime(self):
+    def test_convert_history_c_to_iter_stores_chart_faithful_positions_off_regime(self):
         # When the observed sample count is inconsistent with the reconstructed
         # regime (here 4 samples for a run whose 2025-regime period of 10 predicts
-        # ~100 by iter 1000), the sampler windows are rejected and the recovery
-        # falls back to strictly-increasing even spacing rather than forcing the
-        # samples onto boundaries that do not describe this history.
+        # ~100 by iter 1000), the sampler windows are rejected. The recovery then
+        # stores the c/R-inverted chart positions the runtime renders (not even
+        # spacing), so the migrated chart matches the legacy chart -- here the c
+        # was built at iters 200/400/600/800, so those exact positions come back.
         gamma = 0.101
         base_c = 1.6
         doc = {
@@ -317,10 +318,12 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
             tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_ITER_TOLERANCE,
         )
 
-        # n = 4, V = 1000 -> k / (n + 1) * V = 200, 400, 600, 800.
-        self.assertEqual([row[0]["iter"] for row in converted], [200, 400, 600, 800])
+        self.assertEqual(
+            [row[0]["iter"] for row in converted], [200.0, 400.0, 600.0, 800.0]
+        )
 
-        # The interpolated (not recovered) run is flagged in the report.
+        # The run is still flagged: its stored iters are chart-faithful positions,
+        # not true optimizer iterations.
         report = SPSA_PARAM_HISTORY_TOOL._build_history_conversion_report(
             doc,
             iter_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_ITER_TOLERANCE,
@@ -331,7 +334,8 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         self.assertEqual(report.errors, [])
         self.assertTrue(
             any(
-                "interpolated by even spacing" in warning for warning in report.warnings
+                "chart-faithful c/R-inverted positions" in warning
+                for warning in report.warnings
             ),
             report.warnings,
         )
@@ -444,9 +448,10 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         self,
     ):
         # A partially migrated run (one iter-only row, one legacy row) cannot
-        # occur in production -- migration is per-document atomic. The new
-        # recovery re-spaces every row uniformly by index rather than refusing
-        # the run, so no recovery error is raised.
+        # occur in production -- migration is per-document atomic. Its regime is
+        # inconsistent, so the chart-faithful fallback stores the positions the
+        # runtime renders: the iter-only row keeps its stored 50, and the legacy c
+        # (built at iter 100) inverts back to 100. No recovery error is raised.
         gamma = 0.101
         base_c = 1.6
         doc = {
@@ -474,11 +479,10 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
             chart_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_CHART_TOLERANCE,
         )
 
-        # V = 200, n = 2 -> [round(200/3) = 67, round(400/3) = 133].
         self.assertEqual(report.recovery_errors, [])
         self.assertEqual(
             report.converted_history,
-            [[{"theta": 11.0, "iter": 67}], [{"theta": 12.0, "iter": 133}]],
+            [[{"theta": 11.0, "iter": 50.0}], [{"theta": 12.0, "iter": 100.0}]],
         )
 
     def test_history_field_is_constant_detects_constant_c_vectors(self):
@@ -620,9 +624,9 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
     def test_build_history_conversion_report_respaces_non_monotonic_c_monotonically(
         self,
     ):
-        # The c values decode backward (iter 20 then 10), but index spacing is
-        # monotonic by construction regardless of c ordering, so the migration
-        # re-spaces the rows to strictly increasing iters instead of refusing.
+        # The c values decode backward (iter 20 then 10). The regime is
+        # inconsistent, so the chart-faithful fallback stores the runtime's
+        # (monotone-anchored) c positions -- strictly increasing, never refused.
         gamma = 0.101
         base_c = 1.6
         doc = {
@@ -650,16 +654,17 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
             chart_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_CHART_TOLERANCE,
         )
 
-        # V = 120, n = 2 -> [40, 80], strictly increasing.
         self.assertEqual(report.recovery_errors, [])
-        self.assertEqual(report.converted_history[0][0]["iter"], 40)
-        self.assertEqual(report.converted_history[1][0]["iter"], 80)
+        recovered = [row[0]["iter"] for row in report.converted_history]
+        self.assertEqual(recovered, [20.0, 50.0])
+        self.assertLess(recovered[0], recovered[1])
 
     def test_build_history_conversion_report_accepts_recoverable_monotonic_history(
         self,
     ):
-        # Two c-invertible samples that decode to strictly increasing iters
-        # convert cleanly: no recovery error, no chart error.
+        # Two c-invertible samples (c built at iters 100 and 200) on an
+        # off-regime run: the chart-faithful fallback inverts the stored c and
+        # recovers the true positions 100/200 exactly, not an even-spacing guess.
         gamma = 0.101
         base_c = 1.6
         doc = {
@@ -689,9 +694,8 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
 
         self.assertEqual(report.recovery_errors, [])
         self.assertEqual(report.errors, [])
-        # V = 400, n = 2 -> [round(400/3) = 133, round(800/3) = 267].
-        self.assertEqual(report.converted_history[0][0]["iter"], 133)
-        self.assertEqual(report.converted_history[1][0]["iter"], 267)
+        self.assertEqual(report.converted_history[0][0]["iter"], 100.0)
+        self.assertEqual(report.converted_history[1][0]["iter"], 200.0)
 
     def test_build_history_conversion_report_uses_r_roundtrip_when_c_is_constant(self):
         exact_iter = 80
@@ -736,9 +740,10 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
     def test_build_history_conversion_report_respaces_unrecoverable_constant_c_and_r_history(
         self,
     ):
-        # Constant c and constant R carry no per-sample information, but the new
-        # recovery no longer needs it: it converts via index spacing, which is a
-        # correct rendering whenever c is constant.
+        # Constant c and constant R carry no per-sample information and the
+        # regime is inconsistent, so neither the sampler nor c/R inversion can
+        # place the samples: the chart-faithful fallback stores the runtime's
+        # fractional even spacing, a correct rendering whenever c is constant.
         doc = {
             "_id": "run-non-invertible-constant-c-r",
             "start_time": datetime(2024, 5, 15, tzinfo=UTC),
@@ -785,11 +790,13 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
             chart_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_CHART_TOLERANCE,
         )
 
-        # V = 500, n = 2 -> [round(500/3) = 167, round(1000/3) = 333].
+        # V = 500, n = 2 -> fractional even spacing 500/3, 1000/3.
         self.assertEqual(report.errors, [])
         self.assertEqual(report.recovery_errors, [])
-        self.assertEqual(report.converted_history[0][0]["iter"], 167)
-        self.assertEqual(report.converted_history[1][0]["iter"], 333)
+        recovered = [row[0]["iter"] for row in report.converted_history]
+        self.assertAlmostEqual(recovered[0], 500 / 3)
+        self.assertAlmostEqual(recovered[1], 1000 / 3)
+        self.assertLess(recovered[0], recovered[1])
 
     def test_main_inspect_iter_window_reports_best_nearby_iter(self):
         doc = {
