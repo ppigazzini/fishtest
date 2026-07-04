@@ -973,11 +973,10 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         )
         assert converted is not None
 
-        # Even at the loose sanity tolerance (2% relative) the index-spaced
-        # conversion does not reproduce the legacy c decode for this sparse,
-        # partially-unrecoverable history: the legacy chart places the sole
-        # invertible sample near iter_ratio 0.04 while even spacing puts it at
-        # 0.268, so both non-terminal rows are flagged as differing.
+        # The reference chart is now built through the same shared historical
+        # sampler recovery as the stored iters (both resolve the run's dated
+        # regime windows via `created`), so a faithfully converted partial-legacy
+        # history reproduces the reference exactly -- no spurious row mismatch.
         check = SPSA_PARAM_HISTORY_TOOL._inspect_chart_roundtrip(
             doc,
             converted,
@@ -985,8 +984,8 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         )
 
         self.assertEqual(check.checked_rows, 4)
-        self.assertEqual(check.mismatched_rows, 2)
-        self.assertIn("row 2 iter_ratio differs", check.first_mismatch)
+        self.assertEqual(check.mismatched_rows, 0)
+        self.assertIsNone(check.first_mismatch)
 
     def test_inspect_chart_roundtrip_rejects_wrong_stored_iter(self):
         # The round-trip is non-circular: the reference comes from the legacy c

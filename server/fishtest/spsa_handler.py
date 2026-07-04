@@ -171,4 +171,6 @@ class SPSAHandler:
 
     def get_spsa_data(self, run_id):
         run = self.get_run(run_id)
-        return build_spsa_chart_payload(run["args"].get("spsa"))
+        return build_spsa_chart_payload(
+            run["args"].get("spsa"), created=run.get("start_time")
+        )

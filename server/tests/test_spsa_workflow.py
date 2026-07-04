@@ -2,6 +2,7 @@
 
 import json
 import unittest
+from datetime import UTC, datetime
 from math import isfinite
 
 from fishtest.spsa_workflow import (
@@ -539,6 +540,37 @@ class SpsaWorkflowTests(unittest.TestCase):
             payload["chart_rows"],
             [{"iter_ratio": 0.0, "values": [10.0]}],
         )
+
+    def test_build_spsa_chart_payload_recovers_constant_c_rows_with_created(self):
+        # A constant-c legacy run carries no invertible signal, so without the run
+        # date the runtime drops its history (start point only). With `created`
+        # the shared historical sampler places each sample at its regime boundary,
+        # so the full history renders -- the same reconstruction the migration
+        # stores. 2025 regime, num_iter 1000, one param -> period 10; a run
+        # stopped at iter 30 sampled at 10, 20, 30.
+        spsa = {
+            "iter": 30,
+            "num_iter": 1000,
+            "gamma": 0.0,
+            "params": [
+                {"name": "ParamA", "theta": 12.5, "start": 10, "c": 1.6},
+            ],
+            "param_history": [
+                [{"theta": 11.0, "c": 1.6}],
+                [{"theta": 12.0, "c": 1.6}],
+                [{"theta": 13.0, "c": 1.6}],
+            ],
+        }
+
+        dropped = build_spsa_chart_payload(spsa)
+        recovered = build_spsa_chart_payload(
+            spsa, created=datetime(2025, 6, 1, tzinfo=UTC)
+        )
+
+        self.assertEqual(len(dropped["chart_rows"]), 1)
+        self.assertGreater(len(recovered["chart_rows"]), len(dropped["chart_rows"]))
+        ratios = [row["iter_ratio"] for row in recovered["chart_rows"]]
+        self.assertEqual(ratios, sorted(ratios))
 
     def test_build_spsa_chart_payload_ignores_chart_only_constant_cr_rows(self):
         gamma = 0.101

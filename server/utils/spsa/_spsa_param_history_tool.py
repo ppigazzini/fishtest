@@ -27,7 +27,7 @@ from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from math import ceil, floor, isclose, isfinite, log
+from math import floor, isclose, isfinite, log
 from typing import Any, cast
 
 from bson import ObjectId
@@ -37,8 +37,10 @@ from pymongo.collection import Collection
 from pymongo.errors import BulkWriteError
 
 from fishtest.spsa_workflow import (
+    _history_sampling_regime,
     build_spsa_chart_payload,
     resolve_spsa_history_samples,
+    spsa_history_sampler_windows,
 )
 
 DEFAULT_URI = "mongodb://localhost:27017/"
@@ -186,144 +188,11 @@ class ApplyStageStats:
 
 
 @dataclass(slots=True)
-class _HistorySamplingPrior:
-    regime_name: str
-    period: float
-    append_rule: str
-    max_history_length: int | None = None
-
-
-@dataclass(slots=True)
 class _HistorySampleValidationTarget:
     stored_c: float | None
     base_c: float
     stored_r: float | None
     base_a: float | None
-
-
-def _whole_interval_samples_fixed_100(*, num_iter: int, param_count: int) -> int:
-    del param_count
-    if num_iter <= 0:
-        return 0
-    return num_iter // 100
-
-
-def _whole_interval_samples_2018_03_17(*, num_iter: int, param_count: int) -> int:
-    if num_iter <= 0:
-        return 0
-
-    if param_count < 20:
-        frequency = 100
-        maxlen = 5001
-    else:
-        frequency = 1000
-        maxlen = 201
-    return min(maxlen, num_iter // frequency)
-
-
-def _whole_interval_samples_2018_03_24(*, num_iter: int, param_count: int) -> int:
-    if num_iter <= 0:
-        return 0
-
-    if param_count < 20:
-        frequency = 100
-        maxlen = 5001
-    elif param_count < 50:
-        frequency = 1000
-        maxlen = 201
-    else:
-        frequency = 10000
-        maxlen = 41
-    return min(maxlen, num_iter // frequency)
-
-
-def _whole_interval_samples_2018_04_25(*, num_iter: int, param_count: int) -> int:
-    if num_iter <= 0 or param_count <= 0:
-        return 0
-
-    frequency = max(100, 25 * param_count)
-    maxlen = int(250000 / frequency)
-    return min(maxlen, num_iter // frequency)
-
-
-def _whole_interval_samples_2021_09_07(*, num_iter: int, param_count: int) -> int:
-    if num_iter <= 0 or param_count <= 0:
-        return 0
-
-    frequency_limit = max(100, min(25 * param_count, 250000))
-    frequency = int(frequency_limit // 100) * 100
-    while frequency >= 100:
-        if 250000 % frequency == 0:
-            break
-        frequency -= 100
-    if frequency < 100:
-        frequency = 100
-
-    maxlen = 250000 // frequency
-    return min(maxlen, num_iter // frequency)
-
-
-def _whole_interval_samples_2022_03_29(*, num_iter: int, param_count: int) -> int:
-    del num_iter
-    if param_count <= 0:
-        return 0
-    if param_count < 100:
-        return 101
-    if param_count < 1000:
-        return int(10000 / param_count)
-    return 1
-
-
-def _whole_interval_samples_2025_02_16(*, num_iter: int, param_count: int) -> int:
-    del num_iter
-    if param_count <= 0:
-        return 0
-    if param_count < 100:
-        return 100
-    if param_count < 1000:
-        return int(10000 / param_count)
-    return 1
-
-
-_HISTORY_SAMPLING_REGIMES = (
-    (
-        # Commit 59290956 (inclusive-le + 100 samples). Its author timestamp is
-        # 2025-02-16 20:23:47 +0100, i.e. 19:23:47 UTC -- the boundary must be the
-        # true UTC instant, not the local wall-clock.
-        datetime(2025, 2, 16, 19, 23, 47, tzinfo=UTC),
-        "2025-02-16-100",
-        _whole_interval_samples_2025_02_16,
-    ),
-    (
-        datetime(2022, 3, 29, 15, 57, 26, tzinfo=UTC),
-        "2022-03-29-101",
-        _whole_interval_samples_2022_03_29,
-    ),
-    (
-        datetime(2021, 9, 7, 16, 28, 13, tzinfo=UTC),
-        "2021-09-07-multiples",
-        _whole_interval_samples_2021_09_07,
-    ),
-    (
-        # The freq = max(100, 25 * param_count) rule went live with commit
-        # 80c9f964, deployed 2018-03-27 19:16:15 UTC. Its author date collides
-        # with the previous (three-tier) regime, so the boundary uses the deploy
-        # timestamp; commit 91b9b303 (2018-04-25) only refactored it, unchanged.
-        datetime(2018, 3, 27, 19, 16, 15, tzinfo=UTC),
-        "2018-03-27-freq",
-        _whole_interval_samples_2018_04_25,
-    ),
-    (
-        datetime(2018, 3, 24, 19, 25, 48, tzinfo=UTC),
-        "2018-03-24-adjust",
-        _whole_interval_samples_2018_03_24,
-    ),
-    (
-        datetime(2018, 3, 17, 13, 49, 52, tzinfo=UTC),
-        "2018-03-17-optimize",
-        _whole_interval_samples_2018_03_17,
-    ),
-)
 
 
 def _parse_object_id(value: str) -> ObjectId:
@@ -1084,7 +953,15 @@ def _build_legacy_reference_chart_payload(
     alpha = _as_finite_float(spsa.get("alpha"))
     iter_value = _as_finite_float(spsa.get("iter"))
     num_iter = float(_read_num_iter_for_history(doc))
+    try:
+        created = _read_run_start_time(doc)
+    except ValueError:
+        created = None
 
+    # Reference through the shared historical-sampler recovery (via `created`),
+    # the same reconstruction the migration stores, so the round-trip stays
+    # non-circular for varying c/R yet does not flag a constant-signal run whose
+    # sampler positions match the stored iters.
     resolved = resolve_spsa_history_samples(
         legacy_history,
         params=params,
@@ -1093,6 +970,7 @@ def _build_legacy_reference_chart_payload(
         gamma=gamma if gamma is not None else 0.0,
         num_iter=num_iter,
         iter_value=iter_value if iter_value is not None else 0.0,
+        created=created,
     )
     reference_history = [
         [
@@ -1629,13 +1507,6 @@ def _iter_sample_is_iter_only(sample: list[Any]) -> bool:
     )
 
 
-def _history_sampling_regime(created: datetime) -> tuple[str, Callable[..., int]]:
-    for boundary, regime_name, sample_counter in _HISTORY_SAMPLING_REGIMES:
-        if created >= boundary:
-            return regime_name, sample_counter
-    return "2014-fixed-100", _whole_interval_samples_fixed_100
-
-
 def _history_density_info(doc: Document) -> tuple[datetime, str, int, int]:
     created = _read_run_start_time(doc)
     param_count = len(_read_params(_read_spsa(doc)))
@@ -1644,138 +1515,6 @@ def _history_density_info(doc: Document) -> tuple[datetime, str, int, int]:
     whole_interval_samples = sample_counter(num_iter=num_iter, param_count=param_count)
     current_target = _target_history_samples(param_count)
     return created, regime_name, whole_interval_samples, current_target
-
-
-def _stabilize_integer_boundary(value: float, *, tolerance: float) -> float:
-    rounded = round(value)
-    if abs(value - rounded) <= tolerance:
-        return float(rounded)
-    return value
-
-
-def _history_sampling_prior(
-    *,
-    created: datetime,
-    num_iter: int,
-    param_count: int,
-) -> _HistorySamplingPrior:
-    regime_name, _ = _history_sampling_regime(created)
-
-    if regime_name == "2014-fixed-100":
-        return _HistorySamplingPrior(
-            regime_name=regime_name,
-            period=100.0,
-            append_rule="strict-lt",
-        )
-
-    if regime_name == "2018-03-17-optimize":
-        if param_count < 20:
-            period = 100.0
-            max_history_length = 5001
-        else:
-            period = 1000.0
-            max_history_length = 201
-        return _HistorySamplingPrior(
-            regime_name=regime_name,
-            period=period,
-            append_rule="strict-lt",
-            max_history_length=max_history_length,
-        )
-
-    if regime_name == "2018-03-24-adjust":
-        if param_count < 20:
-            period = 100.0
-            max_history_length = 5001
-        elif param_count < 50:
-            period = 1000.0
-            max_history_length = 201
-        else:
-            period = 10000.0
-            max_history_length = 41
-        return _HistorySamplingPrior(
-            regime_name=regime_name,
-            period=period,
-            append_rule="strict-lt",
-            max_history_length=max_history_length,
-        )
-
-    if regime_name == "2018-03-27-freq":
-        if param_count <= 0:
-            return _HistorySamplingPrior(
-                regime_name=regime_name,
-                period=0.0,
-                append_rule="strict-lt",
-            )
-        period = float(max(100, 25 * param_count))
-        max_history_length = int(250000 / period)
-        return _HistorySamplingPrior(
-            regime_name=regime_name,
-            period=period,
-            append_rule="strict-lt",
-            max_history_length=max_history_length,
-        )
-
-    if regime_name == "2021-09-07-multiples":
-        if param_count <= 0:
-            return _HistorySamplingPrior(
-                regime_name=regime_name,
-                period=0.0,
-                append_rule="strict-lt",
-            )
-        frequency_limit = max(100, min(25 * param_count, 250000))
-        period = float(int(frequency_limit // 100) * 100)
-        while period >= 100.0:
-            if 250000 % int(period) == 0:
-                break
-            period -= 100.0
-        if period < 100.0:
-            period = 100.0
-        max_history_length = 250000 // int(period)
-        return _HistorySamplingPrior(
-            regime_name=regime_name,
-            period=period,
-            append_rule="strict-lt",
-            max_history_length=max_history_length,
-        )
-
-    if regime_name == "2022-03-29-101":
-        if param_count <= 0:
-            return _HistorySamplingPrior(
-                regime_name=regime_name,
-                period=0.0,
-                append_rule="strict-lt",
-            )
-        if param_count < 100:
-            samples = 101.0
-        elif param_count < 1000:
-            samples = 10000.0 / param_count
-        else:
-            samples = 1.0
-        period = 0.0 if num_iter <= 0 or samples <= 0 else num_iter / samples
-        return _HistorySamplingPrior(
-            regime_name=regime_name,
-            period=period,
-            append_rule="strict-lt",
-        )
-
-    if param_count <= 0:
-        return _HistorySamplingPrior(
-            regime_name=regime_name,
-            period=0.0,
-            append_rule="inclusive-le",
-        )
-    if param_count < 100:
-        samples = 100.0
-    elif param_count < 1000:
-        samples = 10000.0 / param_count
-    else:
-        samples = 1.0
-    period = 0.0 if num_iter <= 0 or samples <= 0 else num_iter / samples
-    return _HistorySamplingPrior(
-        regime_name=regime_name,
-        period=period,
-        append_rule="inclusive-le",
-    )
 
 
 def _read_history_terminal_iter(
@@ -1794,53 +1533,6 @@ def _read_history_terminal_iter(
             f"invalid args.spsa.iter: expected an integer iteration count, got {iter_value!r}"
         )
     return int(rounded)
-
-
-def _history_sample_count_at_iter(
-    iter_value: int,
-    prior: _HistorySamplingPrior,
-    *,
-    tolerance: float,
-) -> int:
-    if iter_value <= 0 or prior.period <= 0:
-        return 0
-
-    ratio = _stabilize_integer_boundary(
-        iter_value / prior.period,
-        tolerance=tolerance,
-    )
-    if prior.append_rule == "inclusive-le":
-        sample_count = int(floor(ratio))
-    else:
-        sample_count = int(ceil(ratio))
-
-    if prior.max_history_length is not None:
-        sample_count = min(sample_count, prior.max_history_length)
-
-    return max(sample_count, 0)
-
-
-def _history_sample_lower_bound(
-    *,
-    prior: _HistorySamplingPrior,
-    sample_index: int,
-    tolerance: float,
-) -> int:
-    if sample_index <= 0:
-        raise ValueError(f"invalid sample index: expected > 0, got {sample_index!r}")
-
-    if prior.append_rule == "inclusive-le":
-        boundary = _stabilize_integer_boundary(
-            sample_index * prior.period,
-            tolerance=tolerance,
-        )
-        return int(ceil(boundary))
-
-    boundary = _stabilize_integer_boundary(
-        (sample_index - 1) * prior.period,
-        tolerance=tolerance,
-    )
-    return int(floor(boundary)) + 1
 
 
 def _history_sample_validation_targets(
@@ -2177,57 +1869,22 @@ def _history_sampler_windows(
     terminal_iter: int,
     tolerance: float,
 ) -> list[tuple[int, int]] | None:
-    # ISSUE-57 ANNEX I: reconstruct, from the dated sampling regime that was live
-    # when the run was created, the [lower, upper] iteration window each stored
-    # sample must fall in. Historically _add_to_history appended sample k at the
-    # first update whose iter crossed the k-th regime boundary, so the true iter
-    # lies in [boundary_k, boundary_{k+1}); the boundary and the append rule are
-    # fully determined by the run date, num_iter and param_count. Returns None
-    # when the regime cannot be reconstructed (missing date, degenerate config)
-    # or is inconsistent with the observed sample count (misidentified regime or
-    # resampled history), so the caller can fall back to even spacing.
-    if sample_count <= 0:
-        return None
+    # Read the run's created time, num_iter and param_count from the doc, then
+    # delegate to the shared regime reconstruction in fishtest.spsa_workflow.
     try:
         created = _read_run_start_time(doc)
         num_iter = _read_num_iter_for_history(doc)
+        param_count = len(_read_params(_read_spsa(doc)))
     except ValueError:
         return None
-    param_count = len(_read_params(_read_spsa(doc)))
-    prior = _history_sampling_prior(
+    return spsa_history_sampler_windows(
         created=created,
         num_iter=num_iter,
         param_count=param_count,
+        terminal_iter=terminal_iter,
+        sample_count=sample_count,
+        tolerance=tolerance,
     )
-    # A period below one iteration per sample cannot be reconstructed (the
-    # per-update cadence is finer than the sample spacing), so fall back rather
-    # than build degenerate, colliding windows.
-    if prior.period < 1.0:
-        return None
-    # The observed sample count must match what the regime predicts at the
-    # terminal iter: a faithful, non-resampled history has exactly one sample per
-    # crossed boundary. Reject more samples than the regime can place (that would
-    # push the trailing windows past the terminal iter), and allow at most one
-    # fewer for the terminal batch granularity. Any larger mismatch means the
-    # period does not describe this run (misidentified regime, resampled or
-    # truncated history), so fall back.
-    expected = _history_sample_count_at_iter(terminal_iter, prior, tolerance=tolerance)
-    if expected <= 0 or sample_count > expected or expected - sample_count > 1:
-        return None
-    windows: list[tuple[int, int]] = []
-    for sample_index in range(1, sample_count + 1):
-        lower = min(
-            _history_sample_lower_bound(
-                prior=prior, sample_index=sample_index, tolerance=tolerance
-            ),
-            terminal_iter,
-        )
-        next_lower = _history_sample_lower_bound(
-            prior=prior, sample_index=sample_index + 1, tolerance=tolerance
-        )
-        upper = min(next_lower - 1, terminal_iter)
-        windows.append((lower, max(lower, upper)))
-    return windows
 
 
 def _refine_sample_iter_in_window(
@@ -2441,6 +2098,10 @@ def _resolve_history_sample_iters(
         return resolved_iters
 
     spsa = _read_spsa(doc)
+    try:
+        created = _read_run_start_time(doc)
+    except ValueError:
+        created = None
     resolved_samples = resolve_spsa_history_samples(
         non_empty_samples,
         params=_read_params(spsa),
@@ -2451,6 +2112,7 @@ def _resolve_history_sample_iters(
         ),
         num_iter=float(_read_num_iter_for_history(doc)),
         iter_value=_as_finite_float(spsa.get("iter")) or 0.0,
+        created=created,
     )
     if len(resolved_samples) != len(non_empty_samples):
         raise ValueError("history sample resolution lost entries")
