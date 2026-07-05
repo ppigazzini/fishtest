@@ -701,31 +701,13 @@ def resolve_spsa_history_samples(
         explicit_history.sort(key=lambda sample: sample[0])
         return explicit_history
 
-    # ISSUE-57: when the run's creation date is known, recover legacy iterations
-    # from the historical sampler -- the same faithful reconstruction the
-    # migration stores -- rather than the ill-conditioned global c inversion.
-    # Every sample gets a position (anchored at the window boundary), so an
-    # un-migrated run renders its full history and the migration's chart
-    # reference matches its stored iterations.
-    if created is not None:
-        windows = spsa_history_sampler_windows(
-            created=created,
-            num_iter=int(num_iter) if num_iter and num_iter > 0 else 0,
-            param_count=len(params),
-            terminal_iter=int(iter_value) if iter_value and iter_value > 0 else 0,
-            sample_count=len(normalized_history),
-            tolerance=1.0e-6,
-        )
-        if windows is not None:
-            sampler_iters = _recover_legacy_history_iters_from_sampler(
-                params,
-                normalized_history,
-                A=A,
-                alpha=alpha,
-                gamma=gamma if gamma is not None else 0.0,
-                windows=windows,
-            )
-            return list(zip(sampler_iters, normalized_history, strict=False))
+    # ISSUE-57: recover each legacy sample's iteration by inverting the stored c
+    # (c = base_c / (iter + 1) ** gamma) -- or R when c is flat. The stored c is a
+    # full-precision float, so the inversion returns the exact iteration the
+    # sample was written at; recomputing c (and R) from it reproduces the original
+    # to machine precision. `created` is retained for signature compatibility but
+    # no longer selects a lossy regime-window placement.
+    del created
 
     live_point = _build_spsa_live_point(
         params,

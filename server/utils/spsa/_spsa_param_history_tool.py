@@ -1289,19 +1289,18 @@ def _build_history_conversion_report(
         tolerance=iter_tolerance,
     )
     requirements = _history_roundtrip_requirements(doc)
-    # ISSUE-57 ANNEX G: index-based recovery only approximates the legacy
-    # c/R/chart (see DEFAULT_SANITY_TOLERANCE), so evaluate the round-trips at the
-    # loose sanity tolerance (a caller may loosen further, never tighter) and
-    # treat any residual drift as a warning rather than a conversion-blocking
-    # error.
-    c_sanity_tolerance = max(c_tolerance, DEFAULT_SANITY_TOLERANCE)
-    r_sanity_tolerance = max(r_tolerance, DEFAULT_SANITY_TOLERANCE)
-    chart_sanity_tolerance = max(chart_tolerance, DEFAULT_SANITY_TOLERANCE)
+    # ISSUE-57: c and R are exact functions of the stored iter
+    # (c = base_c / (iter + 1) ** gamma, R = a / (A + iter + 1) ** alpha / c ** 2).
+    # The conversion stores the iter obtained by inverting c (or R when c is flat),
+    # so recomputing c and R from it reproduces the originals to ~machine
+    # precision. Verify at the exact tolerance (no 2% floor): a residual drift now
+    # means the stored iter does not encode the sample's c/R -- a genuine defect to
+    # surface, not expected recovery noise.
     c_check = (
         _inspect_c_to_iter_roundtrip(
             doc,
             converted_history,
-            tolerance=c_sanity_tolerance,
+            tolerance=c_tolerance,
         )
         if requirements.require_c_roundtrip
         else CRoundTripCheck()
@@ -1310,21 +1309,20 @@ def _build_history_conversion_report(
         _inspect_r_to_iter_roundtrip(
             doc,
             converted_history,
-            tolerance=r_sanity_tolerance,
+            tolerance=r_tolerance,
         )
         if requirements.require_r_roundtrip
         else RRoundTripCheck()
     )
-    # ISSUE-57 ANNEX H perf: the chart round-trip rebuilds the legacy reference
-    # through the same ill-conditioned resolve for every run, but its result is
-    # only surfaced (below) when neither c nor R varies. Compute it only then --
-    # runs with a varying signal are already covered by the c/R sanity check --
-    # so the dominant gamma>0 majority no longer pays for the reference chart.
+    # The chart round-trip rebuilds the legacy reference through resolve for every
+    # run, but its result is only surfaced (below) when neither c nor R varies.
+    # Compute it only then -- runs with a varying signal are already covered by the
+    # c/R round-trip -- so the dominant gamma>0 majority does not pay for it.
     chart_check = (
         _inspect_chart_roundtrip(
             doc,
             converted_history,
-            tolerance=chart_sanity_tolerance,
+            tolerance=chart_tolerance,
         )
         if requirements.require_chart_equivalence
         else ChartEquivalenceCheck()
@@ -2211,12 +2209,11 @@ def _convert_history_c_to_iter(
     tolerance: float,
 ) -> list[list[dict[str, Any]]] | None:
     history = _read_param_history(doc)
-    resolved_iters = _integerize_resolved_history_iters(
-        doc,
-        _history_sample_presence_mask(history),
-        tolerance=tolerance,
-        fractional_fallback=True,
-    )
+    # Store exactly the iteration the runtime recovers by inverting each sample's
+    # stored c (or R when c is flat). c and R are deterministic functions of iter,
+    # so this iteration reproduces both to machine precision -- the conversion is
+    # lossless. Only a fully-constant c-and-R history has no iteration signal.
+    resolved_iters = _resolve_history_sample_iters(doc, history, tolerance=tolerance)
     new_history: list[list[dict[str, Any]]] = []
     for sample_index, sample in enumerate(history, start=1):
         if not isinstance(sample, list):

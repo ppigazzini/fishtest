@@ -2,7 +2,6 @@
 
 import json
 import unittest
-from datetime import UTC, datetime
 from math import isfinite
 
 from fishtest.spsa_workflow import (
@@ -541,36 +540,47 @@ class SpsaWorkflowTests(unittest.TestCase):
             [{"iter_ratio": 0.0, "values": [10.0]}],
         )
 
-    def test_build_spsa_chart_payload_recovers_constant_c_rows_with_created(self):
-        # A constant-c legacy run carries no invertible signal, so without the run
-        # date the runtime drops its history (start point only). With `created`
-        # the shared historical sampler places each sample at its regime boundary,
-        # so the full history renders -- the same reconstruction the migration
-        # stores. 2025 regime, num_iter 1000, one param -> period 10; a run
-        # stopped at iter 30 sampled at 10, 20, 30.
+    def test_build_spsa_chart_payload_recovers_gamma0_rows_from_r(self):
+        # gamma = 0 makes c constant, but R still varies, so the runtime inverts R
+        # (R = a / (A + iter + 1) ** alpha / c ** 2) to recover each sample's exact
+        # iteration -- no run date or regime needed. Off-boundary true iters
+        # (17/34/51) prove this is inversion, not snapping to a regime boundary.
+        base_a, A, alpha, base_c = 2.0, 100.0, 0.602, 1.6
+        true_iters = [17, 34, 51]
+
+        def stored_r(sample_iter):
+            return base_a / ((A + sample_iter + 1) ** alpha) / base_c**2
+
         spsa = {
-            "iter": 30,
+            "iter": 51,
             "num_iter": 1000,
             "gamma": 0.0,
+            "A": A,
+            "alpha": alpha,
             "params": [
-                {"name": "ParamA", "theta": 12.5, "start": 10, "c": 1.6},
+                {
+                    "name": "ParamA",
+                    "theta": 12.5,
+                    "start": 10,
+                    "c": base_c,
+                    "a": base_a,
+                },
             ],
             "param_history": [
-                [{"theta": 11.0, "c": 1.6}],
-                [{"theta": 12.0, "c": 1.6}],
-                [{"theta": 13.0, "c": 1.6}],
+                [{"theta": 12.0 + index, "R": stored_r(sample_iter), "c": base_c}]
+                for index, sample_iter in enumerate(true_iters)
             ],
         }
 
-        dropped = build_spsa_chart_payload(spsa)
-        recovered = build_spsa_chart_payload(
-            spsa, created=datetime(2025, 6, 1, tzinfo=UTC)
-        )
+        payload = build_spsa_chart_payload(spsa)
+        ratios = [row["iter_ratio"] for row in payload["chart_rows"]]
 
-        self.assertEqual(len(dropped["chart_rows"]), 1)
-        self.assertGreater(len(recovered["chart_rows"]), len(dropped["chart_rows"]))
-        ratios = [row["iter_ratio"] for row in recovered["chart_rows"]]
+        # start point + the three recovered samples + the live point at the
+        # terminal iter; the three sample rows sit at their true iter / num_iter.
+        self.assertEqual(len(payload["chart_rows"]), len(true_iters) + 2)
         self.assertEqual(ratios, sorted(ratios))
+        recovered = [round(ratio * 1000) for ratio in ratios[1 : 1 + len(true_iters)]]
+        self.assertEqual(recovered, true_iters)
 
     def test_build_spsa_chart_payload_ignores_chart_only_constant_cr_rows(self):
         gamma = 0.101

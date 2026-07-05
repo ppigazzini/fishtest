@@ -857,24 +857,37 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         self.assertIn("Best iter in window: 9", output)
         self.assertIn("Stored R targets: 1", output)
 
-    def test_convert_history_c_to_iter_anchors_constant_c_to_sampler_boundaries(self):
-        # gamma = 0 makes c constant, so it cannot pin the iter within a window;
-        # the recovery anchors each sample to its historical boundary. Under the
-        # 2025 regime with num_iter = num_games // 2 = 1000 and one param the
-        # period is 10, so a run stopped at iter 30 recovers 10, 20, 30.
+    def test_convert_history_c_to_iter_recovers_gamma0_history_from_r(self):
+        # gamma = 0 makes c constant, so c cannot pin the iter -- but R still
+        # varies (R = a / (A + iter + 1) ** alpha / c ** 2), so inverting R
+        # recovers the exact iteration. Off-boundary true iters prove this is
+        # inversion, not snapping to a regime boundary (which would give 10/20/30).
+        base_a, A, alpha, base_c = 2.0, 100.0, 0.602, 1.6
+        true_iters = [17, 34, 51]
+
+        def stored_r(sample_iter):
+            return base_a / ((A + sample_iter + 1) ** alpha) / base_c**2
+
         doc = {
             "start_time": datetime(2025, 6, 1, tzinfo=UTC),
             "args": {
                 "num_games": 2000,
                 "spsa": {
-                    "iter": 30,
+                    "iter": 51,
                     "num_iter": 1000,
-                    "gamma": 0,
-                    "params": [{"c": 1.0}],
+                    "gamma": 0.0,
+                    "A": A,
+                    "alpha": alpha,
+                    "params": [{"name": "P", "theta": 12.5, "c": base_c, "a": base_a}],
                     "param_history": [
-                        [{"theta": 12.0, "c": 1.0}],
-                        [{"theta": 13.0, "c": 1.0}],
-                        [{"theta": 14.0, "c": 1.0}],
+                        [
+                            {
+                                "theta": 12.0 + index,
+                                "R": stored_r(sample_iter),
+                                "c": base_c,
+                            }
+                        ]
+                        for index, sample_iter in enumerate(true_iters)
                     ],
                 },
             },
@@ -885,8 +898,7 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
             tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_ITER_TOLERANCE,
         )
 
-        self.assertEqual([row[0]["theta"] for row in converted], [12.0, 13.0, 14.0])
-        self.assertEqual([row[0]["iter"] for row in converted], [10, 20, 30])
+        self.assertEqual([row[0]["iter"] for row in converted], true_iters)
 
     def test_convert_history_c_to_iter_recovers_strict_lt_samples_from_c(self):
         # Pre-2025 runs used the strict-lt append rule, so the first sample was
@@ -967,54 +979,6 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         )
         self.assertEqual(check.mismatched_values, 0)
         self.assertLess(check.max_rel_error, 1.0e-9)
-
-    def test_convert_history_c_to_iter_anchors_to_regime_when_stored_c_is_stale(self):
-        # If a legacy sample's stored c was written with a different base_c than
-        # the run now carries (base_c staleness), inverting that c would scale the
-        # iter far off. The sampler instead anchors each sample to its true regime
-        # boundary, so the chart x-positions stay correct; the c-roundtrip flags
-        # the stored-c divergence (expected, non-blocking), but the position is
-        # right. This is why the corpus's c-roundtrip warnings do not mean the
-        # charts are misplaced.
-        gamma = 0.101
-        old_base_c = 1.6
-        new_base_c = 2.0
-        true_iters = [10, 20, 30, 40, 50]
-        doc = {
-            "start_time": datetime(2025, 6, 1, tzinfo=UTC),
-            "args": {
-                "num_games": 2000,
-                "spsa": {
-                    "iter": 50,
-                    "num_iter": 1000,
-                    "gamma": gamma,
-                    "params": [{"theta": 12.5, "c": new_base_c}],
-                    "param_history": [
-                        [
-                            {
-                                "theta": 11.0,
-                                "c": old_base_c / ((sample_iter + 1) ** gamma),
-                            }
-                        ]
-                        for sample_iter in true_iters
-                    ],
-                },
-            },
-        }
-
-        converted = SPSA_PARAM_HISTORY_TOOL._convert_history_c_to_iter(
-            doc,
-            tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_ITER_TOLERANCE,
-        )
-        # True regime positions, not the far-off c-inversion of the stale c.
-        self.assertEqual([row[0]["iter"] for row in converted], true_iters)
-
-        check = SPSA_PARAM_HISTORY_TOOL._inspect_c_to_iter_roundtrip(
-            doc,
-            converted,
-            tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_SANITY_TOLERANCE,
-        )
-        self.assertGreater(check.mismatched_values, 0)
 
     def test_inspect_chart_roundtrip_detects_chart_mismatch(self):
         doc = {
