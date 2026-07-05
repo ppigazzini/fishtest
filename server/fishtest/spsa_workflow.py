@@ -361,6 +361,13 @@ def _interpolate_legacy_history_iters(
     recovered_history_iters: Sequence[float | None],
     fallback_history_iters: Sequence[float],
 ) -> list[float]:
+    # Keep every independently-recovered iteration exactly -- it is the exact c/R
+    # inversion of that sample, so it must not be overridden even when it lands out
+    # of append order (an older worker task appended late). Only genuinely
+    # unrecoverable (None) positions are filled, by interpolating between their
+    # recovered neighbors. Ordering is left to the reader/migration, which sort by
+    # iteration, so an out-of-order sample keeps its true position on the chart
+    # instead of being discarded and interpolated away.
     if not recovered_history_iters:
         return []
 
@@ -368,40 +375,33 @@ def _interpolate_legacy_history_iters(
     if history_len != len(fallback_history_iters):
         return list(fallback_history_iters)
 
-    monotone_anchors: list[float | None] = [None] * history_len
-    last_anchor: float | None = None
-    for index, sample_iter in enumerate(recovered_history_iters):
-        if sample_iter is None:
-            continue
-        if last_anchor is not None and sample_iter + 1.0e-9 < last_anchor:
-            continue
-        monotone_anchors[index] = sample_iter
-        last_anchor = sample_iter
-
     anchor_indexes = [
         index
-        for index, sample_iter in enumerate(monotone_anchors)
+        for index, sample_iter in enumerate(recovered_history_iters)
         if sample_iter is not None
     ]
     if not anchor_indexes:
         return list(fallback_history_iters)
 
+    def anchor(index: int) -> float:
+        value = recovered_history_iters[index]
+        assert value is not None
+        return value
+
     interpolated = [0.0] * history_len
 
     first_anchor_index = anchor_indexes[0]
-    first_anchor_iter = monotone_anchors[first_anchor_index]
-    assert first_anchor_iter is not None
     for index in range(first_anchor_index):
         interpolated[index] = (
-            first_anchor_iter * float(index + 1) / float(first_anchor_index + 1)
+            anchor(first_anchor_index)
+            * float(index + 1)
+            / float(first_anchor_index + 1)
         )
-    interpolated[first_anchor_index] = first_anchor_iter
+    interpolated[first_anchor_index] = anchor(first_anchor_index)
 
     for left_index, right_index in zip(anchor_indexes, anchor_indexes[1:]):
-        left_iter = monotone_anchors[left_index]
-        right_iter = monotone_anchors[right_index]
-        assert left_iter is not None
-        assert right_iter is not None
+        left_iter = anchor(left_index)
+        right_iter = anchor(right_index)
         interpolated[left_index] = left_iter
         gap = right_index - left_index
         for offset in range(1, gap):
@@ -412,17 +412,15 @@ def _interpolate_legacy_history_iters(
         interpolated[right_index] = right_iter
 
     last_anchor_index = anchor_indexes[-1]
-    last_anchor_iter = monotone_anchors[last_anchor_index]
-    assert last_anchor_iter is not None
-    interpolated[last_anchor_index] = last_anchor_iter
+    interpolated[last_anchor_index] = anchor(last_anchor_index)
     if last_anchor_index < history_len - 1:
-        tail_target = max(last_anchor_iter, fallback_history_iters[-1])
+        tail_target = max(anchor(last_anchor_index), fallback_history_iters[-1])
         tail_gap = history_len - last_anchor_index - 1
         for offset in range(1, tail_gap + 1):
             weight = float(offset) / float(tail_gap + 1)
-            interpolated[last_anchor_index + offset] = last_anchor_iter + weight * (
-                tail_target - last_anchor_iter
-            )
+            interpolated[last_anchor_index + offset] = anchor(
+                last_anchor_index
+            ) + weight * (tail_target - anchor(last_anchor_index))
 
     return interpolated
 

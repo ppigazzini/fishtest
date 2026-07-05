@@ -52,15 +52,6 @@ DEFAULT_ITER_TOLERANCE = 1.0e-6
 DEFAULT_C_TOLERANCE = 1.0e-12
 DEFAULT_R_TOLERANCE = 1.0e-12
 DEFAULT_CHART_TOLERANCE = 1.0e-12
-# ISSUE-57 ANNEX G/H: legacy iterations are recovered from each sample's even
-# index position, not by inverting the ill-conditioned c decay, so a recovered
-# iteration only approximates the stored c/R. Measured on the full collection,
-# most samples reproduce c to ~1% once the even-period cadence settles, but the
-# first 1-3 samples of a run (and truly sparse runs) can drift tens of percent.
-# c and R are therefore kept as a loose post-conversion sanity check rather than
-# an exact gate; drift beyond this relative tolerance is reported as a warning
-# (expected on ~78% of runs), never a blocking error.
-DEFAULT_SANITY_TOLERANCE = 2.0e-2
 DEFAULT_PREVIEW_COUNT = 10
 # ISSUE-57 M6: emit a heartbeat every this many scanned runs during the stage
 # passes so a multi-thousand-run migration is not a silent multi-minute wait.
@@ -1255,24 +1246,6 @@ def _history_is_iter_only(history: Sequence[object]) -> bool:
     )
 
 
-def _collect_history_recovery_errors(
-    doc: Document,
-    *,
-    tolerance: float,
-) -> list[str]:
-    # ISSUE-57 ANNEX I: iterations are recovered from the historical sampler
-    # windows (see _integerize_resolved_history_iters), strictly increasing by
-    # construction and always defined -- there is no ill-conditioned global c
-    # inversion to fail and no un-refusable synthetic spacing. The recovered
-    # iterations therefore raise no blocking recovery error; the c/R round-trips
-    # downgrade to loose sanity warnings, and a regime that cannot be
-    # reconstructed downgrades to an even-spacing fallback warning
-    # (_history_uses_recovery_fallback), both in _build_history_conversion_report.
-    # Retained for call-site and report-field stability.
-    del doc, tolerance
-    return []
-
-
 def _build_history_conversion_report(
     doc: Document,
     *,
@@ -1330,17 +1303,14 @@ def _build_history_conversion_report(
     warnings: list[str] = []
     if _history_has_non_empty_samples(history):
         warnings.extend(_collect_invalid_history_base_c_warnings(doc))
-        # ISSUE-57 ANNEX K: flag runs whose sampling regime could not be
-        # reconstructed. Their stored iters are the c/R-inverted chart positions
-        # the runtime renders (so the migrated chart matches the legacy chart),
-        # not true optimizer iterations -- a chart-faithful fallback, not a
-        # genuine recovery.
+        # ISSUE-57 Section 4: flag the signal-free runs -- constant c AND R, so
+        # there is no iteration signal to invert. Their stored iters are evenly
+        # spaced chart-faithful positions, not recovered optimizer iterations.
         if _history_uses_recovery_fallback(doc, tolerance=iter_tolerance):
             warnings.append(
-                "history sampling regime could not be reconstructed for this run "
-                "(missing date, degenerate config, or a sample count inconsistent "
-                "with the regime); stored iters are chart-faithful c/R-inverted "
-                "positions, not true optimizer iterations"
+                "history has constant c and R (no iteration signal to invert); "
+                "stored iters are evenly spaced chart-faithful positions, not "
+                "recovered optimizer iterations"
             )
     else:
         warnings.extend(
@@ -1350,22 +1320,22 @@ def _build_history_conversion_report(
             )
             for error in _collect_invalid_base_c_errors(doc)
         )
-    # ISSUE-57 ANNEX I: c/R/chart drift beyond the loose sanity tolerance is a
-    # warning, not an error. Sampler recovery reproduces the stored decay to
-    # machine precision on regime-consistent runs, but the last sample's wide
-    # window and the off-regime even-spacing fallback can still drift; blocking on
-    # an exact round-trip would refuse those. The strictly-increasing recovered
-    # iteration is the correctness guarantee, and the sanity checks surface any
-    # genuinely large drift for an operator to inspect.
+    # ISSUE-57 Section 5: the recovery is an exact c/R inversion, so a round-trip
+    # drift beyond 1e-12 means the stored iter does not encode that sample's c/R --
+    # a genuine recovery failure, not sanity noise. Refuse the run
+    # (validation-failed), never apply it. The c/R checks run only for runs that
+    # carry an invertible signal (require_c_roundtrip / require_r_roundtrip), so the
+    # ~2 signal-free runs (constant c and R, even-spaced and flagged above) never
+    # trip this gate.
+    recovery_errors: list[str] = []
     if requirements.require_c_roundtrip and c_check.mismatched_values > 0:
-        warnings.append(_format_c_roundtrip_failure(c_check))
+        recovery_errors.append(_format_c_roundtrip_failure(c_check))
+    if requirements.require_r_roundtrip and r_check.mismatched_values > 0:
+        recovery_errors.append(_format_r_roundtrip_failure(r_check))
+    errors.extend(recovery_errors)
+    # Chart equivalence covers only the constant-signal runs; keep it a warning.
     if requirements.require_chart_equivalence and chart_check.mismatched_rows > 0:
         warnings.append(_format_chart_roundtrip_failure(chart_check))
-    if requirements.require_r_roundtrip and r_check.mismatched_values > 0:
-        warnings.append(_format_r_roundtrip_failure(r_check))
-
-    recovery_errors = _collect_history_recovery_errors(doc, tolerance=iter_tolerance)
-    errors.extend(recovery_errors)
 
     return HistoryConversionReport(
         converted_history=converted_history,
@@ -3097,20 +3067,20 @@ def main_stage_converted_history(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--c-tolerance",
         type=_nonnegative_float,
-        default=DEFAULT_SANITY_TOLERANCE,
-        help="Loose relative c(iter) sanity tolerance; drift beyond it warns, not fails",
+        default=DEFAULT_C_TOLERANCE,
+        help="Relative c(iter) round-trip tolerance; drift beyond it fails the run",
     )
     parser.add_argument(
         "--r-tolerance",
         type=_nonnegative_float,
-        default=DEFAULT_SANITY_TOLERANCE,
-        help="Loose relative R(iter) sanity tolerance; drift beyond it warns, not fails",
+        default=DEFAULT_R_TOLERANCE,
+        help="Relative R(iter) round-trip tolerance; drift beyond it fails the run",
     )
     parser.add_argument(
         "--chart-tolerance",
         type=_nonnegative_float,
-        default=DEFAULT_SANITY_TOLERANCE,
-        help="Loose relative chart payload sanity tolerance; drift beyond it warns, not fails",
+        default=DEFAULT_CHART_TOLERANCE,
+        help="Relative chart payload round-trip tolerance",
     )
     args = parser.parse_args(argv)
     # stage-new reads the spsa_orig snapshot (already restricted to finished,
@@ -3233,7 +3203,7 @@ def main_apply_staged_history(argv: Sequence[str] | None = None) -> int:
 def main_resample_dense_histories(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Resample only the SPSA histories whose creation-time regime exceeds "
+            "Resample only the SPSA histories whose stored sample count exceeds "
             "the current operational limit"
         )
     )

@@ -618,12 +618,12 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         self.assertEqual(report.recovery_errors, [])
         self.assertEqual(report.errors, [])
 
-    def test_build_history_conversion_report_respaces_non_monotonic_c_monotonically(
-        self,
-    ):
-        # The c values decode backward (iter 20 then 10). The regime is
-        # inconsistent, so the chart-faithful fallback stores the runtime's
-        # (monotone-anchored) c positions -- strictly increasing, never refused.
+    def test_build_history_conversion_report_keeps_out_of_order_c_exactly(self):
+        # The c values decode backward (iter 20 then 10): an older worker task
+        # appended late, so the sample lands out of append order. Each sample keeps
+        # its exact c-inversion (20, then 10) rather than being respaced, so
+        # recomputing c from the stored iter reproduces the original exactly. The
+        # chart reader sorts by iter for display.
         gamma = 0.101
         base_c = 1.6
         doc = {
@@ -653,8 +653,9 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
 
         self.assertEqual(report.recovery_errors, [])
         recovered = [row[0]["iter"] for row in report.converted_history]
-        self.assertEqual(recovered, [20.0, 50.0])
-        self.assertLess(recovered[0], recovered[1])
+        self.assertEqual(recovered, [20.0, 10.0])
+        # Each sample reproduces its stored c exactly, despite the append order.
+        self.assertEqual(report.c_check.mismatched_values, 0)
 
     def test_build_history_conversion_report_accepts_recoverable_monotonic_history(
         self,
@@ -971,7 +972,7 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         check = SPSA_PARAM_HISTORY_TOOL._inspect_c_to_iter_roundtrip(
             doc,
             converted,
-            tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_SANITY_TOLERANCE,
+            tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_C_TOLERANCE,
         )
         self.assertEqual(check.mismatched_values, 0)
         self.assertLess(check.max_rel_error, 1.0e-9)
@@ -1040,7 +1041,7 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         check = SPSA_PARAM_HISTORY_TOOL._inspect_chart_roundtrip(
             doc,
             converted,
-            tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_SANITY_TOLERANCE,
+            tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_C_TOLERANCE,
         )
 
         self.assertEqual(check.checked_rows, 4)
@@ -1507,11 +1508,13 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
             0,
         )
 
-    def test_build_spsa_new_stage_keeps_ready_status_when_only_r_roundtrip_mismatches(
-        self,
-    ):
+    def test_build_spsa_new_stage_refuses_run_when_r_roundtrip_mismatches(self):
+        # A stored R that does not decode to the sample's iteration is a genuine
+        # recovery failure -- the stored iter does not encode R -- so the run is
+        # validation-failed and never applied (ISSUE-57 Section 5), not merely
+        # warned about.
         doc = {
-            "_id": "run-new-r-warning",
+            "_id": "run-new-r-fail",
             "start_time": datetime(2025, 4, 20, tzinfo=UTC),
             "args": {
                 "username": "tester",
@@ -1538,9 +1541,8 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
             chart_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_CHART_TOLERANCE,
         )
 
-        self.assertEqual(result.status, "ready")
-        self.assertEqual(result.errors, [])
-        self.assertEqual(result.stage_doc["stage"]["status"], "ready")
+        self.assertEqual(result.status, "validation-failed")
+        self.assertEqual(result.stage_doc["stage"]["status"], "validation-failed")
         self.assertEqual(
             result.stage_doc["stage"]["validation"]["c"]["mismatched_values"],
             0,
@@ -1549,10 +1551,62 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
             result.stage_doc["stage"]["validation"]["r"]["mismatched_values"],
             0,
         )
-        self.assertTrue(result.warnings)
-        self.assertIn("R-to-iter round-trip assertion failed", result.warnings[0])
-        self.assertEqual(result.stage_doc["stage"]["errors"], [])
-        self.assertEqual(result.stage_doc["stage"]["warnings"], result.warnings)
+        self.assertTrue(result.errors)
+        self.assertIn("R-to-iter round-trip assertion failed", result.errors[0])
+        self.assertEqual(result.stage_doc["stage"]["errors"], result.errors)
+
+    def test_build_spsa_new_stage_recovers_out_of_order_append_exactly(self):
+        # Forward-truth: a worker appended an older task's checkpoint late, so the
+        # third sample's c decodes to a smaller iteration than the second (out of
+        # append order). Each sample keeps its exact c-inversion, the run
+        # round-trips exactly and is ready -- not respaced, not validation-failed.
+        gamma = 0.101
+        base_c = 1.6
+        true_iters = [100, 200, 150, 300]
+        doc = {
+            "_id": "run-new-out-of-order",
+            "start_time": datetime(2025, 6, 1, tzinfo=UTC),
+            "args": {
+                "username": "tester",
+                "tc": "10+0.1",
+                "num_games": 2000,
+                "spsa": {
+                    "iter": 300,
+                    "num_iter": 1000,
+                    "gamma": gamma,
+                    "params": [{"theta": 12.5, "start": 10, "c": base_c}],
+                    "param_history": [
+                        [
+                            {
+                                "theta": 11.0 + index,
+                                "c": base_c / ((sample_iter + 1) ** gamma),
+                            }
+                        ]
+                        for index, sample_iter in enumerate(true_iters)
+                    ],
+                },
+            },
+        }
+
+        result = SPSA_PARAM_HISTORY_TOOL._build_spsa_new_stage(
+            doc,
+            source_collection="spsa_orig",
+            iter_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_ITER_TOLERANCE,
+            c_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_C_TOLERANCE,
+            r_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_R_TOLERANCE,
+            chart_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_CHART_TOLERANCE,
+        )
+
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(
+            result.stage_doc["stage"]["validation"]["c"]["mismatched_values"],
+            0,
+        )
+        stored = [
+            row[0]["iter"] for row in result.stage_doc["args"]["spsa"]["param_history"]
+        ]
+        # Each sample keeps its exact inverted iteration, in append order.
+        self.assertEqual(stored, [100.0, 200.0, 150.0, 300.0])
 
     def test_build_spsa_new_stage_warns_when_empty_history_has_invalid_base_c(self):
         doc = {
