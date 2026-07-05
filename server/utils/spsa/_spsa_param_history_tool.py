@@ -27,7 +27,7 @@ from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from math import floor, isclose, isfinite, log, nextafter
+from math import floor, isclose, isfinite, log
 from typing import Any, cast
 
 from bson import ObjectId
@@ -37,10 +37,8 @@ from pymongo.collection import Collection
 from pymongo.errors import BulkWriteError
 
 from fishtest.spsa_workflow import (
-    _history_sampling_regime,
     build_spsa_chart_payload,
     resolve_spsa_history_samples,
-    spsa_history_sampler_windows,
 )
 
 DEFAULT_URI = "mongodb://localhost:27017/"
@@ -1509,11 +1507,14 @@ def _iter_sample_is_iter_only(sample: list[Any]) -> bool:
 def _history_density_info(doc: Document) -> tuple[datetime, str, int, int]:
     created = _read_run_start_time(doc)
     param_count = len(_read_params(_read_spsa(doc)))
-    num_iter = _read_num_iter_for_history(doc)
-    regime_name, sample_counter = _history_sampling_regime(created)
-    whole_interval_samples = sample_counter(num_iter=num_iter, param_count=param_count)
+    # Density is just how many samples are actually stored; a run is a resample
+    # candidate when that exceeds the current target. (No regime reconstruction is
+    # needed -- the stored count is the ground truth.)
+    stored_samples = sum(
+        1 for sample in _read_param_history(doc) if isinstance(sample, list) and sample
+    )
     current_target = _target_history_samples(param_count)
-    return created, regime_name, whole_interval_samples, current_target
+    return created, "", stored_samples, current_target
 
 
 def _read_history_terminal_iter(
@@ -1861,228 +1862,18 @@ def _estimate_history_sample_iter_from_r(
     return sample_iters[len(sample_iters) // 2]
 
 
-def _history_sampler_windows(
-    doc: Document,
-    *,
-    sample_count: int,
-    terminal_iter: int,
-    tolerance: float,
-) -> list[tuple[int, int]] | None:
-    # Read the run's created time, num_iter and param_count from the doc, then
-    # delegate to the shared regime reconstruction in fishtest.spsa_workflow.
-    try:
-        created = _read_run_start_time(doc)
-        num_iter = _read_num_iter_for_history(doc)
-        param_count = len(_read_params(_read_spsa(doc)))
-    except ValueError:
-        return None
-    return spsa_history_sampler_windows(
-        created=created,
-        num_iter=num_iter,
-        param_count=param_count,
-        terminal_iter=terminal_iter,
-        sample_count=sample_count,
-        tolerance=tolerance,
-    )
-
-
-def _refine_sample_iter_in_window(
-    sample: list[Any],
-    params: Sequence[Mapping[str, Any]],
-    *,
-    A: float | None,
-    alpha: float | None,
-    gamma: float,
-    lower: int,
-    upper: int,
-    sample_index: int,
-) -> int:
-    # The historical window brackets the sample; use the stored c/R to pin the
-    # exact iter inside it. This is a bounded search around a strong prior, so it
-    # avoids the global c-inversion instability -- the estimate is clamped to the
-    # window and the samples stay ordered by construction. Anchor to the window's
-    # lower boundary (the sampler's own guarantee) when c/R is constant, missing,
-    # or points outside the window.
-    if upper <= lower:
-        return lower
-    # Any arithmetic failure while inverting or scoring c/R (overflow at extreme
-    # gamma, a Newton blow-up, an invalid base_c) anchors to the window's lower
-    # boundary rather than aborting the whole run's conversion.
-    try:
-        targets = _history_sample_validation_targets(
-            sample, params, sample_index=sample_index
-        )
-        if not targets:
-            return lower
-        estimates: list[float] = []
-        c_estimate = _estimate_history_sample_iter_from_c(targets, gamma=gamma)
-        if c_estimate is not None:
-            estimates.append(c_estimate)
-        r_estimate = _estimate_history_sample_iter_from_r(
-            targets,
-            A=A,
-            alpha=alpha,
-            gamma=gamma,
-            seed=c_estimate if c_estimate is not None else float(lower),
-            upper_bound=upper,
-        )
-        if r_estimate is not None:
-            estimates.append(r_estimate)
-        in_window = [
-            int(floor(min(max(estimate, lower), upper) + 0.5))
-            for estimate in estimates
-            if lower - 1.0 <= estimate <= upper + 1.0
-        ]
-        if not in_window:
-            return lower
-        return min(
-            in_window,
-            key=lambda sample_iter: _score_history_sample_iter_validation_priority(
-                targets, A=A, alpha=alpha, gamma=gamma, sample_iter=sample_iter
-            ),
-        )
-    except ArithmeticError, OverflowError, ValueError, ZeroDivisionError:
-        return lower
-
-
-def _fractional_fallback_history_iters(
-    doc: Document,
-    non_empty_positions: Sequence[int],
-    *,
-    actual_iter: int,
-    tolerance: float,
-    length: int,
-) -> list[float | int | None]:
-    # ISSUE-57 ANNEX K: for a run whose sampling regime cannot be reconstructed
-    # there is no true iteration to recover, so store the c/R-inverted chart
-    # position that the runtime and the migration chart reference render
-    # (resolve_spsa_history_samples through `created`), not even spacing. The
-    # migrated `% c` chart then reproduces the legacy chart exactly instead of
-    # scattering points by up to half the chart width. These stored iters are
-    # chart-faithful positions, not true optimizer iterations (the run stays
-    # flagged); `iter` is a schema float (sunumber), so a fractional position is
-    # valid and, at the first sample (stored c ~ base_c inverts to iter ~ 0),
-    # reproduces c far better than an integer floor of 1 would.
-    resolved: list[float | int | None] = [None] * length
-    history = _read_param_history(doc)
-    positions = _resolve_history_sample_iters(doc, history, tolerance=tolerance)
-    previous = 0.0
-    for position in non_empty_positions:
-        value = positions[position]
-        if value is None:
-            raise ValueError(f"history sample {position + 1} did not resolve to iter")
-        value = min(float(value), float(actual_iter))
-        if value <= previous:
-            value = min(nextafter(previous, float("inf")), float(actual_iter))
-        resolved[position] = value
-        previous = value
-    return resolved
-
-
-def _integerize_resolved_history_iters(
-    doc: Document,
-    resolved_iters: Sequence[float | int | None],
-    *,
-    tolerance: float,
-    fractional_fallback: bool = False,
-) -> list[float | int | None]:
-    resolved: list[float | int | None] = [None for _ in resolved_iters]
-    non_empty_positions = [
-        index
-        for index, sample_iter in enumerate(resolved_iters)
-        if sample_iter is not None
-    ]
-    if not non_empty_positions:
-        return resolved
-
-    actual_iter = _read_history_terminal_iter(doc, tolerance=tolerance)
-    if actual_iter < 1:
-        raise ValueError(
-            "non-empty param_history requires a positive terminal SPSA iter"
-        )
-
-    # ISSUE-57 ANNEX I: recover each sampled iteration from the historical
-    # sampling algorithm that actually wrote it, not by interpolation. The dated
-    # regime fixes the iteration window each sample was saved in, and the stored
-    # c/R pins the exact position inside that window. This reconstructs the true
-    # iterations -- correct for early-stopped runs and for the append-rule offset
-    # of the first sample -- is strictly increasing by construction, and only
-    # falls back to even spacing when the regime cannot be reconstructed (the
-    # report surfaces that fallback as a warning, see
-    # _history_uses_recovery_fallback).
-    #
-    # A stored history row is always a post-start checkpoint; the starting theta
-    # vector at iter=0 is implicit and is never written to param_history.
-    windows = _history_sampler_windows(
-        doc,
-        sample_count=len(non_empty_positions),
-        terminal_iter=actual_iter,
-        tolerance=tolerance,
-    )
-    if windows is None and fractional_fallback:
-        return _fractional_fallback_history_iters(
-            doc,
-            non_empty_positions,
-            actual_iter=actual_iter,
-            tolerance=tolerance,
-            length=len(resolved_iters),
-        )
-    spsa = _read_spsa(doc)
-    params = _read_params(spsa)
-    A = _as_optional_nonnegative_float_value(spsa.get("A"))
-    alpha = _as_optional_nonnegative_float_value(spsa.get("alpha"))
-    gamma = _as_nonnegative_float_value(spsa.get("gamma"), field_name="args.spsa.gamma")
-    history = _read_param_history(doc)
-    total_points = len(non_empty_positions) + 1
-
-    previous_value = 0
-    for order, position in enumerate(non_empty_positions, start=1):
-        if windows is not None:
-            lower, upper = windows[order - 1]
-            lower = max(lower, previous_value + 1)
-            upper = max(min(upper, actual_iter), lower)
-            sample = history[position]
-            if not isinstance(sample, list):
-                raise ValueError(f"history sample {position + 1} is not a list")
-            candidate = _refine_sample_iter_in_window(
-                sample,
-                params,
-                A=A,
-                alpha=alpha,
-                gamma=gamma,
-                lower=lower,
-                upper=upper,
-                sample_index=position + 1,
-            )
-        else:
-            even_iter = order / total_points * actual_iter
-            candidate = min(int(floor(even_iter + 0.5)), actual_iter)
-        candidate = max(previous_value + 1, min(candidate, actual_iter))
-        resolved[position] = candidate
-        previous_value = candidate
-
-    return resolved
-
-
 def _history_uses_recovery_fallback(doc: Document, *, tolerance: float) -> bool:
-    # A legacy history is placed either entirely from the historical sampler
-    # windows or, when those cannot be reconstructed, entirely by even-spacing
-    # interpolation (see _integerize_resolved_history_iters). Report the latter so
-    # an interpolated chart is never trusted as a genuine recovery.
+    # A legacy history is recovered by inverting c (or R); the only samples that
+    # cannot be inverted are those of a run whose c AND R are both constant -- no
+    # signal to invert -- which are placed by even spacing. Report that so an
+    # interpolated chart is never trusted as a genuine recovery.
+    del tolerance
     history = _read_param_history(doc)
     if not _history_has_non_empty_samples(history) or _history_is_iter_only(history):
         return False
-    non_empty = sum(1 for sample in history if isinstance(sample, list) and sample)
-    try:
-        terminal = _read_history_terminal_iter(doc, tolerance=tolerance)
-    except ValueError:
-        return False
-    return (
-        _history_sampler_windows(
-            doc, sample_count=non_empty, terminal_iter=terminal, tolerance=tolerance
-        )
-        is None
-    )
+    return _history_field_is_constant(
+        doc, field_name="c", tolerance=DEFAULT_C_TOLERANCE
+    ) and _history_field_is_constant(doc, field_name="R", tolerance=DEFAULT_R_TOLERANCE)
 
 
 def _resolve_history_sample_iter(
@@ -2191,18 +1982,6 @@ def _drop_history_r(doc: Document) -> list[list[dict[str, Any]]] | None:
     return new_history if new_history != history else None
 
 
-def _history_sample_presence_mask(
-    history: Sequence[object],
-) -> list[float | None]:
-    # ISSUE-57 ANNEX H perf: index-based recovery places each sample from its
-    # ordinal position among the non-empty rows, so the integerizer only needs
-    # to know which rows are non-empty and discards the c/R-inverted float
-    # estimate entirely. Mark presence directly instead of running the
-    # ill-conditioned full resolve; malformed rows still raise downstream when
-    # the converted history is rebuilt.
-    return [1.0 if isinstance(sample, list) and sample else None for sample in history]
-
-
 def _convert_history_c_to_iter(
     doc: Document,
     *,
@@ -2264,15 +2043,6 @@ def _resample_dense_history(doc: Document) -> list[list[dict[str, Any]]] | None:
         history,
         tolerance=DEFAULT_ITER_TOLERANCE,
     )
-    if any(
-        isinstance(sample, list) and sample and not _iter_sample_is_iter_only(sample)
-        for sample in history
-    ):
-        resolved_iters = _integerize_resolved_history_iters(
-            doc,
-            resolved_iters,
-            tolerance=DEFAULT_ITER_TOLERANCE,
-        )
     iter_samples: list[tuple[float, list[dict[str, Any]]]] = []
     for sample_index, sample in enumerate(history, start=1):
         if not isinstance(sample, list):
@@ -3579,14 +3349,9 @@ def _analyze_history_sample_iter_window(
         resolved_iters[sample_index - 1],
         field_name=f"resolved history sample {sample_index}.iter",
     )
-    integerized_iters = _integerize_resolved_history_iters(
-        doc,
-        resolved_iters,
-        tolerance=tolerance,
-    )
-    established_iter = integerized_iters[sample_index - 1]
-    if established_iter is None:
-        raise ValueError(f"history sample {sample_index} did not resolve to iter")
+    # Center the diagnostic window on the inverted iteration (rounded), clamped to
+    # a valid iteration.
+    established_iter = max(1, round(resolved_estimate))
 
     validation_targets = _history_sample_validation_targets(
         sample,

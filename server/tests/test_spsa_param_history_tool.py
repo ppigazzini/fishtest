@@ -287,13 +287,11 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         recovered = [row[0]["iter"] for row in report.converted_history]
         self.assertEqual(recovered, true_iters)
 
-    def test_convert_history_c_to_iter_stores_chart_faithful_positions_off_regime(self):
-        # When the observed sample count is inconsistent with the reconstructed
-        # regime (here 4 samples for a run whose 2025-regime period of 10 predicts
-        # ~100 by iter 1000), the sampler windows are rejected. The recovery then
-        # stores the c/R-inverted chart positions the runtime renders (not even
-        # spacing), so the migrated chart matches the legacy chart -- here the c
-        # was built at iters 200/400/600/800, so those exact positions come back.
+    def test_convert_history_c_to_iter_inverts_c_for_a_sparse_history(self):
+        # A short history is recovered by inverting each stored c, exactly and
+        # regardless of how many samples there are -- here c was built at iters
+        # 200/400/600/800, so those exact positions come back. Because c varies,
+        # this is a genuine recovery, not a flagged fallback.
         gamma = 0.101
         base_c = 1.6
         doc = {
@@ -322,8 +320,6 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
             [row[0]["iter"] for row in converted], [200.0, 400.0, 600.0, 800.0]
         )
 
-        # The run is still flagged: its stored iters are chart-faithful positions,
-        # not true optimizer iterations.
         report = SPSA_PARAM_HISTORY_TOOL._build_history_conversion_report(
             doc,
             iter_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_ITER_TOLERANCE,
@@ -332,7 +328,8 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
             chart_tolerance=SPSA_PARAM_HISTORY_TOOL.DEFAULT_CHART_TOLERANCE,
         )
         self.assertEqual(report.errors, [])
-        self.assertTrue(
+        # A varying-c run is a real recovery, never flagged as chart-faithful.
+        self.assertFalse(
             any(
                 "chart-faithful c/R-inverted positions" in warning
                 for warning in report.warnings
@@ -851,9 +848,8 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
         output = stdout.getvalue()
         self.assertEqual(exit_code, 0)
         self.assertIn("Resolved estimate: 12.4", output)
-        # Established iter is now the index-spacing recovery: V = 20, single
-        # sample -> round(20/2) = 10.
-        self.assertIn("Established iter: 10", output)
+        # Established iter is the inverted estimate, rounded: round(12.4) = 12.
+        self.assertIn("Established iter: 12", output)
         self.assertIn("Best iter in window: 9", output)
         self.assertIn("Stored R targets: 1", output)
 
@@ -1291,7 +1287,10 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
 
         self.assertIsNone(SPSA_PARAM_HISTORY_TOOL._resample_dense_history(doc))
 
-    def test_resample_dense_history_handles_pre_2022_early_stop_runs(self):
+    def test_resample_dense_history_skips_sparse_history(self):
+        # Density is the actual stored sample count. A run with fewer samples than
+        # the resample limit is left untouched (returns None), never downsampled
+        # and never emptied -- so an early-stopped / sparse history is safe.
         doc = {
             "start_time": datetime(2021, 12, 7, tzinfo=UTC),
             "args": {
@@ -1306,7 +1305,7 @@ class SpsaParamHistoryToolTests(unittest.TestCase):
             },
         }
 
-        self.assertEqual(SPSA_PARAM_HISTORY_TOOL._resample_dense_history(doc), [])
+        self.assertIsNone(SPSA_PARAM_HISTORY_TOOL._resample_dense_history(doc))
 
     def test_run_history_mutation_dry_run_reports_all_errors_and_returns_success(self):
         stats = SPSA_PARAM_HISTORY_TOOL.MutationStats(
