@@ -6,7 +6,8 @@
 {% set active_toggle = prefix ~ 'active' %}
 
 {% if page_idx == 0 %}
-  <div hx-get="{{ live_url }}"
+  <div id="run-tables-poller"
+       hx-get="{{ live_url }}"
       hx-trigger="every {{ poll.tests_run_tables }}s [document.visibilityState === 'visible'], visibilitychange[document.visibilityState === 'visible'] from:document"
        hx-swap="none">
   </div>

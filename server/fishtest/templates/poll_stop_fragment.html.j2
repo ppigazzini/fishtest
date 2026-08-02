@@ -1,0 +1,9 @@
+{#
+  Out-of-band element that stops a poll.
+
+  htmx clears a poll interval only when its driver element leaves the
+  document, so a terminal response deletes the driver.
+
+  Requires: poller_id -- the id of the driver element to remove.
+#}
+<div id="{{ poller_id }}" hx-swap-oob="delete"></div>
