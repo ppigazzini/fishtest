@@ -128,11 +128,24 @@ class TestTestsHomepage(UiUserTestCase):
         ):
             response = self.client.get(
                 "/tests?live=run_tables",
-                headers={"HX-Request": "true"},
+                headers={"HX-Request": "true", "HX-Request-Type": "partial"},
             )
 
-        self.assertEqual(response.status_code, 286)
+        # No pending, paused, or active runs: a plain 200 that deletes the
+        # polling driver out of band.
+        self.assertEqual(response.status_code, 200)
         self.assertIn("Workers - 2 (1)", response.text)
+        self.assertIn(
+            '<div id="run-tables-poller" hx-swap-oob="delete"></div>',
+            response.text,
+        )
+        # Rows travel inside a <template> because a <tr> cannot stand alone.
+        # The out-of-band attributes must be on the wrapper: htmx locates them
+        # with querySelectorAll, which does not descend into template content.
+        self.assertIn(
+            '<template id="finished-tbody" hx-swap-oob="innerHTML">', response.text
+        )
+        self.assertNotIn("<tbody", response.text)
 
     def test_tests_homepage_live_run_tables_keeps_hidden_active_filtered_count_current(
         self,
@@ -201,7 +214,7 @@ class TestTestsHomepage(UiUserTestCase):
         ):
             response = self.client.get(
                 "/tests?live=run_tables",
-                headers={"HX-Request": "true"},
+                headers={"HX-Request": "true", "HX-Request-Type": "partial"},
             )
 
         self.assertEqual(response.status_code, 200)
@@ -522,7 +535,7 @@ class TestTestsHomepage(UiUserTestCase):
         ):
             response = self.client.get(
                 "/tests?live=run_tables",
-                headers={"HX-Request": "true"},
+                headers={"HX-Request": "true", "HX-Request-Type": "partial"},
             )
 
         self.assertEqual(response.status_code, 200)
@@ -641,7 +654,7 @@ class TestTestsHomepage(UiUserTestCase):
 
         response = self.client.get(
             f"/tests/user/{self.username}?success_only=1",
-            headers={"HX-Request": "true"},
+            headers={"HX-Request": "true", "HX-Request-Type": "partial"},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -663,7 +676,45 @@ class TestTestsHomepage(UiUserTestCase):
         )
         js_source = js_path.read_text(encoding="utf-8")
 
-        self.assertIn('document.addEventListener("htmx:afterSwap"', js_source)
-        self.assertIn('document.addEventListener("htmx:load"', js_source)
+        # htmx 4 fires one htmx:after:swap per response on the requesting
+        # element, so swapped regions are identified through onHtmxSwap rather
+        # than from the event target.
+        self.assertIn("onHtmxSwap(", js_source)
+        self.assertIn('document.addEventListener("htmx:after:init"', js_source)
+        self.assertNotIn("htmx:oobAfterSwap", js_source)
         self.assertIn("initializeNotificationButtons(target)", js_source)
         self.assertIn('notification.dataset.notificationReady = "1"', js_source)
+
+    def test_htmx_swap_helpers_filter_by_target_and_status(self):
+        js_path = (
+            Path(__file__).resolve().parents[1]
+            / "fishtest"
+            / "static"
+            / "js"
+            / "application.js"
+        )
+        js_source = js_path.read_text(encoding="utf-8")
+
+        # onHtmxSwap must read the swap targets from htmx:before:swap, which is
+        # the only event carrying them, and must accumulate rather than
+        # overwrite so a concurrent response cannot drop a pending target.
+        self.assertIn("function onHtmxSwap(matches, callback)", js_source)
+        self.assertIn('document.addEventListener("htmx:before:swap"', js_source)
+        self.assertIn("pending.push(task.target)", js_source)
+
+        # noSwap maps 4xx/5xx to swap "none" instead of skipping the swap, so
+        # htmx:after:swap still fires after htmx:response:error.
+        self.assertIn("function htmxSwapSucceeded(event)", js_source)
+        self.assertIn("status < 400", js_source)
+
+    def test_swap_listeners_do_not_react_to_unrelated_requests(self):
+        js_dir = Path(__file__).resolve().parents[1] / "fishtest" / "static" / "js"
+
+        # base.html.j2 polls the pending-users badge on every page, so a bare
+        # document-level htmx:after:swap listener would fire on a timer in
+        # every one of these files.
+        for name in ("contributors.js", "live_elo.js", "spsa.js", "notifications.js"):
+            with self.subTest(script=name):
+                source = (js_dir / name).read_text(encoding="utf-8")
+                self.assertIn("onHtmxSwap(", source)
+                self.assertNotIn('addEventListener("htmx:after:swap"', source)

@@ -1,18 +1,22 @@
+{#
+  A <tr> cannot stand on its own in parsed HTML, so the rows travel inside a
+  <template>. The out-of-band attributes belong on the <template> itself:
+  htmx locates out-of-band elements with querySelectorAll, which does not
+  descend into template content, and strips the wrapper before the swap.
+#}
 {% for panel in panels %}
-  <template>
-    <tbody id="{{ panel.tbody_id }}" hx-swap-oob="innerHTML">
-      {% set _batch_panel_id = panel.tbody_id.replace('-tbody', '') %}
-      {% for row in panel.rows %}
-        {% with show_delete=panel.show_delete, show_gauge=False, panel_id=_batch_panel_id %}
-          {% include "run_table_row_fragment.html.j2" %}
-        {% endwith %}
-      {% endfor %}
-      {% if panel.empty_text and panel.rows | length == 0 %}
-        <tr>
-          <td colspan=20>{{ panel.empty_text }}</td>
-        </tr>
-      {% endif %}
-    </tbody>
+  <template id="{{ panel.tbody_id }}" hx-swap-oob="innerHTML">
+    {% set _batch_panel_id = panel.tbody_id.replace('-tbody', '') %}
+    {% for row in panel.rows %}
+      {% with show_delete=panel.show_delete, show_gauge=False, panel_id=_batch_panel_id %}
+        {% include "run_table_row_fragment.html.j2" %}
+      {% endwith %}
+    {% endfor %}
+    {% if panel.empty_text and panel.rows | length == 0 %}
+      <tr>
+        <td colspan=20>{{ panel.empty_text }}</td>
+      </tr>
+    {% endif %}
   </template>
 {% endfor %}
 
@@ -34,5 +38,11 @@
     games_per_minute=stats.games_per_minute
   %}
     {% include "homepage_stats_fragment.html.j2" %}
+  {% endwith %}
+{% endif %}
+
+{% if stop_polling is defined and stop_polling %}
+  {% with poller_id="run-tables-poller" %}
+    {% include "poll_stop_fragment.html.j2" %}
   {% endwith %}
 {% endif %}
