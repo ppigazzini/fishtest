@@ -19,6 +19,13 @@
     <meta name="csrf-token" content="{{ csrf_token }}">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
+    {#
+      htmx swaps every response whose status is not listed in noSwap. This
+      server answers errors with whole pages, not with partials sized for a
+      swap target, so 4xx and 5xx must never reach one.
+    #}
+    <meta name="htmx-config" content='{"noSwap": [204, 304, "4xx", "5xx"]}'>
+
     <meta property="og:site_name" content="{{ open_graph['site_name'] }}">
     <meta property="og:type" content="{{ open_graph['type'] }}">
     <meta property="og:title" content="{{ open_graph['title'] }}">
@@ -87,8 +94,8 @@
     ></script>
 
     <script
-      src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.10/dist/htmx.min.js"
-      integrity="sha256-cepnGFv6jJjDnTFxfG/OXYUjcPzf0SnbRUN3TTFFwN4="
+      src="https://cdn.jsdelivr.net/npm/htmx.org@4.0.0-beta6/dist/htmx.min.js"
+      integrity="sha256-KPrnu+joFCtwLeu51SNKmkNtlDWktRZbGVqhp+2EDSU="
       crossorigin="anonymous"
       referrerpolicy="no-referrer"
     ></script>
