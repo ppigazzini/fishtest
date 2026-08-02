@@ -97,7 +97,9 @@
       hx-include="#machines-filters"
       hx-sync="#machines-filters:abort"
       hx-trigger="{% if machines_shown %}load, {% endif %}machines:load, every {{ poll.machines_homepage }}s [document.visibilityState === 'visible' && document.getElementById('machines-panel').classList.contains('show')], visibilitychange[document.visibilityState === 'visible' && document.getElementById('machines-panel').classList.contains('show')] from:document"
-      hx-swap="innerHTML"
+      {# Morph rather than replace: this panel scrolls, and a poll tick must
+         not reset the scroll position or drop focus from the filter row. #}
+      hx-swap="innerMorph"
     >
       <div id="machines-loading" class="skeleton-wrap">
         <div class="skeleton-line"></div>
