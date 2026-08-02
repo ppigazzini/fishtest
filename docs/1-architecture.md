@@ -197,10 +197,10 @@ flowchart LR
 
 ### htmx integration
 
-UI templates load htmx 2.0.10 from CDN in `base.html.j2`. The server remains
-fully server-rendered (Jinja2 + HTML responses). The test detail page also
-loads a page-scoped diff renderer for the inline Diff panel. htmx adds three
-capabilities without client-side rendering or a JavaScript build step:
+UI templates load htmx 4.0.0-beta6 from CDN in `base.html.j2`. The server
+remains fully server-rendered (Jinja2 + HTML responses). The test detail page
+also loads a page-scoped diff renderer for the inline Diff panel. htmx adds
+three capabilities without client-side rendering or a JavaScript build step:
 
 | Capability | Mechanism |
 |------------|-----------|
@@ -208,12 +208,26 @@ capabilities without client-side rendering or a JavaScript build step:
 | In-place content swap | `hx-get` + `hx-target` + `hx-swap="innerHTML"` replaces a page section (filters, pagination) |
 | Out-of-band updates | `hx-swap-oob="innerHTML"` attributes in the response update multiple DOM elements in one response |
 
+Panels that scroll and refresh on a timer, `#machines` and `#tasks-content`,
+swap with `hx-swap="innerMorph"` so a poll tick preserves scroll position and
+focus instead of rebuilding the subtree.
+
+**Response swapping.** htmx swaps every response whose status is not listed in
+`htmx.config.noSwap`. `base.html.j2` sets that list to `204, 304, 4xx, 5xx`
+through an `htmx-config` meta tag, because this server answers errors with
+whole pages rather than partials sized for a swap target.
+
 **Dual-mode endpoints.** Several UI routes serve either a full page or an HTML
-fragment from the same URL. The view handler calls `_is_hx_request(request)` to
-detect the `HX-Request: true` header (with a `Sec-Fetch-Mode` guard against
-full-page navigations), then returns the appropriate template via the
-`_render_hx_fragment()` helper. `_dispatch_view()` appends `Vary: HX-Request`
-to every GET response so that HTTP caches distinguish the two representations.
+fragment from the same URL. The view handler calls `_is_hx_request(request)`,
+which requires both `HX-Request: true` and `HX-Request-Type: partial`, then
+returns the appropriate template via the `_render_hx_fragment()` helper.
+
+`HX-Request-Type` states the scope of the swap: `partial` targets a region of
+the current page, `full` replaces the document. History restores and boosted
+navigations send `full` and therefore receive a whole page. `_dispatch_view()`
+appends `Vary: HX-Request, HX-Request-Type` to every GET response. Both tokens
+are required, because `HX-Request: true` alone does not distinguish a fragment
+request from a back-button navigation.
 UI GET responses also emit `Cache-Control`: the default is
 `no-cache, private`, auth-sensitive pages use `no-store`, and explicit
 route-level overrides such as `/tests/machines` can still set a short
@@ -235,25 +249,38 @@ rows. The shared active-search debounce is projected into templates as
 `htmx.input_changed_delay_ms`.
 
 **Request coordination.** Poll-driven fragments that live inside a larger filter
-form may use `hx-sync`, `hx-disinherit`, and `hx-params` to keep inherited form
-state from corrupting sort/pagination links and to ensure explicit user actions
-win over timer-driven refreshes.
+form use `hx-sync` so explicit user actions win over timer-driven refreshes.
+Sort and pagination links carry their own query string and inherit nothing:
+htmx applies an ancestor's attributes only where that ancestor marks them
+`:inherited`, and a `GET` collects the enclosing form only when the requesting
+element is the form itself.
 
 **Fragment templates.** Fragment responses use standalone `.html.j2` files
 (named `*_fragment.html.j2`) that do not extend `base.html.j2`. This avoids
 the need for block-level partial rendering and keeps fragments self-contained.
 See [5-templates.md](5-templates.md) for the full catalog.
 
-**OOB table rows.** HTML spec restrictions prevent `<tbody>` elements from
-appearing inside `<div>`. Fragment templates that update table bodies wrap
-`<tbody>` elements in `<template>` tags with `hx-swap-oob` attributes.
-htmx processes the `<template>` content and discards the wrapper.
+**OOB table rows.** A `<tr>` cannot stand on its own in parsed HTML, so
+fragments that update table bodies send their rows inside a `<template>`.
+The `id` and `hx-swap-oob` attributes go on the `<template>` element itself,
+never on an element inside it: htmx locates out-of-band elements with
+`querySelectorAll`, which does not descend into template content, so a nested
+`hx-swap-oob` is silently ignored. htmx strips the wrapper before the swap and
+applies the rows to the live `<tbody>` named by the `id`.
 
-**Polling lifecycle.** Polled endpoints use HTTP status codes to control
-the polling lifecycle:
-- **200** -- swap the response content.
-- **204** -- no content; htmx skips the swap but continues polling.
-- **286** -- swap the response and stop polling (terminal state).
+**Polling lifecycle.** A poll runs on a dedicated driver element that carries
+the `hx-trigger="every Ns"` attribute and is never itself the swap target.
+htmx clears a poll interval only when its driver leaves the document, so the
+lifecycle is expressed in the response body:
+
+- **200** -- swap the response content and keep polling.
+- **204** -- no content; htmx skips the swap and keeps polling.
+- **200 with a driver-removing element** -- terminal state. The response
+  includes `poll_stop_fragment.html.j2`, which renders
+  `<div id="{poller_id}" hx-swap-oob="delete"></div>` and removes the driver.
+
+The drivers are `#run-tables-poller`, `#live-elo-poller`,
+`#tests-stats-poller`, and `#tests-view-detail-poller`.
 
 The test detail page uses one visibility-aware OOB poller for live summary and
 detail data:

@@ -96,8 +96,9 @@ The sidebar contains two visibility-aware status links:
 
 Route notes:
 - **Fragment-only**: endpoint always returns a fragment template (no full page).
-- **HX**: dual-mode endpoint; returns the named fragment when `HX-Request: true`
-  is present, otherwise renders the full-page template.
+- **HX**: dual-mode endpoint; returns the named fragment when
+  `HX-Request: true` and `HX-Request-Type: partial` are both present,
+  otherwise renders the full-page template.
 - **OOB**: fragment contains `hx-swap-oob` attributes for multi-element updates.
 
 ## Tests Repository URL Contract
@@ -178,7 +179,9 @@ Server behavior for htmx polling:
 
 - `200` returns fresh OOB detail content.
 - `204` keeps the current DOM when the run is still paused or pending.
-- `286` returns the final fragment and stops polling when the run is terminal.
+- When the run is terminal, the `200` response also carries
+  `<div id="tests-view-detail-poller" hx-swap-oob="delete"></div>`, which
+  removes the poller and stops the poll.
 
 ## `/tests/live_elo/{id}` gauge scale contract
 
@@ -206,7 +209,8 @@ Value display rule:
 The raw statistics page is dual-mode:
 
 - Full-page navigation renders `tests_stats.html.j2`.
-- `HX-Request: true` renders `tests_stats_content_fragment.html.j2`.
+- `HX-Request: true` with `HX-Request-Type: partial` renders
+  `tests_stats_content_fragment.html.j2`.
 
 The page shell keeps a visibility-aware poller for unfinished non-SPSA runs:
 
@@ -217,8 +221,9 @@ Server behavior for htmx polling:
 
 - `200` when the run is active, returning the refreshed stats fragment.
 - `204` when the run is not active but not terminal, keeping the current DOM.
-- `286` when the run is terminal (`finished` or `failed`), returning the final
-   fragment and stopping the poller.
+- When the run is terminal (`finished` or `failed`), the `200` response also
+   carries `<div id="tests-stats-poller" hx-swap-oob="delete"></div>`, which
+   removes the poller and stops the poll.
 
 Layout contract:
 
@@ -234,11 +239,16 @@ HTML page or a fragment, from the same URL, based on request headers.
 
 ### Detection: `_is_hx_request(request)`
 
-Returns `True` when all of the following hold:
+Returns `True` when both of the following hold, case-insensitively:
 
-1. The request carries `HX-Request: true` (case-insensitive).
-2. `Sec-Fetch-Mode` is not `navigate` (blocks full-page navigations that
-   carry `HX-Request` due to htmx-boosted links or browser prefetch).
+1. The request carries `HX-Request: true`.
+2. The request carries `HX-Request-Type: partial`.
+
+`HX-Request-Type` states the scope of the swap. `partial` targets a region of
+the current page; `full` replaces the document. History restores and boosted
+navigations send `HX-Request: true` together with `HX-Request-Type: full`, so
+requiring `partial` is what keeps a back-button navigation from receiving a
+bare fragment.
 
 ### Rendering: `_render_hx_fragment(request, template_name, context)`
 
@@ -263,12 +273,16 @@ if hx:
 return full_page_context
 ```
 
-### `Vary: HX-Request` header
+### `Vary: HX-Request, HX-Request-Type` header
 
-`_dispatch_view()` appends `Vary: HX-Request` to every GET response
-(both fragment and full-page). This tells HTTP caches (nginx, CDNs,
-browsers) that the response body depends on the `HX-Request` header,
-preventing a cached fragment from being served as a full page or vice versa.
+`_dispatch_view()` appends `Vary: HX-Request, HX-Request-Type` to every GET
+response (both fragment and full-page). This tells HTTP caches (nginx, CDNs,
+browsers) that the response body depends on both headers, preventing a cached
+fragment from being served as a full page or vice versa.
+
+Both tokens are required. A history restore sends `HX-Request: true`, so
+keying on that header alone would let a cache return a stored fragment for a
+back-button navigation.
 
 ## `_dispatch_view()` pipeline
 
@@ -295,8 +309,8 @@ following steps in order:
    flags to the cookie.
 10. **HTTP cache headers** -- `apply_http_cache()` sets `Cache-Control` if
     configured.
-11. **Vary header** -- `Vary: HX-Request` is appended to every GET response
-    (see htmx fragment dispatch above).
+11. **Vary header** -- `Vary: HX-Request, HX-Request-Type` is appended to
+    every GET response (see htmx fragment dispatch above).
 12. **Response headers** -- custom headers from the handler are propagated.
 
 ## Session handling
