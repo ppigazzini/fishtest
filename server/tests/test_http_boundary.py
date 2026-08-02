@@ -284,7 +284,9 @@ class TestHttpBoundary(unittest.TestCase):
         client = self.TestClient(app)
         response = client.get("/dispatch-vary")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("HX-Request", response.headers.get("vary", ""))
+        vary = response.headers.get("vary", "")
+        self.assertIn("HX-Request", vary)
+        self.assertIn("HX-Request-Type", vary)
 
     def test_dispatch_view_direct_response_sets_vary_hx_request(self):
         from fishtest.views import _dispatch_view
@@ -307,18 +309,62 @@ class TestHttpBoundary(unittest.TestCase):
         response = client.get("/dispatch-direct-vary")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.text, "ok")
-        self.assertIn("HX-Request", response.headers.get("vary", ""))
+        vary = response.headers.get("vary", "")
+        self.assertIn("HX-Request", vary)
+        self.assertIn("HX-Request-Type", vary)
 
-    def test_is_hx_request_ignores_navigate_mode(self):
+    def test_is_hx_request_requires_partial_request_type(self):
         from fishtest.views import _is_hx_request
 
-        req_htmx = SimpleNamespace(headers={"HX-Request": "true"})
-        req_navigate = SimpleNamespace(
-            headers={"HX-Request": "true", "Sec-Fetch-Mode": "navigate"}
+        req_partial = SimpleNamespace(
+            headers={"HX-Request": "true", "HX-Request-Type": "partial"}
+        )
+        req_full = SimpleNamespace(
+            headers={"HX-Request": "true", "HX-Request-Type": "full"}
+        )
+        req_history_restore = SimpleNamespace(
+            headers={
+                "HX-Request": "true",
+                "HX-Request-Type": "full",
+                "HX-History-Restore-Request": "true",
+            }
         )
 
-        self.assertTrue(_is_hx_request(req_htmx))
-        self.assertFalse(_is_hx_request(req_navigate))
+        self.assertTrue(_is_hx_request(req_partial))
+        self.assertFalse(_is_hx_request(req_full))
+        self.assertFalse(_is_hx_request(req_history_restore))
+
+    def test_oob_attributes_are_never_nested_inside_a_template(self):
+        # htmx finds out-of-band elements with querySelectorAll, which does not
+        # descend into <template> content. An hx-swap-oob attribute on an
+        # element inside a <template> is silently ignored, so the attribute
+        # must sit on the <template> element itself.
+        templates_dir = Path(__file__).resolve().parents[1] / "fishtest" / "templates"
+        template_block_re = re.compile(
+            r"<template(?P<attrs>[^>]*)>(?P<body>.*?)</template>",
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+
+        jinja_comment_re = re.compile(r"\{#.*?#\}", flags=re.DOTALL)
+
+        violations = []
+        for template_file in templates_dir.rglob("*.j2"):
+            text = jinja_comment_re.sub("", template_file.read_text(encoding="utf-8"))
+            for match in template_block_re.finditer(text):
+                if "hx-swap-oob" in match.group("body"):
+                    violations.append(
+                        f"{template_file.relative_to(templates_dir)}: "
+                        f"hx-swap-oob nested inside <template>"
+                    )
+                if "hx-swap-oob" in match.group("attrs") and "id=" not in match.group(
+                    "attrs"
+                ):
+                    violations.append(
+                        f"{template_file.relative_to(templates_dir)}: "
+                        f"<template hx-swap-oob> without an id"
+                    )
+
+        self.assertEqual(violations, [], "\n".join(sorted(set(violations))))
 
     def test_template_post_forms_include_explicit_csrf_token(self):
         templates_dir = Path(__file__).resolve().parents[1] / "fishtest" / "templates"
@@ -368,7 +414,7 @@ class TestHttpBoundary(unittest.TestCase):
 
         fragment_response = client.get(
             "/tests/finished?page=4&success_only=1",
-            headers={"HX-Request": "true", "Sec-Fetch-Mode": "cors"},
+            headers={"HX-Request": "true", "HX-Request-Type": "partial"},
         )
         self.assertEqual(fragment_response.status_code, 200)
         self.assertNotIn("<!doctype html>", fragment_response.text.lower())
@@ -379,10 +425,30 @@ class TestHttpBoundary(unittest.TestCase):
 
         navigate_response = client.get(
             "/tests/finished?page=4&success_only=1",
-            headers={"HX-Request": "true", "Sec-Fetch-Mode": "navigate"},
+            headers={"HX-Request": "true", "HX-Request-Type": "full"},
         )
         self.assertEqual(navigate_response.status_code, 200)
         self.assertIn("<!doctype html>", navigate_response.text.lower())
+
+    def test_history_restore_request_gets_a_full_page(self):
+        # htmx 4 does not snapshot pages: a back navigation refetches the
+        # pushed URL and swaps the response into <body>. That request still
+        # carries HX-Request, so only HX-Request-Type keeps it a full page.
+        app = self._build_app(include_views=True)
+        client = self.TestClient(app)
+
+        response = client.get(
+            "/tests/finished?page=4&success_only=1",
+            headers={
+                "HX-Request": "true",
+                "HX-Request-Type": "full",
+                "HX-History-Restore-Request": "true",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("<!doctype html>", response.text.lower())
+        self.assertIn('id="tests-finished-content"', response.text)
 
     def test_tests_finished_search_mode_full_page_vs_fragment(self):
         app = self._build_app(include_views=True)
@@ -397,7 +463,7 @@ class TestHttpBoundary(unittest.TestCase):
 
         fragment_response = client.get(
             "/tests/finished?mode=search&user=Fin&text=branch&max_count=1000",
-            headers={"HX-Request": "true", "Sec-Fetch-Mode": "cors"},
+            headers={"HX-Request": "true", "HX-Request-Type": "partial"},
         )
         self.assertEqual(fragment_response.status_code, 200)
         self.assertNotIn("<!doctype html>", fragment_response.text.lower())
@@ -504,7 +570,7 @@ class TestHttpBoundary(unittest.TestCase):
 
             substring_response = client.get(
                 "/tests/finished?mode=search&user=FilterAl",
-                headers={"HX-Request": "true"},
+                headers={"HX-Request": "true", "HX-Request-Type": "partial"},
             )
             self.assertEqual(substring_response.status_code, 200)
             self.assertIn(alpha_run_id, substring_response.text)
@@ -518,7 +584,7 @@ class TestHttpBoundary(unittest.TestCase):
 
             text_response = client.get(
                 "/tests/finished?mode=search&text=%22beta+hit%22",
-                headers={"HX-Request": "true"},
+                headers={"HX-Request": "true", "HX-Request-Type": "partial"},
             )
             self.assertEqual(text_response.status_code, 200)
             self.assertIn(beta_run_id, text_response.text)
@@ -647,11 +713,11 @@ class TestHttpBoundary(unittest.TestCase):
 
         response = client.get(
             "/tests?live=run_tables",
-            headers={"HX-Request": "true"},
+            headers={"HX-Request": "true", "HX-Request-Type": "partial"},
         )
 
         self.assertNotEqual(response.status_code, 400)
-        self.assertIn(response.status_code, {200, 286})
+        self.assertEqual(response.status_code, 200)
 
     def test_tests_user_live_run_tables_redirects_non_hx_to_canonical_page(self):
         app = self._build_app(include_views=True)
@@ -699,10 +765,10 @@ class TestHttpBoundary(unittest.TestCase):
         try:
             response = client.get(
                 f"/tests/user/{username}?live=run_tables",
-                headers={"HX-Request": "true"},
+                headers={"HX-Request": "true", "HX-Request-Type": "partial"},
             )
 
-            self.assertIn(response.status_code, {200, 286})
+            self.assertEqual(response.status_code, 200)
             self.assertIn("No tests pending approval", response.text)
             self.assertIn("No paused tests", response.text)
             self.assertIn("No failed tests on this page", response.text)
@@ -738,10 +804,10 @@ class TestHttpBoundary(unittest.TestCase):
             ) as finished_runs_mock:
                 response = client.get(
                     f"/tests/user/{username}?live=run_tables",
-                    headers={"HX-Request": "true"},
+                    headers={"HX-Request": "true", "HX-Request-Type": "partial"},
                 )
 
-            self.assertIn(response.status_code, {200, 286})
+            self.assertEqual(response.status_code, 200)
             self.assertEqual(finished_runs_mock.call_count, 1)
         finally:
             self.rundb.userdb.users.delete_many({"username": username})
@@ -786,10 +852,10 @@ class TestHttpBoundary(unittest.TestCase):
             ):
                 response = client.get(
                     f"/tests/user/{route_username}?username={query_username}&live=run_tables",
-                    headers={"HX-Request": "true"},
+                    headers={"HX-Request": "true", "HX-Request-Type": "partial"},
                 )
 
-            self.assertIn(response.status_code, {200, 286})
+            self.assertEqual(response.status_code, 200)
             aggregate_mock.assert_called_once_with(username=route_username)
             finished_runs_mock.assert_called_once()
             self.assertEqual(
@@ -819,16 +885,32 @@ class TestHttpBoundary(unittest.TestCase):
         # Terminal SPRT runs must stop polling.
         self.assertNotIn("/tests/live_elo_update/", response.text)
 
-    def test_live_elo_update_terminal_sprt_sets_status_286(self):
+    def test_live_elo_update_terminal_sprt_removes_poller(self):
         run_id = self._create_live_elo_run(sprt_state="rejected")
         app = self._build_app(include_views=True)
         client = self.TestClient(app)
 
         response = client.get(f"/tests/live_elo_update/{run_id}")
 
-        self.assertEqual(response.status_code, 286)
+        # htmx 4 clears a poll interval only when the driver element leaves the
+        # document, so a terminal SPRT state deletes it instead of returning 286.
+        self.assertEqual(response.status_code, 200)
         self.assertIn('id="live-elo-data"', response.text)
         self.assertIn('hx-swap-oob="innerHTML"', response.text)
+        self.assertIn(
+            '<div id="live-elo-poller" hx-swap-oob="delete"></div>',
+            response.text,
+        )
+
+    def test_live_elo_update_running_sprt_keeps_poller(self):
+        run_id = self._create_live_elo_run(sprt_state="")
+        app = self._build_app(include_views=True)
+        client = self.TestClient(app)
+
+        response = client.get(f"/tests/live_elo_update/{run_id}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("live-elo-poller", response.text)
 
     def test_template_context_includes_helpers(self):
         from fishtest.http import jinja

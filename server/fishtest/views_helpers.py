@@ -295,9 +295,11 @@ def _is_hx_request(request: Any) -> bool:  # noqa: ANN401
         return False
     if (headers.get("HX-Request") or "").lower() != "true":
         return False
-    # Never treat top-level document navigations as fragment requests,
-    # even if HX-Request appears in transit.
-    return (headers.get("Sec-Fetch-Mode") or "").lower() != "navigate"
+    # htmx states the scope of the swap: "partial" targets a region of the
+    # current page, "full" replaces the document. History restores and boosted
+    # navigations are "full" and require a whole page, so serve a fragment only
+    # for an explicitly partial request.
+    return (headers.get("HX-Request-Type") or "").lower() == "partial"
 
 
 # === Username matching and sorting ===
