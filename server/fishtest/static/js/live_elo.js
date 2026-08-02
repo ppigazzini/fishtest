@@ -434,10 +434,10 @@
     }
   });
 
-  // Update on each htmx OOB swap (innerHTML of #live-elo-data).
-  document.body.addEventListener("htmx:oobAfterSwap", (e) => {
-    if (e?.detail?.target?.id === "live-elo-data") {
-      scheduleGaugeUpdate(document.getElementById("gauge-data"));
-    }
-  });
+  // The live-Elo poll refreshes #live-elo-data out of band. Redraw the gauges
+  // for that region only, not for every response the page makes.
+  onHtmxSwap(
+    (target) => target.id === "live-elo-data",
+    () => scheduleGaugeUpdate(document.getElementById("gauge-data")),
+  );
 })();

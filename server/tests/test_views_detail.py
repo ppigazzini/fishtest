@@ -287,7 +287,7 @@ class TestTestsViewDetail(unittest.TestCase):
 
         transition_response = self.client.get(
             f"/tests/view/{run_id}/detail?expected=pending",
-            headers={"HX-Request": "true"},
+            headers={"HX-Request": "true", "HX-Request-Type": "partial"},
         )
 
         self.assertEqual(transition_response.status_code, 200)
@@ -299,7 +299,7 @@ class TestTestsViewDetail(unittest.TestCase):
 
         settled_response = self.client.get(
             f"/tests/view/{run_id}/detail?expected=paused",
-            headers={"HX-Request": "true"},
+            headers={"HX-Request": "true", "HX-Request-Type": "partial"},
         )
 
         self.assertEqual(settled_response.status_code, 204)
@@ -319,7 +319,7 @@ class TestTestsViewDetail(unittest.TestCase):
 
         transition_response = self.client.get(
             f"/tests/view/{run_id}/detail?expected=paused",
-            headers={"HX-Request": "true"},
+            headers={"HX-Request": "true", "HX-Request-Type": "partial"},
         )
 
         self.assertEqual(transition_response.status_code, 200)
@@ -331,7 +331,7 @@ class TestTestsViewDetail(unittest.TestCase):
 
         settled_response = self.client.get(
             f"/tests/view/{run_id}/detail?expected=pending",
-            headers={"HX-Request": "true"},
+            headers={"HX-Request": "true", "HX-Request-Type": "partial"},
         )
 
         self.assertEqual(settled_response.status_code, 204)
@@ -342,7 +342,7 @@ class TestTestsViewDetail(unittest.TestCase):
 
         response = self.client.get(
             f"/tests/view/{run_id}/detail?expected=paused",
-            headers={"HX-Request": "true"},
+            headers={"HX-Request": "true", "HX-Request-Type": "partial"},
         )
 
         self.assertEqual(response.status_code, 204)
@@ -378,7 +378,7 @@ class TestTestsViewDetail(unittest.TestCase):
 
         response = self.client.get(
             f"/tests/view/{run_id}/detail?expected=active",
-            headers={"HX-Request": "true"},
+            headers={"HX-Request": "true", "HX-Request-Type": "partial"},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -437,7 +437,7 @@ class TestTestsViewDetail(unittest.TestCase):
 
         response = self.client.get(
             f"/tests/view/{run_id}/detail?expected=active",
-            headers={"HX-Request": "true"},
+            headers={"HX-Request": "true", "HX-Request-Type": "partial"},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -569,9 +569,12 @@ class TestTestsViewTasks(UiUserTestCase):
         template_source = template_path.read_text(encoding="utf-8")
 
         self.assertIn(
-            'tasksContainer?.addEventListener("htmx:afterSwap", resolveTasksLoadedOnce);',
+            'tasksContainer?.addEventListener("htmx:after:swap", (event) => {',
             template_source,
         )
+        # An error response must not be recorded as a completed load: htmx 4
+        # still fires the swap event after htmx:response:error.
+        self.assertIn("if (!htmxSwapSucceeded(event)) {", template_source)
         self.assertIn(
             'const tasks_head = tasks_container?.querySelector("thead");',
             template_source,
@@ -607,11 +610,13 @@ class TestTestsViewTasks(UiUserTestCase):
         )
         self.assertIn('hx-sync="#tasks-filters:abort"', template_source)
         self.assertIn(
-            'tasksContainer?.addEventListener("htmx:responseError", clearTasksLoadingState);',
+            'tasksContainer?.addEventListener("htmx:response:error", clearTasksLoadingState);',
             template_source,
         )
+        # htmx 4 folds sendError, swapError, targetError, and timeout into
+        # a single htmx:error event.
         self.assertIn(
-            'tasksContainer?.addEventListener("htmx:sendError", clearTasksLoadingState);',
+            'tasksContainer?.addEventListener("htmx:error", clearTasksLoadingState);',
             template_source,
         )
         self.assertNotIn("Something went wrong. Please try again.", template_source)
@@ -620,7 +625,7 @@ class TestTestsViewTasks(UiUserTestCase):
         tasks_region = template_source[tasks_region_start:]
         self.assertLess(
             tasks_region.index(
-                'tasksContainer?.addEventListener("htmx:afterSwap", resolveTasksLoadedOnce);'
+                'tasksContainer?.addEventListener("htmx:after:swap", (event) => {'
             ),
             tasks_region.index("await DOMContentLoaded();"),
         )
@@ -694,11 +699,13 @@ class TestTestsViewTasks(UiUserTestCase):
             template_source,
         )
         self.assertIn('hx-sync="#tasks-filters:abort"', template_source)
-        self.assertIn('hx-disinherit="hx-include"', template_source)
-        self.assertIn('hx-params="none"', template_source)
+        # See test_tasks_controls_fragment_does_not_inherit_filter_include:
+        # htmx 4 makes inheritance explicit, so these opt-outs are gone.
+        self.assertNotIn("hx-disinherit", template_source)
+        self.assertNotIn("hx-params", template_source)
         self.assertNotIn('<div class="table-responsive">', template_source)
 
-    def test_tasks_controls_fragment_disinherits_filter_include(self):
+    def test_tasks_controls_fragment_does_not_inherit_filter_include(self):
         template_path = (
             Path(__file__).resolve().parents[1]
             / "fishtest"
@@ -708,8 +715,12 @@ class TestTestsViewTasks(UiUserTestCase):
         template_source = template_path.read_text(encoding="utf-8")
 
         self.assertIn('hx-sync="#tasks-filters:abort"', template_source)
-        self.assertIn('hx-disinherit="hx-include"', template_source)
-        self.assertIn('hx-params="none"', template_source)
+        # htmx 4 inherits nothing unless an ancestor marks the attribute
+        # :inherited, so the view-toggle links no longer need to opt out of
+        # the filter form's hx-include.
+        self.assertNotIn("hx-disinherit", template_source)
+        self.assertNotIn("hx-params", template_source)
+        self.assertNotIn(":inherited", template_source)
 
     def test_tasks_hx_sort_changes_order_and_active_arrow(self):
         run_id = self._create_run()
@@ -776,7 +787,7 @@ class TestTestsViewTasks(UiUserTestCase):
 
             response = self.client.get(
                 f"/tests/tasks/{run_id}?sort=worker&order=asc&view=paged",
-                headers={"HX-Request": "true"},
+                headers={"HX-Request": "true", "HX-Request-Type": "partial"},
             )
 
             self.assertEqual(response.status_code, 200)
@@ -862,7 +873,7 @@ class TestTestsViewTasks(UiUserTestCase):
 
             response = self.client.get(
                 f"/tests/tasks/{run_id}?q=vnni256&view=paged",
-                headers={"HX-Request": "true"},
+                headers={"HX-Request": "true", "HX-Request-Type": "partial"},
             )
 
             self.assertEqual(response.status_code, 200)
@@ -871,7 +882,7 @@ class TestTestsViewTasks(UiUserTestCase):
 
             compiler_response = self.client.get(
                 f"/tests/tasks/{run_id}?q=clang&view=paged",
-                headers={"HX-Request": "true"},
+                headers={"HX-Request": "true", "HX-Request-Type": "partial"},
             )
 
             self.assertEqual(compiler_response.status_code, 200)
@@ -880,7 +891,7 @@ class TestTestsViewTasks(UiUserTestCase):
 
             unified_response = self.client.get(
                 f"/tests/tasks/{run_id}?q=Windows%2011&view=paged",
-                headers={"HX-Request": "true"},
+                headers={"HX-Request": "true", "HX-Request-Type": "partial"},
             )
 
             self.assertEqual(unified_response.status_code, 200)
@@ -934,7 +945,7 @@ class TestTestsViewTasks(UiUserTestCase):
 
             response = self.client.get(
                 f"/tests/tasks/{run_id}?show_task=100&view=paged",
-                headers={"HX-Request": "true"},
+                headers={"HX-Request": "true", "HX-Request-Type": "partial"},
             )
 
             self.assertEqual(response.status_code, 200)
@@ -991,7 +1002,7 @@ class TestTestsViewTasks(UiUserTestCase):
 
             response = self.client.get(
                 f"/tests/tasks/{run_id}?show_task=7&view=paged",
-                headers={"HX-Request": "true"},
+                headers={"HX-Request": "true", "HX-Request-Type": "partial"},
             )
 
             self.assertEqual(response.status_code, 200)
@@ -1041,7 +1052,7 @@ class TestTestsViewTasks(UiUserTestCase):
 
             response = self.client.get(
                 f"/tests/tasks/{run_id}?view=paged",
-                headers={"HX-Request": "true"},
+                headers={"HX-Request": "true", "HX-Request-Type": "partial"},
             )
 
             self.assertEqual(response.status_code, 200)

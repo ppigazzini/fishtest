@@ -726,3 +726,54 @@ function remainingApiCalls(response) {
   }
   return Number.MAX_VALUE;
 }
+
+// === htmx swap observation ===
+//
+// htmx fires one htmx:before:swap / htmx:after:swap pair per response, both on
+// the element that issued the request. Only htmx:before:swap carries the swap
+// targets, in detail.tasks, and it lists the main swap and the out-of-band
+// elements alike.
+//
+// Two rules follow. Filter by target: every page polls the pending-users
+// navigation badge, so an unfiltered listener runs on that timer. Check the
+// status: htmx.config.noSwap maps 4xx and 5xx to swap "none", and
+// htmx:after:swap still fires for them.
+
+// True when htmx swapped the response behind this event.
+function htmxSwapSucceeded(event) {
+  const status = event?.detail?.ctx?.response?.status;
+  return typeof status === "number" && status < 400;
+}
+
+// Run callback(targets) once per response that swaps at least one element
+// matching the predicate. Targets are the swapped elements; outerHTML and
+// delete swaps detach them before callback runs.
+function onHtmxSwap(matches, callback) {
+  let pending = [];
+
+  document.addEventListener("htmx:before:swap", (event) => {
+    const tasks = event?.detail?.tasks;
+    if (!Array.isArray(tasks)) {
+      return;
+    }
+    for (const task of tasks) {
+      // Accumulate across responses. A concurrent response must not discard
+      // targets that are still waiting for their own after:swap.
+      if (task?.target instanceof Element && matches(task.target)) {
+        pending.push(task.target);
+      }
+    }
+  });
+
+  document.addEventListener("htmx:after:swap", (event) => {
+    if (pending.length === 0) {
+      return;
+    }
+    const targets = pending;
+    pending = [];
+    if (!htmxSwapSucceeded(event)) {
+      return;
+    }
+    callback(targets);
+  });
+}

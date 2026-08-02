@@ -88,9 +88,11 @@
       centerHighlightedContributor();
     }
   });
-  document.body.addEventListener("htmx:afterSwap", (event) => {
-    if (event.target && event.target.id === "contributors-content") {
-      requestAnimationFrame(centerHighlightedContributor);
-    }
-  });
+  // Recentre only when the contributors table is swapped. The pending-users
+  // navigation badge polls on every page, and recentring on its swaps moves
+  // the scroll position under the reader.
+  onHtmxSwap(
+    (target) => target.id === "contributors-content",
+    () => requestAnimationFrame(centerHighlightedContributor),
+  );
 })();

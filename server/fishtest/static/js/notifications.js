@@ -571,33 +571,29 @@ function cleanup_() {
   localStorage.removeItem("__fishtest__latest_fetch_time");
 }
 
-document.addEventListener("htmx:oobAfterSwap", (e) => {
-  const target = e?.detail?.target;
-  if (!(target instanceof Element)) {
-    return;
-  }
+// The batch poll replaces whole run-table tbodies out of band, and each bell
+// icon is rebuilt from persisted follow state. Rescan the swapped subtrees
+// rather than the document, so the pending-users navigation poll does not
+// rebuild every bell on the page on its own timer.
+onHtmxSwap(
+  () => true,
+  (targets) => {
+    for (const target of targets) {
+      if (target.isConnected) {
+        initializeNotificationButtons(target);
+      } else {
+        // outerHTML and delete swaps detach the target. Its replacement is
+        // reachable only from the document.
+        initializeNotificationButtons(document);
+      }
+    }
+  },
+);
 
-  // Batch poll replaces whole run-table tbodies via OOB. Reinitialize
-  // notification bells after each tbody swap to keep icons visible in Firefox.
-  if (target.matches('tbody[id$="-tbody"]')) {
-    initializeNotificationButtons(target);
-  }
-});
-
-document.addEventListener("htmx:afterSwap", (e) => {
-  const target = e?.detail?.target;
-  if (!(target instanceof Element)) {
-    return;
-  }
-  initializeNotificationButtons(target);
-});
-
-document.addEventListener("htmx:load", (e) => {
-  const loaded = e?.detail?.elt;
-  if (!(loaded instanceof Element)) {
-    return;
-  }
-  initializeNotificationButtons(loaded);
+document.addEventListener("htmx:after:init", (e) => {
+  initializeNotificationButtons(
+    e.target instanceof Element ? e.target : document,
+  );
 });
 
 void DOMContentLoaded().then(() => {

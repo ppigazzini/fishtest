@@ -595,12 +595,12 @@ async function handleSPSA() {
   queueSPSARefresh = scheduleRefresh;
   if (!spsaOobListenerRegistered) {
     spsaOobListenerRegistered = true;
-    document.body.addEventListener("htmx:oobAfterSwap", (event) => {
-      const target = event?.detail?.target;
-      if (target instanceof Element && target.id.startsWith("spsa-data-")) {
-        queueSPSARefresh?.();
-      }
-    });
+    // The detail poll refreshes the spsa-data script out of band. The page
+    // also polls tasks, so redraw only when the chart payload is swapped.
+    onHtmxSwap(
+      (target) => target.id.startsWith("spsa-data-"),
+      () => queueSPSARefresh?.(),
+    );
   }
 
   try {

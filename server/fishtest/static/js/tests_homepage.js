@@ -62,13 +62,21 @@
     syncPanelState(false);
   });
 
-  target.addEventListener("htmx:beforeRequest", () => {
+  // #machines is both the requesting element and the swap target, so htmx
+  // dispatches these events here.
+  target.addEventListener("htmx:before:request", () => {
     if (target.dataset.machinesLoaded !== "1") {
       target.dataset.machinesLoaded = "loading";
     }
   });
 
-  target.addEventListener("htmx:afterSwap", () => {
+  target.addEventListener("htmx:after:swap", (event) => {
+    // This event also fires for 4xx and 5xx, which noSwap maps to swap
+    // "none". Record the panel as loaded only for a swapped response, so the
+    // retry state below survives an error.
+    if (!htmxSwapSucceeded(event)) {
+      return;
+    }
     target.dataset.machinesLoaded = "1";
   });
 
@@ -78,6 +86,6 @@
     }
   };
 
-  target.addEventListener("htmx:responseError", restoreRetryState);
-  target.addEventListener("htmx:sendError", restoreRetryState);
+  target.addEventListener("htmx:response:error", restoreRetryState);
+  target.addEventListener("htmx:error", restoreRetryState);
 })();
