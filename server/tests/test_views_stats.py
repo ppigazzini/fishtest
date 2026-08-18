@@ -84,7 +84,7 @@ class TestTestsStatsView(unittest.TestCase):
         self.assertIn("Raw Statistics for test", response.text)
         self.assertIn(f'hx-get="/tests/stats/{run_id}"', response.text)
         self.assertIn(
-            f"every {POLL_TESTS_STATS_S}s [document.visibilityState === 'visible']",
+            f"every[document.visibilityState === 'visible'] {POLL_TESTS_STATS_S}s",
             response.text,
         )
         self.assertIn('id="tests-stats-content"', response.text)

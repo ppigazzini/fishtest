@@ -97,8 +97,9 @@ The sidebar contains two visibility-aware status links:
 Route notes:
 - **Fragment-only**: endpoint always returns a fragment template (no full page).
 - **HX**: dual-mode endpoint; returns the named fragment when
-  `HX-Request: true` and `HX-Request-Type: partial` are both present,
-  otherwise renders the full-page template.
+  `HX-Request: true` is present and the request does not announce itself as a
+  history restore, a full-document swap, or a top-level navigation; otherwise
+  renders the full-page template.
 - **OOB**: fragment contains `hx-swap-oob` attributes for multi-element updates.
 
 ## Tests Repository URL Contract
@@ -214,7 +215,7 @@ The raw statistics page is dual-mode:
 
 The page shell keeps a visibility-aware poller for unfinished non-SPSA runs:
 
-- `every {{ poll.tests_stats }}s [document.visibilityState === 'visible']`
+- `every[document.visibilityState === 'visible'] {{ poll.tests_stats }}s`
 - `visibilitychange[document.visibilityState === 'visible'] from:document`
 
 Server behavior for htmx polling:
@@ -239,16 +240,25 @@ HTML page or a fragment, from the same URL, based on request headers.
 
 ### Detection: `_is_hx_request(request)`
 
-Returns `True` when both of the following hold, case-insensitively:
+Returns `True` when the request carries `HX-Request: true` and announces none
+of the following, case-insensitively:
 
-1. The request carries `HX-Request: true`.
-2. The request carries `HX-Request-Type: partial`.
+1. `HX-History-Restore-Request: true` -- a back navigation. htmx 4 keeps no
+   page snapshots, so it refetches the pushed URL and swaps the response into
+   `<body>`. In `4.0.0-beta6` this is the *only* header such a request carries:
+   `htmx.ajax()` overwrites the request object the restore was built with, so
+   `HX-Request`, `HX-Request-Type`, `HX-Source` and `Accept` are all dropped.
+   Treat that as a beta quirk and keep the check.
+2. `HX-Request-Type: full` -- a swap scoped to the whole document, which is
+   what a boosted navigation asks for.
+3. `Sec-Fetch-Mode: navigate` -- a real top-level navigation. htmx never issues
+   one, so this catches a browser prefetch or a proxy replaying `HX-Request`.
+   It is the only signal here that page script cannot forge.
 
-`HX-Request-Type` states the scope of the swap. `partial` targets a region of
-the current page; `full` replaces the document. History restores and boosted
-navigations send `HX-Request: true` together with `HX-Request-Type: full`, so
-requiring `partial` is what keeps a back-button navigation from receiving a
-bare fragment.
+The check rejects `full` rather than requiring `partial` on purpose. Requiring
+it would tie every dual-mode endpoint to one beta header keeping its name, and
+the failure would be silent and total: whole pages swapped into the `<div>`s
+that asked for a fragment.
 
 ### Rendering: `_render_hx_fragment(request, template_name, context)`
 
@@ -280,9 +290,9 @@ response (both fragment and full-page). This tells HTTP caches (nginx, CDNs,
 browsers) that the response body depends on both headers, preventing a cached
 fragment from being served as a full page or vice versa.
 
-Both tokens are required. A history restore sends `HX-Request: true`, so
-keying on that header alone would let a cache return a stored fragment for a
-back-button navigation.
+Both tokens are needed. `HX-Request-Type` is what separates a fragment request
+from a boosted navigation to the same URL, so keying on `HX-Request` alone
+would let a cache return a stored fragment for one.
 
 ## `_dispatch_view()` pipeline
 

@@ -70,15 +70,17 @@
     }
   });
 
-  target.addEventListener("htmx:after:swap", (event) => {
-    // This event also fires for 4xx and 5xx, which noSwap maps to swap
-    // "none". Record the panel as loaded only for a swapped response, so the
-    // retry state below survives an error.
-    if (!htmxSwapSucceeded(event)) {
-      return;
-    }
-    target.dataset.machinesLoaded = "1";
-  });
+  // Match on the swap target, not on the element that asked for it. htmx
+  // dispatches swap events on the requesting element, and #machines is filled
+  // by two of them: its own load/poll triggers, and #machines-filters when the
+  // reader types. onHtmxSwap already ignores responses htmx did not swap, so a
+  // 4xx or 5xx leaves the retry state below intact.
+  onHtmxSwap(
+    (swapped) => swapped.id === "machines",
+    () => {
+      target.dataset.machinesLoaded = "1";
+    },
+  );
 
   const restoreRetryState = () => {
     if (target.dataset.machinesLoaded !== "1") {
@@ -87,5 +89,14 @@
   };
 
   target.addEventListener("htmx:response:error", restoreRetryState);
-  target.addEventListener("htmx:error", restoreRetryState);
+  target.addEventListener("htmx:error", (event) => {
+    // htmx reports an aborted fetch here too. #machines-filters shares a
+    // request queue with this panel and carries no hx-sync, so typing in the
+    // filter aborts an in-flight poll tick and a replacement request is
+    // already on its way. Showing the retry state for that is wrong.
+    if (htmxRequestAborted(event)) {
+      return;
+    }
+    restoreRetryState();
+  });
 })();

@@ -564,10 +564,18 @@ def _render_hx_fragment(
 ) -> Response | None:
     if not _is_hx_request(request):
         return None
+    # `oob` marks this render as a fragment response, which is the only context
+    # where hx-swap-oob means anything: htmx reads the attribute off a response
+    # body, never off the live document. Templates that a full page also embeds
+    # gate their out-of-band attributes on it, so the page ships the element
+    # once and plain, and the fragment ships it addressed at that element.
+    hx_context = {**context, "oob": True}
     return render_template_to_response(
         request=request.raw_request,
         template_name=template_name,
-        context=build_template_context(request.raw_request, request.session, context),
+        context=build_template_context(
+            request.raw_request, request.session, hx_context
+        ),
     )
 
 

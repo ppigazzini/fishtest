@@ -8,7 +8,7 @@
 {% if page_idx == 0 %}
   <div id="run-tables-poller"
        hx-get="{{ live_url }}"
-      hx-trigger="every {{ poll.tests_run_tables }}s [document.visibilityState === 'visible'], visibilitychange[document.visibilityState === 'visible'] from:document"
+      hx-trigger="every[document.visibilityState === 'visible'] {{ poll.tests_run_tables }}s, visibilitychange[document.visibilityState === 'visible'] from:document"
        hx-swap="none">
   </div>
 {% endif %}

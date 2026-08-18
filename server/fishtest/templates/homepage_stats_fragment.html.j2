@@ -1,4 +1,4 @@
-<div id="homepage-stats" hx-swap-oob="innerHTML">
+<div id="homepage-stats"{% if oob | default(false) %} hx-swap-oob="innerHTML"{% endif %}>
   <div class="row g-3 mb-3">
     <div class="col-6 col-sm">
       <div class="card card-lg-sm text-center">

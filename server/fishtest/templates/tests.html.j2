@@ -96,9 +96,11 @@
       hx-get="/tests/machines"
       hx-include="#machines-filters"
       hx-sync="#machines-filters:abort"
-      hx-trigger="{% if machines_shown %}load, {% endif %}machines:load, every {{ poll.machines_homepage }}s [document.visibilityState === 'visible' && document.getElementById('machines-panel').classList.contains('show')], visibilitychange[document.visibilityState === 'visible' && document.getElementById('machines-panel').classList.contains('show')] from:document"
-      {# Morph rather than replace: this panel scrolls, and a poll tick must
-         not reset the scroll position or drop focus from the filter row. #}
+      hx-trigger="{% if machines_shown %}load, {% endif %}machines:load, every[document.visibilityState === 'visible' && document.getElementById('machines-panel').classList.contains('show')] {{ poll.machines_homepage }}s, visibilitychange[document.visibilityState === 'visible' && document.getElementById('machines-panel').classList.contains('show')] from:document"
+      {# Morph rather than replace: this panel scrolls, and replacing its
+         children collapses scrollHeight, which clamps scrollTop to 0 on every
+         poll tick. #machines-filters sits outside this element and is not
+         swapped either way. #}
       hx-swap="innerMorph"
     >
       <div id="machines-loading" class="skeleton-wrap">

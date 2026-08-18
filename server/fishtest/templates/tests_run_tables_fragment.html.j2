@@ -32,6 +32,7 @@
 
 {% if stats is defined %}
   {% with
+    oob=true,
     pending_hours=stats.pending_hours,
     cores=stats.cores,
     nps_m=stats.nps_m,

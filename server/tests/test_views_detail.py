@@ -568,13 +568,20 @@ class TestTestsViewTasks(UiUserTestCase):
         )
         template_source = template_path.read_text(encoding="utf-8")
 
+        # htmx dispatches swap events on the requesting element, and
+        # #tasks-content is filled both by its own triggers and by
+        # #tasks-filters. Matching on the swap target catches both; an
+        # element-level listener here silently misses every form-driven fill.
+        # onHtmxSwap also drops responses htmx did not swap, so an error
+        # response is never recorded as a completed load.
         self.assertIn(
-            'tasksContainer?.addEventListener("htmx:after:swap", (event) => {',
+            'onHtmxSwap((target) => target.id === "tasks-content", '
+            "resolveTasksLoadedOnce);",
             template_source,
         )
-        # An error response must not be recorded as a completed load: htmx 4
-        # still fires the swap event after htmx:response:error.
-        self.assertIn("if (!htmxSwapSucceeded(event)) {", template_source)
+        self.assertNotIn(
+            'tasksContainer?.addEventListener("htmx:after:swap"', template_source
+        )
         self.assertIn(
             'const tasks_head = tasks_container?.querySelector("thead");',
             template_source,
@@ -613,20 +620,22 @@ class TestTestsViewTasks(UiUserTestCase):
             'tasksContainer?.addEventListener("htmx:response:error", clearTasksLoadingState);',
             template_source,
         )
-        # htmx 4 folds sendError, swapError, targetError, and timeout into
-        # a single htmx:error event.
+        # htmx 4 folds sendError, swapError, targetError, abort, and timeout
+        # into a single htmx:error event, so the handler has to separate a
+        # cancelled request from a failed one: #tasks-filters owns the queue
+        # this panel syncs on and declares no hx-sync itself, so a keystroke
+        # there aborts an in-flight poll tick.
         self.assertIn(
-            'tasksContainer?.addEventListener("htmx:error", clearTasksLoadingState);',
+            'tasksContainer?.addEventListener("htmx:error", (event) => {',
             template_source,
         )
+        self.assertIn("if (htmxRequestAborted(event)) {", template_source)
         self.assertNotIn("Something went wrong. Please try again.", template_source)
         self.assertNotIn('btn.textContent = "Retry";', template_source)
         tasks_region_start = template_source.index("let resolveTasksLoaded = null;")
         tasks_region = template_source[tasks_region_start:]
         self.assertLess(
-            tasks_region.index(
-                'tasksContainer?.addEventListener("htmx:after:swap", (event) => {'
-            ),
+            tasks_region.index('onHtmxSwap((target) => target.id === "tasks-content"'),
             tasks_region.index("await DOMContentLoaded();"),
         )
 

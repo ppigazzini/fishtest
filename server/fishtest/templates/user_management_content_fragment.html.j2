@@ -59,9 +59,16 @@
   {% endwith %}
 {% endif %}
 
-<input type="hidden" id="user_management_sort" name="sort" value="{{ sort }}" hx-swap-oob="true">
-<input type="hidden" id="user_management_order" name="order" value="{{ order }}" hx-swap-oob="true">
-<input type="hidden" id="user_management_view" name="view" value="{{ view }}" hx-swap-oob="true">
+{#
+  These address the filter form's hidden inputs out of band, so they belong to
+  a fragment response only. A full page embedding this template already renders
+  the real inputs in its form; emitting them again duplicates their ids.
+#}
+{% if oob | default(false) %}
+  <input type="hidden" id="user_management_sort" name="sort" value="{{ sort }}" hx-swap-oob="true">
+  <input type="hidden" id="user_management_order" name="order" value="{{ order }}" hx-swap-oob="true">
+  <input type="hidden" id="user_management_view" name="view" value="{{ view }}" hx-swap-oob="true">
+{% endif %}
 
 <div class="table-responsive-lg">
   <table id="user_management_table" class="table table-striped table-sm">

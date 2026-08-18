@@ -572,30 +572,23 @@ function cleanup_() {
 }
 
 // The batch poll replaces whole run-table tbodies out of band, and each bell
-// icon is rebuilt from persisted follow state. Rescan the swapped subtrees
-// rather than the document, so the pending-users navigation poll does not
-// rebuild every bell on the page on its own timer.
+// icon is rebuilt from persisted follow state. Rescan only the swapped
+// subtrees: a poll response carries several out-of-band elements, and rescanning
+// the document once per element would rebuild every bell on the page on each
+// tick. onHtmxSwap already drops targets whose swap left nothing behind.
 onHtmxSwap(
   () => true,
   (targets) => {
     for (const target of targets) {
-      if (target.isConnected) {
-        initializeNotificationButtons(target);
-      } else {
-        // outerHTML and delete swaps detach the target. Its replacement is
-        // reachable only from the document.
-        initializeNotificationButtons(document);
-      }
+      initializeNotificationButtons(target);
     }
   },
 );
 
-document.addEventListener("htmx:after:init", (e) => {
-  initializeNotificationButtons(
-    e.target instanceof Element ? e.target : document,
-  );
-});
-
+// Nothing observes htmx:after:init. It is not the htmx 2 htmx:load: htmx fires
+// it per element it initializes, so it never reaches a bell, which carries no
+// htmx attribute. The swap listener above covers content htmx inserts, and
+// this covers the page it lands on.
 void DOMContentLoaded().then(() => {
   initializeNotificationButtons(document);
 });

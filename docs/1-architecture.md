@@ -209,24 +209,42 @@ three capabilities without client-side rendering or a JavaScript build step:
 | Out-of-band updates | `hx-swap-oob="innerHTML"` attributes in the response update multiple DOM elements in one response |
 
 Panels that scroll and refresh on a timer, `#machines` and `#tasks-content`,
-swap with `hx-swap="innerMorph"` so a poll tick preserves scroll position and
-focus instead of rebuilding the subtree.
+swap with `hx-swap="innerMorph"`. Replacing the children of a scrolled element
+collapses its `scrollHeight` and clamps `scrollTop` to 0; morphing patches the
+existing nodes in place, so a poll tick keeps the scroll position and keeps the
+task row that `scroll_to()` parked the view on. Both panels' filter forms sit
+outside the swap target and are untouched either way.
 
 **Response swapping.** htmx swaps every response whose status is not listed in
 `htmx.config.noSwap`. `base.html.j2` sets that list to `204, 304, 4xx, 5xx`
 through an `htmx-config` meta tag, because this server answers errors with
 whole pages rather than partials sized for a swap target.
 
+A suppressed status stops the main content swap and nothing else: htmx still
+runs the history update, still applies out-of-band elements from the body, and
+still adopts the response's `<title>`. For any status at or above 400,
+`application.js` therefore cancels `htmx:before:history:update` and, on
+`htmx:before:swap`, clears the response title and empties the task list that
+carries the swaps. A failed request cannot move the address bar, rename the
+tab, or write an id from an error page over live content.
+
 **Dual-mode endpoints.** Several UI routes serve either a full page or an HTML
 fragment from the same URL. The view handler calls `_is_hx_request(request)`,
-which requires both `HX-Request: true` and `HX-Request-Type: partial`, then
-returns the appropriate template via the `_render_hx_fragment()` helper.
+then returns the appropriate template via the `_render_hx_fragment()` helper.
+`HX-Request: true` opens the door, and three independent signals close it, each
+rejecting the case it identifies: `HX-History-Restore-Request: true` for a back
+navigation, `HX-Request-Type: full` for a swap scoped to the whole document,
+and `Sec-Fetch-Mode: navigate` for a real top-level navigation. A request that
+announces none of them is a fragment request.
 
 `HX-Request-Type` states the scope of the swap: `partial` targets a region of
-the current page, `full` replaces the document. History restores and boosted
-navigations send `full` and therefore receive a whole page. `_dispatch_view()`
-appends `Vary: HX-Request, HX-Request-Type` to every GET response. Both tokens
-are required, because `HX-Request: true` alone does not distinguish a fragment
+the current page, `full` replaces the document, which is what a boosted
+navigation asks for. The check rejects `full` rather than requiring `partial`,
+so a rename of that header in a later htmx degrades to htmx 2 behavior instead
+of swapping whole pages into every fragment target on the site.
+
+`_dispatch_view()` appends `Vary: HX-Request, HX-Request-Type` to every GET
+response, because `HX-Request: true` alone does not distinguish a fragment
 request from a back-button navigation.
 UI GET responses also emit `Cache-Control`: the default is
 `no-cache, private`, auth-sensitive pages use `no-store`, and explicit
@@ -249,7 +267,10 @@ rows. The shared active-search debounce is projected into templates as
 `htmx.input_changed_delay_ms`.
 
 **Request coordination.** Poll-driven fragments that live inside a larger filter
-form use `hx-sync` so explicit user actions win over timer-driven refreshes.
+form use `hx-sync` to name the filter form as their request queue. The form
+itself declares no `hx-sync`, so submitting it aborts an in-flight poll tick;
+the poll and the sort/pagination links use `abort`, which drops a request while
+another is in flight on that queue rather than pre-empting it.
 Sort and pagination links carry their own query string and inherit nothing:
 htmx applies an ancestor's attributes only where that ancestor marks them
 `:inherited`, and a `GET` collects the enclosing form only when the requesting
@@ -303,7 +324,10 @@ full run data via `get_run()` and the dedicated tasks poller.
 **Visibility-aware polling policy.** Every periodic htmx poller follows a
 three-part trigger policy:
 
-1. A periodic trigger gated on `document.visibilityState === 'visible'`.
+1. A periodic trigger gated on `document.visibilityState === 'visible'`,
+   written `every[<condition>] Ns`. htmx reads a `[condition]` filter off the
+   leading trigger token only, so `every Ns [<condition>]` silently drops the
+   condition and polls unconditionally.
 2. An immediate focus-return trigger using
    `visibilitychange[document.visibilityState === 'visible'] from:document`.
 3. Section-scoped pollers (machines, tasks) additionally gate on the

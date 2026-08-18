@@ -279,8 +279,29 @@ class IsHxRequestTests(unittest.TestCase):
         )
         self.assertFalse(_is_hx_request(request))
 
-    def test_missing_request_type_is_not_a_fragment_request(self):
+    def test_missing_request_type_still_serves_a_fragment(self):
+        # Rejecting "full" rather than requiring "partial" keeps a header
+        # rename in a future htmx from silently turning every dual-mode
+        # endpoint into a whole page swapped into a fragment target.
         request = _request_with_headers({"HX-Request": "true"})
+        self.assertTrue(_is_hx_request(request))
+
+    def test_history_restore_without_other_hx_headers(self):
+        # What htmx 4.0.0-beta6 actually sends on a back navigation:
+        # htmx.ajax() overwrites the request object built for the restore, so
+        # HX-Request, HX-Request-Type, HX-Source and Accept are all dropped and
+        # only this header survives. It must still not receive a fragment.
+        request = _request_with_headers({"HX-History-Restore-Request": "true"})
+        self.assertFalse(_is_hx_request(request))
+
+    def test_history_restore_is_rejected_even_when_typed_partial(self):
+        request = _request_with_headers(
+            {
+                "HX-Request": "true",
+                "HX-Request-Type": "partial",
+                "HX-History-Restore-Request": "true",
+            }
+        )
         self.assertFalse(_is_hx_request(request))
 
     def test_no_headers(self):
@@ -292,13 +313,25 @@ class IsHxRequestTests(unittest.TestCase):
         )
         self.assertTrue(_is_hx_request(request))
 
-    def test_sec_fetch_mode_is_not_consulted(self):
-        # The Sec-Fetch-Mode heuristic is gone: HX-Request-Type is authoritative.
+    def test_top_level_navigation_is_not_a_fragment_request(self):
+        # htmx never issues a top-level navigation, so Sec-Fetch-Mode: navigate
+        # means a real one: a prefetch, or a proxy replaying HX-Request. It is
+        # the only signal here that page script cannot forge.
         request = _request_with_headers(
             {
                 "HX-Request": "true",
                 "HX-Request-Type": "partial",
                 "Sec-Fetch-Mode": "navigate",
+            }
+        )
+        self.assertFalse(_is_hx_request(request))
+
+    def test_fragment_request_carries_a_non_navigate_fetch_mode(self):
+        request = _request_with_headers(
+            {
+                "HX-Request": "true",
+                "HX-Request-Type": "partial",
+                "Sec-Fetch-Mode": "same-origin",
             }
         )
         self.assertTrue(_is_hx_request(request))

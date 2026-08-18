@@ -313,7 +313,7 @@ class TestHttpBoundary(unittest.TestCase):
         self.assertIn("HX-Request", vary)
         self.assertIn("HX-Request-Type", vary)
 
-    def test_is_hx_request_requires_partial_request_type(self):
+    def test_is_hx_request_rejects_full_page_requests(self):
         from fishtest.views import _is_hx_request
 
         req_partial = SimpleNamespace(
@@ -322,17 +322,24 @@ class TestHttpBoundary(unittest.TestCase):
         req_full = SimpleNamespace(
             headers={"HX-Request": "true", "HX-Request-Type": "full"}
         )
+        # What a back navigation actually looks like on the wire in
+        # 4.0.0-beta6: htmx.ajax() replaces the request object the restore was
+        # built with, so this is the only header that survives.
         req_history_restore = SimpleNamespace(
-            headers={
-                "HX-Request": "true",
-                "HX-Request-Type": "full",
-                "HX-History-Restore-Request": "true",
-            }
+            headers={"HX-History-Restore-Request": "true"}
         )
+        req_navigation = SimpleNamespace(
+            headers={"HX-Request": "true", "Sec-Fetch-Mode": "navigate"}
+        )
+        # A request that states no scope is a fragment request. Requiring
+        # "partial" would tie every dual-mode endpoint to one beta header.
+        req_untyped = SimpleNamespace(headers={"HX-Request": "true"})
 
         self.assertTrue(_is_hx_request(req_partial))
         self.assertFalse(_is_hx_request(req_full))
         self.assertFalse(_is_hx_request(req_history_restore))
+        self.assertFalse(_is_hx_request(req_navigation))
+        self.assertTrue(_is_hx_request(req_untyped))
 
     def test_oob_attributes_are_never_nested_inside_a_template(self):
         # htmx finds out-of-band elements with querySelectorAll, which does not
@@ -365,6 +372,103 @@ class TestHttpBoundary(unittest.TestCase):
                     )
 
         self.assertEqual(violations, [], "\n".join(sorted(set(violations))))
+
+    def test_poll_conditions_are_attached_to_the_every_token(self):
+        # htmx parses a trigger as one leading token plus modifiers, and reads a
+        # [condition] filter off that leading token only. "every 6s [cond]"
+        # therefore parses as the bare event "every": the condition is swallowed
+        # into the modifier bag as junk keys and never evaluated, so the poll
+        # runs in hidden tabs and behind collapsed panels. The condition has to
+        # ride the token itself: "every[cond] 6s".
+        templates_dir = Path(__file__).resolve().parents[1] / "fishtest" / "templates"
+        trigger_re = re.compile(r'hx-trigger="(?P<value>[^"]*)"', flags=re.DOTALL)
+        # "every", then anything that is not a bracket, then an opening bracket.
+        detached_re = re.compile(r"every\s+[^,\[]*\[")
+
+        polled = 0
+        violations = []
+        for template_file in sorted(templates_dir.rglob("*.j2")):
+            text = template_file.read_text(encoding="utf-8")
+            for match in trigger_re.finditer(text):
+                value = match.group("value")
+                if "every" not in value:
+                    continue
+                polled += 1
+                if detached_re.search(value):
+                    violations.append(
+                        f"{template_file.relative_to(templates_dir)}: "
+                        f"condition detached from the every token: {value}"
+                    )
+
+        self.assertEqual(violations, [], "\n".join(sorted(set(violations))))
+        # Guard the guard: if the pollers are ever renamed away, this test must
+        # not quietly pass by scanning nothing.
+        self.assertGreaterEqual(polled, 8)
+
+    def test_every_poller_carries_a_visibility_condition(self):
+        # Every poll in the app is meant to stop while the tab is hidden.
+        templates_dir = Path(__file__).resolve().parents[1] / "fishtest" / "templates"
+        trigger_re = re.compile(r'hx-trigger="(?P<value>[^"]*)"', flags=re.DOTALL)
+
+        missing = []
+        for template_file in sorted(templates_dir.rglob("*.j2")):
+            text = template_file.read_text(encoding="utf-8")
+            for match in trigger_re.finditer(text):
+                value = match.group("value")
+                if "every" not in value:
+                    continue
+                if "every[document.visibilityState" not in value:
+                    missing.append(
+                        f"{template_file.relative_to(templates_dir)}: {value}"
+                    )
+
+        self.assertEqual(missing, [], "\n".join(sorted(set(missing))))
+
+    def test_full_pages_never_carry_out_of_band_attributes(self):
+        # hx-swap-oob is read off a response fragment, never off the live
+        # document, so one shipped in a full page is dead markup today. It stops
+        # being dead the moment that element lands inside another target's
+        # response: htmx would lift it out of the main swap and apply it
+        # somewhere else instead. Partials that serve both roles gate the
+        # attribute on an `oob` flag set only at the fragment include site.
+        app = self._build_app(include_views=True)
+        client = self.TestClient(app)
+
+        offenders = []
+        for path in (
+            "/tests",
+            "/tests/finished",
+            "/tests/finished?mode=search",
+            "/actions",
+            "/nns",
+            "/contributors",
+            "/contributors/monthly",
+            "/workers/show",
+            "/user_management",
+            "/rate_limits",
+        ):
+            response = client.get(path)
+            if (
+                response.status_code != 200
+                or "<!doctype html>" not in response.text.lower()
+            ):
+                continue
+            if "hx-swap-oob" in response.text:
+                offenders.append(path)
+
+        self.assertEqual(offenders, [])
+
+        # The other half of the contract: the fragment response for the same
+        # URL must still address those elements out of band, or this test would
+        # pass just as well with the feature deleted.
+        for path in ("/contributors", "/workers/show"):
+            with self.subTest(path=path, mode="fragment"):
+                fragment = client.get(
+                    path, headers={"HX-Request": "true", "HX-Request-Type": "partial"}
+                )
+                self.assertEqual(fragment.status_code, 200)
+                self.assertNotIn("<!doctype html>", fragment.text.lower())
+                self.assertIn('hx-swap-oob="true"', fragment.text)
 
     def test_template_post_forms_include_explicit_csrf_token(self):
         templates_dir = Path(__file__).resolve().parents[1] / "fishtest" / "templates"
@@ -432,23 +536,28 @@ class TestHttpBoundary(unittest.TestCase):
 
     def test_history_restore_request_gets_a_full_page(self):
         # htmx 4 does not snapshot pages: a back navigation refetches the
-        # pushed URL and swaps the response into <body>. That request still
-        # carries HX-Request, so only HX-Request-Type keeps it a full page.
+        # pushed URL and swaps the response into <body>. Cover both what
+        # 4.0.0-beta6 sends today, where htmx.ajax() drops every header except
+        # this one, and what it would send if that were fixed.
         app = self._build_app(include_views=True)
         client = self.TestClient(app)
 
-        response = client.get(
-            "/tests/finished?page=4&success_only=1",
-            headers={
+        for headers in (
+            {"HX-History-Restore-Request": "true"},
+            {
                 "HX-Request": "true",
                 "HX-Request-Type": "full",
                 "HX-History-Restore-Request": "true",
             },
-        )
+        ):
+            with self.subTest(headers=headers):
+                response = client.get(
+                    "/tests/finished?page=4&success_only=1", headers=headers
+                )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("<!doctype html>", response.text.lower())
-        self.assertIn('id="tests-finished-content"', response.text)
+                self.assertEqual(response.status_code, 200)
+                self.assertIn("<!doctype html>", response.text.lower())
+                self.assertIn('id="tests-finished-content"', response.text)
 
     def test_tests_finished_search_mode_full_page_vs_fragment(self):
         app = self._build_app(include_views=True)
@@ -1398,6 +1507,51 @@ class TestHttpBoundary(unittest.TestCase):
         self.assertEqual(
             violations, [], f"Sortable tables missing sticky-top: {violations}"
         )
+
+    def test_full_pages_have_no_duplicate_element_ids(self):
+        # A duplicate id makes getElementById ambiguous, and htmx resolves an
+        # out-of-band target with querySelectorAll, so it applies the swap to
+        # every copy. The pattern that produced these was a content fragment
+        # embedded by its own full page: the page renders the filter form's
+        # hidden inputs, and the fragment renders the out-of-band copies that
+        # address them. Only a fragment response should carry those.
+        import collections
+
+        app = self._build_app(include_views=True)
+        client = self.TestClient(app)
+        id_re = re.compile(r'\bid="([^"]+)"')
+
+        checked = 0
+        duplicates = {}
+        for path in (
+            "/tests",
+            "/tests/finished",
+            "/tests/finished?mode=search",
+            "/actions",
+            "/nns",
+            "/contributors",
+            "/contributors/monthly",
+            "/workers/show",
+            "/user_management",
+            "/rate_limits",
+            "/sprt_calc",
+            "/login",
+            "/signup",
+        ):
+            response = client.get(path)
+            if (
+                response.status_code != 200
+                or "<!doctype html>" not in response.text.lower()
+            ):
+                continue
+            checked += 1
+            counts = collections.Counter(id_re.findall(response.text))
+            repeated = {k: v for k, v in counts.items() if v > 1}
+            if repeated:
+                duplicates[path] = repeated
+
+        self.assertEqual(duplicates, {})
+        self.assertGreaterEqual(checked, 10)
 
 
 if __name__ == "__main__":

@@ -680,10 +680,32 @@ class TestTestsHomepage(UiUserTestCase):
         # element, so swapped regions are identified through onHtmxSwap rather
         # than from the event target.
         self.assertIn("onHtmxSwap(", js_source)
-        self.assertIn('document.addEventListener("htmx:after:init"', js_source)
         self.assertNotIn("htmx:oobAfterSwap", js_source)
+
+        # htmx:after:init is not the htmx 2 htmx:load. htmx fires it only for
+        # elements it initializes, so it never reaches a notification bell.
+        self.assertNotIn('addEventListener("htmx:after:init"', js_source)
         self.assertIn("initializeNotificationButtons(target)", js_source)
         self.assertIn('notification.dataset.notificationReady = "1"', js_source)
+
+        # onHtmxSwap resolves a detached target to its replacement, so the swap
+        # callback must not fall back to rescanning the document.
+        # hx-swap-oob="true" means outerHTML, and the hidden sort/order/page
+        # inputs carry it on nearly every poll response, so a fallback there
+        # would rebuild every bell on the page several times per tick. The one
+        # document-wide scan belongs to the initial page load.
+        self.assertEqual(js_source.count("initializeNotificationButtons(document)"), 1)
+        self.assertIn(
+            "onHtmxSwap(\n"
+            "  () => true,\n"
+            "  (targets) => {\n"
+            "    for (const target of targets) {\n"
+            "      initializeNotificationButtons(target);\n"
+            "    }\n"
+            "  },\n"
+            ");",
+            js_source,
+        )
 
     def test_htmx_swap_helpers_filter_by_target_and_status(self):
         js_path = (
@@ -696,16 +718,77 @@ class TestTestsHomepage(UiUserTestCase):
         js_source = js_path.read_text(encoding="utf-8")
 
         # onHtmxSwap must read the swap targets from htmx:before:swap, which is
-        # the only event carrying them, and must accumulate rather than
-        # overwrite so a concurrent response cannot drop a pending target.
+        # the only event carrying them.
         self.assertIn("function onHtmxSwap(matches, callback)", js_source)
         self.assertIn('document.addEventListener("htmx:before:swap"', js_source)
-        self.assertIn("pending.push(task.target)", js_source)
+
+        # htmx awaits the swap between htmx:before:swap and htmx:after:swap, so
+        # two responses in flight interleave. The pair must be joined through
+        # detail.ctx; a queue keyed on arrival order hands the first
+        # htmx:after:swap every target collected so far.
+        self.assertIn("const pending = new WeakMap();", js_source)
+        self.assertIn("pending.get(ctx)", js_source)
+        self.assertIn("pending.set(ctx, targets)", js_source)
+        self.assertIn("pending.delete(ctx)", js_source)
 
         # noSwap maps 4xx/5xx to swap "none" instead of skipping the swap, so
         # htmx:after:swap still fires after htmx:response:error.
         self.assertIn("function htmxSwapSucceeded(event)", js_source)
         self.assertIn("status < 400", js_source)
+
+        # outerHTML and delete swaps detach their target before the pair
+        # closes. Callers get what the swap left in the document, or nothing.
+        self.assertIn("function resolveHtmxSwapTarget(target)", js_source)
+        self.assertIn("document.getElementById(target.id)", js_source)
+        self.assertIn("targets.map(resolveHtmxSwapTarget).filter(Boolean)", js_source)
+
+    def test_aborted_requests_are_distinguished_from_failures(self):
+        js_dir = Path(__file__).resolve().parents[1] / "fishtest" / "static" / "js"
+        js_source = (js_dir / "application.js").read_text(encoding="utf-8")
+
+        # htmx reports an aborted fetch through htmx:error, the same event a
+        # network failure uses. hx-sync names the filter form as the queue and
+        # the form declares no hx-sync of its own, so a keystroke there aborts
+        # an in-flight poll tick; htmx also applies a 60s default timeout.
+        self.assertIn("function htmxRequestAborted(event)", js_source)
+        self.assertIn('"AbortError"', js_source)
+
+        # Every htmx:error handler that resets load state must consult it.
+        homepage = (js_dir / "tests_homepage.js").read_text(encoding="utf-8")
+        self.assertIn("htmxRequestAborted(event)", homepage)
+        detail = (
+            Path(__file__).resolve().parents[1]
+            / "fishtest"
+            / "templates"
+            / "tests_view.html.j2"
+        ).read_text(encoding="utf-8")
+        self.assertIn("htmxRequestAborted(event)", detail)
+
+    def test_error_responses_do_not_push_url_or_retitle_the_page(self):
+        js_path = (
+            Path(__file__).resolve().parents[1]
+            / "fishtest"
+            / "static"
+            / "js"
+            / "application.js"
+        )
+        js_source = js_path.read_text(encoding="utf-8")
+
+        # noSwap suppresses the content swap only. htmx runs the history update
+        # at the top of swap() and adopts the response title after it, so a
+        # whole error page would otherwise move the address bar and the tab
+        # title over content that never changed.
+        self.assertIn(
+            'document.addEventListener("htmx:before:history:update"', js_source
+        )
+        self.assertIn("event.preventDefault();", js_source)
+        self.assertIn('ctx.title = "";', js_source)
+
+        # Out-of-band elements are applied regardless of status too, so the
+        # same guard empties the task list htmx iterates to perform the swaps.
+        # Without it an id collision with an error page overwrites live
+        # content, and noSwap becomes load-bearing rather than redundant.
+        self.assertIn("event.detail.tasks.length = 0;", js_source)
 
     def test_swap_listeners_do_not_react_to_unrelated_requests(self):
         js_dir = Path(__file__).resolve().parents[1] / "fishtest" / "static" / "js"
@@ -713,7 +796,13 @@ class TestTestsHomepage(UiUserTestCase):
         # base.html.j2 polls the pending-users badge on every page, so a bare
         # document-level htmx:after:swap listener would fire on a timer in
         # every one of these files.
-        for name in ("contributors.js", "live_elo.js", "spsa.js", "notifications.js"):
+        for name in (
+            "contributors.js",
+            "live_elo.js",
+            "spsa.js",
+            "notifications.js",
+            "tests_homepage.js",
+        ):
             with self.subTest(script=name):
                 source = (js_dir / name).read_text(encoding="utf-8")
                 self.assertIn("onHtmxSwap(", source)

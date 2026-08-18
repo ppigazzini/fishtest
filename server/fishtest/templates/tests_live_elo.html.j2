@@ -112,7 +112,7 @@
 {% if not sprt_state %}
 <div id="live-elo-poller"
   hx-get="/tests/live_elo_update/{{ run_id }}"
-  hx-trigger="every {{ poll.live_elo }}s [document.visibilityState === 'visible'], visibilitychange[document.visibilityState === 'visible'] from:document"
+  hx-trigger="every[document.visibilityState === 'visible'] {{ poll.live_elo }}s, visibilitychange[document.visibilityState === 'visible'] from:document"
      hx-swap="none">
 </div>
 {% endif %}

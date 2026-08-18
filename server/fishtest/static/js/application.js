@@ -734,10 +734,12 @@ function remainingApiCalls(response) {
 // targets, in detail.tasks, and it lists the main swap and the out-of-band
 // elements alike.
 //
-// Two rules follow. Filter by target: every page polls the pending-users
+// Three rules follow. Filter by target: every page polls the pending-users
 // navigation badge, so an unfiltered listener runs on that timer. Check the
 // status: htmx.config.noSwap maps 4xx and 5xx to swap "none", and
-// htmx:after:swap still fires for them.
+// htmx:after:swap still fires for them. Pair the two events through
+// detail.ctx: htmx awaits the swap between them, so two responses in flight
+// interleave and arrival order does not pair them.
 
 // True when htmx swapped the response behind this event.
 function htmxSwapSucceeded(event) {
@@ -745,35 +747,104 @@ function htmxSwapSucceeded(event) {
   return typeof status === "number" && status < 400;
 }
 
+// The element a swap left in the document, or null when it left nothing.
+//
+// htmx detaches the target of an outerHTML or delete swap before the pair
+// closes, and detail.tasks names the detached element. An outerHTML
+// replacement keeps the id, so it is reachable by lookup; a delete swap has no
+// replacement. Resolving here is what keeps callers off document-wide rescans:
+// hx-swap-oob="true" means outerHTML, and the hidden sort/order/page inputs
+// carry it on nearly every poll response the app sends.
+function resolveHtmxSwapTarget(target) {
+  if (target.isConnected) {
+    return target;
+  }
+  return target.id ? document.getElementById(target.id) : null;
+}
+
 // Run callback(targets) once per response that swaps at least one element
-// matching the predicate. Targets are the swapped elements; outerHTML and
-// delete swaps detach them before callback runs.
+// matching the predicate. Targets are resolved to what is in the document when
+// the callback runs, and a target whose swap left nothing behind is dropped.
 function onHtmxSwap(matches, callback) {
-  let pending = [];
+  // Keyed by request context, not by arrival order: htmx.swap() awaits the
+  // swap tasks between the two events, so a second response can open and
+  // close its own pair inside the first one's. A flat queue hands the first
+  // htmx:after:swap every target collected so far, which drops a matched
+  // target whenever the interleaving response is an error.
+  const pending = new WeakMap();
 
   document.addEventListener("htmx:before:swap", (event) => {
+    const ctx = event?.detail?.ctx;
     const tasks = event?.detail?.tasks;
-    if (!Array.isArray(tasks)) {
+    if (!ctx || !Array.isArray(tasks)) {
       return;
     }
+    const targets = pending.get(ctx) ?? [];
     for (const task of tasks) {
-      // Accumulate across responses. A concurrent response must not discard
-      // targets that are still waiting for their own after:swap.
       if (task?.target instanceof Element && matches(task.target)) {
-        pending.push(task.target);
+        targets.push(task.target);
       }
+    }
+    if (targets.length > 0) {
+      pending.set(ctx, targets);
     }
   });
 
   document.addEventListener("htmx:after:swap", (event) => {
-    if (pending.length === 0) {
+    const ctx = event?.detail?.ctx;
+    const targets = ctx && pending.get(ctx);
+    if (!targets) {
       return;
     }
-    const targets = pending;
-    pending = [];
+    pending.delete(ctx);
     if (!htmxSwapSucceeded(event)) {
       return;
     }
-    callback(targets);
+    const live = targets.map(resolveHtmxSwapTarget).filter(Boolean);
+    if (live.length > 0) {
+      callback(live);
+    }
   });
 }
+
+// True when the request behind this event was cancelled rather than failed.
+//
+// htmx reports an aborted fetch through htmx:error, the same event a network
+// failure uses. Requests are aborted routinely: hx-sync lets a filter form
+// replace an in-flight poll on the same queue, and htmx applies a 60s default
+// timeout. Treating either as a failed load resets panel state that a
+// replacement request is already refilling.
+function htmxRequestAborted(event) {
+  return event?.detail?.error?.name === "AbortError";
+}
+
+// === error responses must not move the page around them ===
+//
+// htmx.config.noSwap suppresses the main content swap and nothing else. htmx
+// runs the history update at the top of swap(), applies out-of-band elements
+// from the response body, and adopts the response title, none of them gated on
+// the status. A whole error page reaches all three: the address bar would show
+// the URL that failed, an id collision with the error page would overwrite live
+// content, and the tab would be renamed, over content that never changed.
+// htmx 2 gated all of this on the swap itself.
+
+document.addEventListener("htmx:before:history:update", (event) => {
+  const status = event?.detail?.response?.status;
+  if (typeof status === "number" && status >= 400) {
+    event.preventDefault();
+  }
+});
+
+// Registered before any onHtmxSwap listener: application.js loads ahead of
+// every script that calls onHtmxSwap, so this empties detail.tasks first and
+// the observers see an error response as swapping nothing.
+document.addEventListener("htmx:before:swap", (event) => {
+  const ctx = event?.detail?.ctx;
+  if (!ctx || htmxSwapSucceeded(event)) {
+    return;
+  }
+  ctx.title = "";
+  if (Array.isArray(event.detail.tasks)) {
+    event.detail.tasks.length = 0;
+  }
+});

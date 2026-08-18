@@ -94,7 +94,7 @@
     <div id="tests-view-detail-poller"
       hx-get="/tests/view/{{ run_id }}/detail"
       hx-include="#tests-view-detail-expected"
-      hx-trigger="every {{ poll.tests_view_detail }}s [document.visibilityState === 'visible'], visibilitychange[document.visibilityState === 'visible'] from:document"
+      hx-trigger="every[document.visibilityState === 'visible'] {{ poll.tests_view_detail }}s, visibilitychange[document.visibilityState === 'visible'] from:document"
       hx-swap="none">
     </div>
   {% endif %}
@@ -374,7 +374,7 @@
       hx-get="/tests/tasks/{{ run_id }}?show_task={{ show_task }}"
       hx-include="#tasks-filters"
       hx-sync="#tasks-filters:abort"
-      hx-trigger="{% if tasks_shown %}load, tasks:load{% else %}tasks:load{% endif %}{% if not run['finished'] %}, every {{ poll.tasks_detail }}s [document.visibilityState === 'visible' && document.getElementById('tasks').classList.contains('show')], visibilitychange[document.visibilityState === 'visible' && document.getElementById('tasks').classList.contains('show')] from:document{% endif %}"
+      hx-trigger="{% if tasks_shown %}load, tasks:load{% else %}tasks:load{% endif %}{% if not run['finished'] %}, every[document.visibilityState === 'visible' && document.getElementById('tasks').classList.contains('show')] {{ poll.tasks_detail }}s, visibilitychange[document.visibilityState === 'visible' && document.getElementById('tasks').classList.contains('show')] from:document{% endif %}"
       {# Morph rather than replace: this panel scrolls, and scroll_to() parks
          the view on a specific task row that a poll tick must not discard. #}
       hx-swap="innerMorph"
@@ -538,18 +538,24 @@
     resolveTasksLoaded = null;
   };
 
-  // #tasks-content is both the requesting element and the swap target, so htmx
-  // dispatches these events here. The swap event also fires for 4xx and 5xx,
-  // which noSwap maps to swap "none", so an error must not be recorded as a
-  // completed load.
-  tasksContainer?.addEventListener("htmx:after:swap", (event) => {
-    if (!htmxSwapSucceeded(event)) {
+  // Match on the swap target, not on the element that asked for it. htmx
+  // dispatches swap events on the requesting element, and #tasks-content is
+  // filled by two of them: its own load/poll triggers, and #tasks-filters when
+  // the reader types. Listening here for htmx:after:swap would miss every
+  // form-driven fill, including the one that replaces a load request the form
+  // aborted. onHtmxSwap already ignores responses htmx did not swap.
+  onHtmxSwap((target) => target.id === "tasks-content", resolveTasksLoadedOnce);
+  tasksContainer?.addEventListener("htmx:response:error", clearTasksLoadingState);
+  tasksContainer?.addEventListener("htmx:error", (event) => {
+    // htmx reports an aborted fetch here too. #tasks-filters shares a request
+    // queue with this panel and carries no hx-sync, so typing in the filter
+    // aborts an in-flight poll tick. Resolving the show_task promise for that
+    // would scroll before the requested row has arrived.
+    if (htmxRequestAborted(event)) {
       return;
     }
-    resolveTasksLoadedOnce();
+    clearTasksLoadingState();
   });
-  tasksContainer?.addEventListener("htmx:response:error", clearTasksLoadingState);
-  tasksContainer?.addEventListener("htmx:error", clearTasksLoadingState);
   if (tasksContainer && (tasksContainer.dataset.tasksLoaded === "1" || tasksContainer.children.length > 0)) {
     resolveTasksLoadedOnce();
   }

@@ -769,11 +769,19 @@ Detail-page tasks loader contract:
 
 - When `tasks_shown` is true, `#tasks-content` starts an htmx load request from
    `tests_view.html.j2`.
-- The template attaches the `htmx:after:swap`, `htmx:response:error`, and
-   `htmx:error` listeners for `#tasks-content` before `await DOMContentLoaded()`
-   so the initial `load` request cannot outrun the promise-resolution path.
-   The swap listener ignores error responses, which still reach it because a
-   suppressed status swaps as `none`.
+- The template registers its swap observer and its `htmx:response:error` and
+   `htmx:error` listeners before `await DOMContentLoaded()` so the initial
+   `load` request cannot outrun the promise-resolution path.
+- The swap observer matches on the **swap target**, through
+   `onHtmxSwap((target) => target.id === "tasks-content", ...)`. htmx dispatches
+   swap events on the element that issued the request, and `#tasks-content` is
+   filled by two: its own `load`/poll triggers, and `#tasks-filters` when the
+   reader types. An element-level `htmx:after:swap` listener on the panel sees
+   only the first kind, so it misses every form-driven fill -- including the
+   replacement for a load request the form aborted, which `hx-sync` makes a
+   reachable case. `onHtmxSwap` also drops responses htmx did not swap, so an
+   error is never recorded as a completed load. `#machines` in
+   `tests_homepage.js` follows the same rule.
 - The same script also resolves immediately if `#tasks-content` is already
    marked loaded or already contains rows.
 
@@ -1310,6 +1318,37 @@ table state without introducing page-specific synchronization JavaScript.
     Each OOB element in the fragment template declares its own ID and swap
     strategy (e.g., `<span id="count" hx-swap-oob="innerHTML">`).
 
+12b. **`hx-swap-oob` belongs to fragment responses only**: htmx reads the
+    attribute off a response body, never off the live document, so one shipped
+    in a full page is dead markup -- and, where the page also renders the real
+    element, a duplicate `id`. htmx resolves an out-of-band target with
+    `querySelectorAll`, so a duplicate is not cosmetic: the swap lands on every
+    copy.
+
+    `_render_hx_fragment()` sets `oob` to true for every fragment response, so
+    the flag needs no per-call wiring; a page that `{% include %}`s the same
+    template leaves it undefined. Partials included by both a page and a
+    fragment take it from the includer (`{% with oob=true %}`). Which of the
+    two shapes to use depends on whether the element itself belongs in the page:
+
+    - The element belongs in both renders, so gate only the attribute:
+      ```jinja
+      <div id="homepage-stats"{% if oob | default(false) %} hx-swap-oob="innerHTML"{% endif %}>
+      ```
+    - The element exists only to address something the page already renders --
+      a filter form's hidden inputs -- so gate the whole element, or the page
+      ships it twice:
+      ```jinja
+      {% if oob | default(false) %}
+        <input type="hidden" id="contributors_sort" name="sort" value="{{ sort }}" hx-swap-oob="true">
+      {% endif %}
+      ```
+
+    `test_full_pages_never_carry_out_of_band_attributes` and
+    `test_full_pages_have_no_duplicate_element_ids` in `test_http_boundary.py`
+    hold both halves; the first also asserts the fragment for the same URL
+    still carries the attribute, so it cannot pass by the feature being deleted.
+
 13. **Row OOB requires a `<template>` wrapper, and the wrapper carries the
     attributes**: a `<tr>` cannot stand on its own in parsed HTML. Put `id`
     and `hx-swap-oob` on the `<template>` itself:
@@ -1343,7 +1382,9 @@ table state without introducing page-specific synchronization JavaScript.
 
 17. **Polling trigger policy**: every periodic htmx poller must include
     three trigger components: (a) a periodic trigger gated on
-    `document.visibilityState === 'visible'`, (b) an immediate
+    `document.visibilityState === 'visible'`, written `every[<condition>] Ns`
+    because htmx reads the filter off the leading token only and silently
+    ignores `every Ns [<condition>]`, (b) an immediate
     `visibilitychange[...] from:document` refresh, and (c) for
     section-scoped pollers, a gate on the section's expanded state.
     See [1-architecture.md](1-architecture.md) for the full policy.

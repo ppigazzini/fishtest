@@ -281,8 +281,11 @@ class TestAdminViews(UiUserTestCase):
         self.assertIn("<th>Client</th>", full_response.text)
         self.assertIn('id="server_rate_limit"', full_response.text)
         self.assertIn('id="client_rate_limit"', full_response.text)
+        # The condition rides the every token: htmx reads a [filter] off the
+        # leading trigger token only, so "every Ns [cond]" drops the condition.
         self.assertIn(
-            f'hx-trigger="load, every {POLL_RATE_LIMITS_SERVER_S}s ',
+            "hx-trigger=\"load, every[document.visibilityState === 'visible'] "
+            f"{POLL_RATE_LIMITS_SERVER_S}s,",
             full_response.text,
         )
         self.assertIn(
@@ -346,8 +349,9 @@ class TestAdminViews(UiUserTestCase):
                 full_response.text,
             )
             self.assertIn(
-                f'hx-trigger="load, every {POLL_PENDING_USERS_NAV_S}s '
-                "[document.visibilityState === 'visible'], "
+                'hx-trigger="load, '
+                "every[document.visibilityState === 'visible'] "
+                f"{POLL_PENDING_USERS_NAV_S}s, "
                 "visibilitychange[document.visibilityState === 'visible'] "
                 'from:document"',
                 full_response.text,

@@ -290,16 +290,39 @@ def _form_string_value(form: Any, key: str) -> str:  # noqa: ANN401
 
 
 def _is_hx_request(request: Any) -> bool:  # noqa: ANN401
+    """Report whether this request wants a fragment sized for a swap target.
+
+    Three independent signals, each rejecting the case it actually identifies.
+    None of them is required to be present, because a fragment request is the
+    default reading of ``HX-Request: true`` and the alternatives announce
+    themselves.
+    """
     headers = getattr(request, "headers", None)
     if headers is None:
         return False
     if (headers.get("HX-Request") or "").lower() != "true":
         return False
+    # A back navigation replaces the document. htmx 4 does not snapshot pages,
+    # so it refetches the pushed URL, and it names that request outright. In
+    # 4.0.0-beta6 the restore is the only htmx request that does not carry
+    # HX-Request at all: htmx.ajax() overwrites the whole request object with
+    # the one #restoreHistory passes, which holds this header and nothing else.
+    # That is almost certainly a beta oversight, so do not depend on it.
+    if (headers.get("HX-History-Restore-Request") or "").lower() == "true":
+        return False
     # htmx states the scope of the swap: "partial" targets a region of the
-    # current page, "full" replaces the document. History restores and boosted
-    # navigations are "full" and require a whole page, so serve a fragment only
-    # for an explicitly partial request.
-    return (headers.get("HX-Request-Type") or "").lower() == "partial"
+    # current page, "full" replaces the document, which is what a boosted
+    # navigation asks for. Reject "full" rather than requiring "partial".
+    # Requiring it would make every dual-mode endpoint depend on one beta
+    # header keeping its name, and the failure would be silent and total:
+    # whole pages swapped into the <div>s that asked for a fragment.
+    if (headers.get("HX-Request-Type") or "").lower() == "full":
+        return False
+    # A top-level document navigation is never a fragment request, whatever the
+    # HX-* headers say. htmx never issues one, so this catches a browser
+    # prefetch or a proxy replaying HX-Request onto a real navigation. Unlike
+    # the headers above, the browser sets this one and page script cannot.
+    return (headers.get("Sec-Fetch-Mode") or "").lower() != "navigate"
 
 
 # === Username matching and sorting ===
