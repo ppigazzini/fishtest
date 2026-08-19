@@ -1,39 +1,78 @@
 # Production Deployment
 
+This page describes how the fishtest server is deployed: the environment
+variables the process reads, the database and filesystem it expects, the
+systemd units, the nginx front end, kernel and process limits, the operational
+scripts in `server/utils/`, and how proxy policy relates to application
+behavior. For local setup and validation workflows see
+[7-development.md](7-development.md).
+
+Sizing numbers on this page (worker-fleet targets, connection counts, file
+descriptor ceilings, timeouts) describe the reference deployment of
+`tests.stockfishchess.org`. They are properties of that host and its fleet, not
+of the repository. Re-derive them for any other deployment.
+
 ## Prerequisites
 
-| Component | Minimum version | Purpose |
-|-----------|-----------------|---------|
-| Python | >= 3.14 | Runtime |
-| MongoDB | mongod service | Data store |
-| nginx | -- | Reverse proxy, TLS, static files |
+| Component | Version | Purpose |
+|-----------|---------|---------|
+| Python | >= 3.14 | Runtime (`server/pyproject.toml`) |
+| MongoDB | `mongod` on `localhost` | Data store; CI validates against 8.0 |
+| nginx | >= 1.19.4 | Reverse proxy, TLS, static files (`ssl_reject_handshake`) |
 | uv | -- | Python package manager |
 
 ## Environment variables
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `FISHTEST_PORT` | Yes | `-1` | Port for this instance |
-| `FISHTEST_PRIMARY_PORT` | Yes | `-1` | Fixed primary port (typically 8000) |
-| `FISHTEST_URL` | Dev: No; Prod: Yes | -- | Public URL (e.g., `https://tests.stockfishchess.org`); may be empty in development for dynamic host/IP |
-| `FISHTEST_NN_URL` | No | (unset => request host; empty => same-host) | Base URL workers use to download neural networks (see below) |
-| `FISHTEST_AUTHENTICATION_SECRET` | Yes | -- | Cookie signing secret (itsdangerous) |
-| `FISHTEST_CAPTCHA_SECRET` | No | -- | reCAPTCHA secret key for signup |
-| `FISHTEST_CAPTCHA_SITE_KEY` | No | built-in | reCAPTCHA site key for signup |
-| `FISHTEST_INSECURE_DEV` | No | -- | Set to `1` for development mode (insecure secret) |
-| `FISHTEST_JINJA_TEMPLATES_DIR` | No | auto | Override Jinja2 templates directory |
-| `OPENAPI_URL` | No | (empty) | Set to `/openapi.json` to enable `/docs` and `/redoc` (development-only) |
-| `UVICORN_WORKERS` | No | -- | Must be `1` on primary (enforced at startup) |
-| `WEB_CONCURRENCY` | No | -- | Fallback for `UVICORN_WORKERS` (checked if unset) |
+`Read in` paths are relative to `server/fishtest/`.
+
+| Variable | Required | Read in | Default | Effect |
+|----------|----------|---------|---------|--------|
+| `FISHTEST_AUTHENTICATION_SECRET` | Yes | `http/cookie_session.py` -> `_secret_key` | -- | Session cookie signing key (itsdangerous). Startup fails without it unless `FISHTEST_INSECURE_DEV` is set |
+| `FISHTEST_PORT` | Yes | `http/settings.py` -> `AppSettings.from_env` | `-1` | Port identity of this instance |
+| `FISHTEST_PRIMARY_PORT` | Yes | `http/settings.py` -> `AppSettings.from_env` | `-1` | Primary port of the cluster |
+| `FISHTEST_CAPTCHA_SECRET` | Yes for signup | `views.py` -> `signup` | -- | reCAPTCHA secret. Without it signup rejects every attempt with "Captcha configuration is missing" |
+| `UVICORN_WORKERS` | Yes on primary | `app.py` -> `_require_single_worker_on_primary` | -- | Must be `1` on the primary; any other value raises at startup |
+| `WEB_CONCURRENCY` | No | `app.py` -> `_require_single_worker_on_primary` | -- | Consulted only when `UVICORN_WORKERS` is unset or empty |
+| `FISHTEST_NN_URL` | No | `api.py` -> `WorkerApi.download_nn` | request origin | Base URL that `/api/nn/{id}` redirects to (see below) |
+| `FISHTEST_URL` | Recommended | `rundb.py` -> `RunDb.__init__` | `http://127.0.0.1` | Seeds `RunDb.base_url`, which is used to build run links in server log lines. When unset, `http/middleware.py` -> `AttachRequestStateMiddleware` overwrites it once from the first inbound request, so the value ends up depending on that request's `Host` and `X-Forwarded-Proto` headers. Set it explicitly to keep log links stable and predictable |
+| `FISHTEST_CAPTCHA_SITE_KEY` | No | `views.py` -> `signup` | `views.py` -> `DEFAULT_RECAPTCHA_SITE_KEY` | reCAPTCHA site key rendered into the signup form |
+| `FISHTEST_STATIC_DIR` | No | `http/settings.py` -> `default_static_dir` | package `static/` | Directory mounted at `/static`. In production nginx serves `/static/` first, so the mount is a fallback |
+| `FISHTEST_JINJA_TEMPLATES_DIR` | No | `http/jinja.py` -> `templates_dir` | package `templates/` | Jinja2 template search path |
+| `GH_TOKEN` | No | `github_api.py` -> `call` | -- | Sent as `Authorization: Bearer`. Raises the GitHub API rate limit for master-SHA refresh and book downloads |
+| `OPENAPI_URL` | No | `http/settings.py` -> `AppSettings.from_env` | unset | Set to `/openapi.json` to register `/docs`, `/redoc` and `/openapi.json`. Leave unset in production |
+| `FISHTEST_INSECURE_DEV` | Never in production | `http/cookie_session.py` -> `_secret_key` | -- | `1`, `true`, `yes` or `on` selects a hardcoded insecure signing secret |
+
+`server/utils/backup.sh` and `server/utils/aws_nets_sync.py` additionally read
+`VENV`, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` from the operator's
+shell profile. They are not read by the server process.
 
 **Session invalidation**: deploying a new `FISHTEST_AUTHENTICATION_SECRET`
 invalidates all existing sessions. Users must re-authenticate once.
 
 ### Primary instance detection
 
-If `FISHTEST_PORT == FISHTEST_PRIMARY_PORT`, the instance is primary. If
-either value is unset or negative, the instance defaults to primary for
-backward compatibility.
+`AppSettings.from_env` marks the instance primary when
+`FISHTEST_PORT == FISHTEST_PRIMARY_PORT`. If either value is unset or negative,
+the instance defaults to primary. In a multi-instance deployment every unit
+must therefore set both variables, or every process will start a scheduler.
+
+## Database and filesystem prerequisites
+
+| Requirement | Where the expectation comes from |
+|-------------|----------------------------------|
+| `mongod` reachable at `localhost` on the default port | `rundb.py` -> `RunDb.__init__` uses `MongoClient("localhost")`; there is no connection-string setting |
+| Database `fishtest_new` | `util.py` -> `FISHTEST` |
+| Indexes on `runs`, `pgns`, `nns`, `users`, `workers`, `actions` | `server/utils/create_indexes.py` |
+| Capped `pgns` collection | `server/utils/create_pgndb.py` |
+| `/var/www/fishtest/nn/` writable by the service user | `views.py` writes uploaded networks there as `nn-<hash>.nnue.gz`; the path is hardcoded |
+| `/var/www/fishtest/static/` containing the contents of `server/fishtest/static/` | nginx serves `/static/`, `/robots.txt` and `/favicon.ico` from disk and never reaches the app mount |
+| `/var/www/fishtest/static/html/maintenance.html` | Served by the maintenance vhost; the source file is `server/fishtest/static/html/maintenance.html` |
+
+Refresh `/var/www/fishtest/static/` on every deploy that changes
+`server/fishtest/static/`. The Jinja2 global `static_url`
+(`http/jinja.py` -> `static_url`) appends a content hash query parameter
+computed from the package directory, so a stale copy under `/var/www` is served
+with a cache-busting token that does not match its contents.
 
 ## Primary / secondary instance model
 
@@ -42,17 +81,21 @@ backward compatibility.
 | Primary | 8000 | Scheduler, GitHub integration, aggregated data, cache flush, worker API |
 | Secondary | 8001 | UI traffic (`/tests` homepage) |
 | Secondary | 8002 | Read-only API, finished tests, contributors, static pages |
-| Secondary | 8003 | PGN uploads (`/api/upload_pgn`) -- 3 Uvicorn workers (production override) |
+| Secondary | 8003 | PGN uploads (`/api/upload_pgn`), multiple Uvicorn workers |
 
-Four systemd units (ports 8000-8003), six OS processes total. The primary
-(8000) must be a single process (`UVICORN_WORKERS=1`) because it holds
-in-process mutable state (run cache, scheduler, task locks). As a
-single-core async process, the primary saturates at roughly 15,000
-concurrent workers -- this is the practical scaling ceiling. Port 8003
-runs 3 Uvicorn workers via a systemd drop-in override (see below); Uvicorn's
-internal process manager distributes PGN upload requests across the workers.
-The extra workers absorb the long-tail latency of large PGN writes
-(p95 approx 30 s at peak load).
+Four systemd units cover ports 8000-8003. The primary must run a single
+Uvicorn worker because it holds in-process mutable state (run cache, scheduler,
+task locks); `app.py` -> `_require_single_worker_on_primary` refuses to start
+otherwise. Because the primary is one async process on one core, it is the
+scaling ceiling of the deployment.
+
+Port 8003 runs several Uvicorn workers through a systemd drop-in override (see
+below). Uvicorn's process manager distributes PGN upload requests across them,
+which keeps the long-tail latency of large PGN writes off the shared path.
+
+`/api/upload_pgn` is the only worker API path that a secondary instance may
+serve: `api.py` defines `PRIMARY_ONLY_WORKER_API_PATHS` as `WORKER_API_PATHS`
+minus `/api/upload_pgn`.
 
 High-level routing topology:
 
@@ -64,7 +107,7 @@ flowchart LR
         primary[8000 primary]
         tests[8001 tests homepage]
         readonly[8002 read-only UI and API]
-        pgn["8003 upload_pgn (3 workers)"]
+        pgn["8003 upload_pgn (multi-worker)"]
     end
     nginx -->|Worker API| primary
     nginx -->|/tests| tests
@@ -91,12 +134,13 @@ Copy the following file as-is. Replace `USER_NAME` with the actual user,
 the values below, and `CHANGE_ME` with the production cookie signing
 secret and the reCAPTCHA secret.
 
-`OPTIONAL_NN_URL` -- base URL workers use to download neural networks:
+`OPTIONAL_NN_URL` -- base URL that `/api/nn/{id}` redirects workers to
+(`api.py` -> `WorkerApi.download_nn`):
 
 | Value | Meaning |
 |-------|---------|
-| (unset) | Server falls back to the request origin (`{scheme}://{host}`) for redirects |
-| (empty) | Server uses same-host relative redirects (`/nn/<id>`) |
+| (unset) | Server falls back to the request origin (`{scheme}://{host}`) |
+| (empty) | Redirect target becomes `/nn/<id>` on the same host |
 | `https://SERVER_NAME` | Workers download directly from this origin |
 | `https://CDN_HOSTNAME` | Workers download via a CDN in front of this origin |
 | `https://data.stockfishchess.org` | Workers download via the official fishtest CDN |
@@ -134,7 +178,7 @@ Environment="FISHTEST_PRIMARY_PORT=8000"
 WorkingDirectory=/home/USER_NAME/fishtest/server
 User=USER_NAME
 
-# At 20k workers the primary needs ~15k fds; 32768 provides 2x headroom.
+# Sized for the reference deployment: ~15k fds at peak, 2x headroom.
 LimitNOFILE=32768
 
 ExecStart=/home/USER_NAME/fishtest/server/.venv/bin/python -m uvicorn fishtest.app:app --host 127.0.0.1 --port %i --proxy-headers --forwarded-allow-ips=127.0.0.1 --backlog 16384 --log-level warning --workers $UVICORN_WORKERS
@@ -145,11 +189,14 @@ RestartSec=3
 WantedBy=multi-user.target
 ```
 
+`ExecStart` runs the interpreter from `server/.venv`, so the deploy step is
+`cd /home/USER_NAME/fishtest/server && uv sync` before restarting the units.
+
 ### PGN upload worker override
 
-In production, port 8003 handles PGN uploads which have long-tail latency.
-Running 3 Uvicorn workers on this port prevents slow uploads from blocking
-fast ones. Create a per-instance drop-in override:
+Port 8003 handles PGN uploads, which have long-tail latency. Running several
+Uvicorn workers on this port prevents slow uploads from blocking fast ones.
+Create a per-instance drop-in override:
 
 ```bash
 sudo mkdir -p /etc/systemd/system/fishtest@8003.service.d
@@ -170,40 +217,76 @@ sudo systemctl daemon-reload
 sudo systemctl restart fishtest@{8000..8003}
 ```
 
+The override is safe only on a non-primary port. On the primary,
+`_require_single_worker_on_primary` raises `RuntimeError` during lifespan
+startup for any value other than `1`.
+
 ### Uvicorn flags
 
-**`--backlog 16384`** -- Sets the kernel TCP listen queue size. This absorbs
-connection bursts from large worker fleets without dropping connections.
-The value must exceed the peak burst arrival rate during restarts (when
-all backed-off workers reconnect simultaneously).
+**`--proxy-headers --forwarded-allow-ips=127.0.0.1`** -- lets Uvicorn rewrite
+the client address and scheme from `X-Forwarded-For` and `X-Forwarded-Proto`,
+but only for connections arriving from the local nginx. The application reads
+the rewritten value through `request.client.host`
+(`http/boundary.py`, `views.py`), which is what ends up in
+`worker_info["remote_addr"]` and in the reCAPTCHA `remoteip` field. Without
+these flags every worker appears to come from `127.0.0.1`.
 
-**Do NOT use `--limit-concurrency`.** This flag rejects connections beyond
-the specified limit with HTTP 503 (plain text "Service Unavailable").
-Workers receiving this non-JSON response trigger a `JSONDecodeError` and
-enter exponential backoff (15 s -> 900 s), effectively removing themselves
-from the active pool. Under Uvicorn's ASGI async model, connection
-acceptance is handled by the event loop and costs negligible resources per
-idle connection. Application-level throttling
-(`task_semaphore(TASK_SEMAPHORE_SIZE)` + `request_task_lock` in `rundb.py`)
-governs the critical scheduling path. Both constants live in
-`http/settings.py`; see [2-threading-model.md](2-threading-model.md)
-for the full analysis. There is no need for an HTTP-layer concurrency cap.
+**`--backlog 16384`** -- sets the kernel TCP listen queue size. This absorbs
+connection bursts from large worker fleets without dropping connections. The
+value must exceed the peak burst arrival rate during restarts, when all
+backed-off workers reconnect simultaneously.
 
-**OpenAPI docs** (`/docs`, `/redoc`, `/openapi.json`) are disabled in
-production (`openapi_url` defaults to `None`). Set `OPENAPI_URL=/openapi.json`
-in the environment to re-enable during development.
+**Do NOT use `--limit-concurrency`.** This flag rejects connections beyond the
+specified limit with HTTP 503 (plain text "Service Unavailable"). Workers
+receiving this non-JSON response trigger a `JSONDecodeError` and enter
+exponential backoff, effectively removing themselves from the active pool.
+Under Uvicorn's ASGI async model, connection acceptance is handled by the event
+loop and costs negligible resources per idle connection. Application-level
+throttling governs the critical scheduling path instead:
+`rundb.py` -> `RunDb.task_semaphore` (a `threading.Semaphore` sized by
+`TASK_SEMAPHORE_SIZE`) and `rundb.py` -> `RunDb.request_task_lock`.
+`TASK_SEMAPHORE_SIZE` and `THREADPOOL_TOKENS` are defined in
+`http/settings.py`; see [2-threading-model.md](2-threading-model.md) for the
+full analysis. There is no need for an HTTP-layer concurrency cap.
+
+**OpenAPI docs** (`/docs`, `/redoc`, `/openapi.json`) are unregistered unless
+`OPENAPI_URL` is set. Leave it unset in production.
 
 ## nginx configuration
 
-The nginx setup uses two configuration files:
+The nginx setup uses three configuration files:
 
-1. **`/etc/nginx/conf.d/default.conf`** -- catch-all server that handles
+1. **`/etc/nginx/conf.d/cidr.conf`** -- the `geo $region` map that resolves a
+   client IP to an ISO country code. Generated by
+   `server/utils/nginx_cidr_builder.py`.
+
+2. **`/etc/nginx/conf.d/default.conf`** -- catch-all server that handles
    HTTP->HTTPS redirects and rejects TLS handshakes for unrecognized
    hostnames. This prevents certificate leaks when multiple vhosts share
    one IP address.
 
-2. **`/etc/nginx/sites-available/fishtest.conf`** -- the named fishtest
+3. **`/etc/nginx/sites-available/fishtest.conf`** -- the named fishtest
    vhost with upstream routing, static file serving, and reverse proxy.
+
+### Country code map
+
+The site config sets `proxy_set_header X-Country-Code $region;`. `$region` is
+not a built-in nginx variable: it is defined by the `geo` block that
+`server/utils/nginx_cidr_builder.py` generates from the
+`ipverse/country-ip-blocks` repository. Without that file nginx refuses to
+start with `unknown "region" variable`.
+
+```bash
+cd /home/USER_NAME/fishtest/server
+uv run python utils/nginx_cidr_builder.py -o /etc/nginx/conf.d/cidr.conf
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+The generated map emits `ZZ` as its `default`. `api.py` ->
+`WorkerApi.get_country_code` translates a missing header and the literal `ZZ`
+into `"?"`, which is what is stored in `worker_info["country_code"]` and shown
+on the machines page. Regenerate the file periodically; the address ranges
+change upstream.
 
 ### Default server configuration
 
@@ -327,9 +410,6 @@ server {
     add_header Referrer-Policy            "strict-origin-when-cross-origin" always;
     add_header Permissions-Policy         "camera=(), microphone=(), geolocation=()" always;
 
-    # block bad actors at the server level (early access phase)
-    # deny  xxx.xxx.xxx.xxx;
-
     location = /        { return 308 /tests; }
     location = /tests/  { return 308 /tests; }
 
@@ -404,6 +484,26 @@ exclusively to the catch-all in `default.conf`. This separation ensures
 correct SNI-based certificate selection when multiple vhosts share one IP
 on both IPv4 and IPv6.
 
+### Proxy policy versus application behavior
+
+The nginx configuration is deployment policy. It is not the application
+contract, and the two diverge in ways an operator must know.
+
+| Proxy setting | What the application does |
+|---------------|---------------------------|
+| `proxy_set_header X-Forwarded-Proto` | Read. `http/cookie_session.py` -> `is_https`, `http/session_middleware.py` and `http/middleware.py` -> `_external_base_url_from_request` use it to decide the `Secure` cookie flag and the external base URL |
+| `proxy_set_header X-Country-Code` | Read. `api.py` -> `WorkerApi.get_country_code`, with `ZZ` and a missing header both mapping to `"?"` |
+| `proxy_set_header X-Forwarded-For` | Not read by application code. Uvicorn's `--proxy-headers` consumes it and rewrites `request.client` |
+| `proxy_set_header X-Real-IP` | Not read by anything. Kept for log correlation only |
+| `proxy_set_header X-Forwarded-Host`, `X-Forwarded-Port` | Not read. The application uses the `Host` header directly |
+| `client_max_body_size 200m` | Nothing in the application enforces the same number. UI multipart forms are capped by `http/settings.py` -> `UI_FORM_MAX_PART_SIZE_BYTES`, `UI_FORM_MAX_FIELDS` and `UI_FORM_MAX_FILES`. Network uploads are capped separately by `views.py` -> `_MAX_NETWORK_SIZE_BYTES`, which is smaller than 200 MiB, so a network between the two limits is accepted by nginx and rejected by the application with a form error |
+| `map $uri $backends` | Routing preference, not enforcement. `http/middleware.py` -> `RejectNonPrimaryWorkerApiMiddleware` returns HTTP 503 with a JSON worker-protocol error if a primary-only worker API path reaches a secondary instance. A misrouted map degrades the worker fleet; it does not corrupt state |
+| `proxy_read_timeout 60s` | No matching application-side request timeout. `http/settings.py` -> `UI_HTTP_TIMEOUT_SECONDS` bounds outbound HTTP calls the server makes, not inbound requests |
+
+The worker API is authenticated per request
+(`api.py` -> `WorkerApi.validate_username_password`). nginx performs no
+authentication and must not be treated as an authorization layer.
+
 ### Neural network CDN (`CDN_HOSTNAME`)
 
 `CDN_HOSTNAME` appears in the `server_name` directive so that nginx
@@ -425,8 +525,8 @@ Origin CA), which is outside the scope of this server configuration.
 File: `/etc/nginx/sites-available/fishtest-maintenance.conf`
 
 During planned maintenance (major upgrades, database migrations), swap the
-active site symlink so that all requests receive a friendly 503 maintenance
-page while static assets (logos, icons) remain available. The procedure:
+active site symlink so that all requests receive a 503 maintenance page while
+static assets remain available. The procedure:
 
 ```bash
 sudo ln -sfn /etc/nginx/sites-available/fishtest-maintenance.conf /etc/nginx/sites-enabled/fishtest.conf
@@ -512,11 +612,15 @@ server {
 No port 80 block is needed -- `default.conf` already redirects all HTTP
 traffic to HTTPS regardless of hostname.
 
+Workers that receive the 503 maintenance page get a non-JSON body and enter
+exponential backoff, so expect the fleet to take several minutes to recover
+after the site config is switched back.
+
 ### nginx worker tuning
 
 The following directives belong in `/etc/nginx/nginx.conf` (not in the
 site config). They raise the per-worker fd limit and connection capacity
-for high worker counts:
+for high worker counts. The numbers are sized for the reference deployment.
 
 ```nginx
 user  www-data;
@@ -531,7 +635,6 @@ worker_rlimit_nofile  40000;
 
 events {
     # total capacity = worker_connections * worker_processes = 65536
-    # at 20k workers each process handles ~20k connections (client + upstream)
     worker_connections  32768;
 
     # efficiently handle multiple new connections at once
@@ -567,64 +670,65 @@ http {
 }
 ```
 
-At 20,000 workers each nginx worker process handles approximately 10,000
-client connections plus 10,000 upstream proxy connections (~20,000 total).
-`worker_connections 32768` provides 1.6x headroom per worker.
+Each connected worker costs one client connection plus one upstream proxy
+connection, so size `worker_connections * worker_processes` at roughly twice
+the target fleet size, with headroom.
 
-`keepalive 256` sets the maximum number of idle keepalive connections
-retained per upstream block. At 9,400 workers the sustained request rate
-is ~150 req/s with most requests completing in <100 ms. The value 256
-is generous for localhost backends but harmless -- idle TCP connections
-consume negligible memory.
+The `log_format main` definition above includes `$upstream_response_time`,
+which `server/utils/analyze_access_log.py` parses. Changing the format breaks
+that report.
+
+`keepalive 256` in each upstream block sets the maximum number of idle
+keepalive connections retained toward that backend. Idle localhost TCP
+connections consume negligible memory, so a generous value costs nothing.
 
 ### nginx proxy timeout rationale
 
-Proxy timeouts are set aggressively low to fail fast on unresponsive
-backends rather than accumulating stale connections:
+Proxy timeouts are set low to fail fast on unresponsive backends rather than
+accumulating stale connections:
 
 | Directive | Value | Rationale |
 |-----------|-------|----------|
-| `proxy_connect_timeout` | 2 s | Backend connect should succeed in < 1 ms (localhost) |
-| `proxy_send_timeout` | 30 s | Request bodies (PGN uploads) rarely exceed 10 s |
+| `proxy_connect_timeout` | 2 s | Backend connect is a localhost connect |
+| `proxy_send_timeout` | 30 s | Bounds the time spent streaming a request body upstream |
 | `proxy_read_timeout` | 60 s | Accommodates slow DB queries and streaming PGN downloads |
 
 ## Kernel tuning (sysctl)
 
-For the 20,000-worker target, verify the following `sysctl` values.
-Add to `/etc/sysctl.d/99-fishtest.conf` if needed:
+Values below are sized for the reference deployment. Add them to
+`/etc/sysctl.d/99-fishtest.conf`:
 
 ```ini
-# fishtest production tuning (target: 20,000 workers)
+# fishtest production tuning
 
 # must be >= uvicorn --backlog (16384); 32768 absorbs thundering-herd reconnections
 net.core.somaxconn = 32768
 net.core.netdev_max_backlog = 32768
 net.ipv4.tcp_max_syn_backlog = 32768
 
-# 20k client + 20k upstream + mongodb + misc approx 45k peak; 120k provides ~2.5x headroom
+# client + upstream + mongodb + misc, with headroom
 fs.file-max = 120000
 
-# each proxied request consumes an ephemeral port; default range (~28k) is too narrow
+# each proxied request consumes an ephemeral port; the default range is too narrow
 net.ipv4.ip_local_port_range = 1024 65535
 
 # fast socket recycling under high connection churn
 net.ipv4.tcp_tw_reuse = 1
 
-# handle high-frequency socket churn from 20k workers; prevents 'time wait bucket table overflow'
+# prevents 'time wait bucket table overflow' under high socket churn
 net.ipv4.tcp_max_tw_buckets = 65536
 ```
 
 Apply with `sudo sysctl --system`.
 
-`net.core.somaxconn` must be >= the Uvicorn `--backlog` value (16384).
-Otherwise the kernel silently truncates the listen queue. The value 32768
-provides 2x headroom and absorbs a full thundering-herd reconnection burst.
+`net.core.somaxconn` must be >= the Uvicorn `--backlog` value. Otherwise the
+kernel silently truncates the listen queue.
 
 ## User limits
 
 systemd `LimitNOFILE` only applies to services started by systemd. For
 interactive sessions (SSH maintenance, cron jobs), set PAM limits so the
-USER_NAME user inherits the same file-descriptor ceiling:
+`USER_NAME` user inherits a comparable file-descriptor ceiling:
 
 ```bash
 sudo mkdir -p /etc/security/limits.d
@@ -634,19 +738,63 @@ File: `/etc/security/limits.d/99-fishtest.conf`
 
 ```ini
 # interactive fd ceiling for the USER_NAME user.
-# soft (8192) covers SSH maintenance; hard (32768) matches systemd LimitNOFILE.
+# soft covers SSH maintenance; hard matches systemd LimitNOFILE.
 USER_NAME         soft    nofile          8192
 USER_NAME         hard    nofile          32768
 ```
 
+## Operational utilities
+
+Every script lives in `server/utils/`. Run the Python scripts from the
+`server/` directory so that `fishtest` is importable, for example
+`uv run python utils/create_indexes.py runs`. All of them connect to
+`localhost` and operate on `fishtest_new` unless stated otherwise.
+
+| Script | What it does | When to run it |
+|--------|--------------|----------------|
+| `create_indexes.py` | Drops and re-creates indexes for the collection names given as arguments (`users`, `workers`, `actions`, `runs`, `pgns`, `nns`). With no arguments it only prints the current indexes | New deployment, or after changing a query pattern or an index definition |
+| `create_pgndb.py` | Drops the `pgns` collection and re-creates it as a capped collection. Destructive: it deletes every stored PGN | Initial setup only |
+| `delta_update_users.py` | Recomputes `user_cache` and `top_month` contribution statistics. Full scan when the `deltas` collection is empty, incremental otherwise. Records a `system_event` action | Periodically from cron; it is not registered in `rundb.py` -> `schedule_tasks` |
+| `purge_pgns.py` | Deletes PGNs for older finished, deleted and unfinished runs, then compacts the `pgns` collection | Periodically from cron, to bound the PGN collection size |
+| `backup.sh` | `mongodump` of `fishtest_new`, `admin`, `config` and `local` excluding `pgns`, then uploads `dump.tar` to `s3://fishtest/backup/archive/<YYYYMMDD>/`. Sources `~/.profile` for `VENV` and the AWS credentials, and works in `~/backup` | Daily from cron |
+| `aws_nets_sync.py` | `--backup` syncs new neural net files to S3; `--check` verifies local net file hashes. `--path` defaults to `/var/www/fishtest/nn` | Daily from cron (`--backup`), and on demand after a suspected corruption (`--check`) |
+| `nginx_cidr_builder.py` | Builds the `geo $region` country map from `ipverse/country-ip-blocks`. `-o` defaults to `./cidr.conf` | Initial nginx setup, then periodically to refresh the address ranges |
+| `analyze_access_log.py` | Aggregates nginx access-log timings per FastAPI route. It imports `fishtest.app` and calls `create_app()` to discover the route list, and reads the latency from the last field of each log line. `--log-file` defaults to `/var/log/nginx/access.log`, `--since` to `1 hours ago`, `--until` to now | Latency investigation. Needs the server environment, and `sudo` when the log is root-owned |
+| `current.py` | Prints the `runs` indexes, `uptime`, and MongoDB operations running longer than the threshold given as the first argument (default `0.3` seconds) | Live investigation of a slow or stuck server |
+| `test_queries.py` | Times the main `RunDb` queries and prints `explain()` output for the hot `runs` queries | After an index change, to confirm the intended index is used |
+| `userdb.py` | Scans `users` and stores every username that does not match `VALID_USERNAME_PATTERN` into `kvstore["legacy_usernames"]`, which every instance loads at startup | After changing `VALID_USERNAME_PATTERN`, before restarting the cluster |
+| `compact_actions.py` | Strips embedded `tasks` arrays out of stored action documents | One-off cleanup when the `actions` collection grows from embedded task data |
+| `convert_actions.py` | Rewrites `actions` documents to the current field types (`time` as a POSIX timestamp, `run_id` as a string) | One-off data migration |
+| `upgrade.py` | Rewrites `runs` documents to the current field defaults and assigns UUIDs to legacy workers | One-off data migration |
+| `clone_fish.py` | Copies runs and PGNs from a remote fishtest instance into a local `fish_clone` database over the REST API | Building a local dataset for analysis |
+
+`compact_actions.py`, `convert_actions.py`, `upgrade.py` and `clone_fish.py`
+rewrite or create data in place. Take a backup first and stop the affected
+instances.
+
+## Runtime operations
+
+| Task | Command or mechanism |
+|------|----------------------|
+| Follow one instance's log | `sudo journalctl -u fishtest@8000 -f` |
+| Dump all thread stacks | `sudo kill -USR1 <pid>`. `app.py` -> `_install_sigusr1_thread_dump_handler` registers `faulthandler` for `SIGUSR1`; output goes to the unit's log |
+| Graceful stop | `sudo systemctl stop fishtest@8000`. Lifespan shutdown sets the shutdown flag, stops the scheduler, flushes the run cache, saves persistent data, writes a `stop fishtest@<port>` system event, and closes the MongoDB connection |
+| Behavior while stopping | `http/middleware.py` -> `ShutdownGuardMiddleware` answers every request with an empty HTTP 503 as soon as shutdown begins |
+| Deploy new code | `git pull`, `(cd server && uv sync)`, refresh `/var/www/fishtest/static/`, then `sudo systemctl restart fishtest@{8000..8003}` |
+
+Restart the primary last when the change touches scheduling or the run cache:
+secondaries read runs from MongoDB, so they tolerate a brief primary outage,
+while the worker fleet backs off and reconnects.
+
 ## Capacity audit script
 
-Run on the production host to verify that kernel, nginx, and process
-limits are correctly sized for the 20,000-worker target:
+The script below is not part of the repository. Save it on the production host
+and adjust the constants to the fleet you actually run; it verifies that
+kernel, nginx, and process limits match those constants.
 
 ```bash
 #!/usr/bin/env bash
-# fishtest capacity audit -- verify system tuning for the 20,000-worker target.
+# fishtest capacity audit -- verify system tuning against a worker-count target.
 # Run on the production host after applying sysctl, nginx, and systemd settings.
 
 set -euo pipefail

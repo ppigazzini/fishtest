@@ -1,9 +1,15 @@
 # Developer references
 
-Curated web references and project-specific patterns for the four libraries
-that form the fishtest server stack. For server architecture and request
-flow, see [1-architecture.md](1-architecture.md). For the threading model
-and async/sync boundaries, see [2-threading-model.md](2-threading-model.md).
+Curated web references and project-specific patterns for the libraries that
+make up the fishtest stack: FastAPI, Starlette, Jinja2, htmx, the front-end
+CDN assets, and the Python, MongoDB and tooling layer. Each section pairs
+upstream documentation links with the conventions this repository actually
+follows, named by file and symbol.
+
+For server architecture and request flow, see
+[1-architecture.md](1-architecture.md). For the threading model and async/sync
+boundaries, see [2-threading-model.md](2-threading-model.md). For local setup,
+lint and test commands, see [7-development.md](7-development.md).
 
 ## FastAPI
 
@@ -25,25 +31,34 @@ and async/sync boundaries, see [2-threading-model.md](2-threading-model.md).
 
 ### Project patterns
 
-**Router structure**: `api.py` and `views.py` each define an `APIRouter`.
-`app.py` assembles them with `app.include_router(...)`.
+**Router structure**: exactly two routers exist.
+`server/fishtest/api.py` defines `APIRouter(tags=["api"])` and
+`server/fishtest/views.py` defines `APIRouter(tags=["ui"])`. The other
+`views_*.py` modules export handlers, not routers.
+`server/fishtest/app.py` -> `create_app` assembles them.
 
 ```python
-from fastapi import FastAPI
-from .api import router as api_router
-from .views import router as views_router
-
-# openapi_url is read from OPENAPI_URL env var; defaults to None (disabled
-# in production, enables full interactive docs when set in development).
+# server/fishtest/app.py (shape)
 app = FastAPI(lifespan=lifespan, openapi_url=openapi_url)
-app.include_router(api_router)
+install_error_handlers(app)
+# ... add_middleware calls ...
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 app.include_router(views_router)
+app.include_router(api_router)
 ```
 
+`openapi_url` comes from `AppSettings.from_env` and is `None` unless
+`OPENAPI_URL` is set, which is what disables `/docs`, `/redoc` and
+`/openapi.json` in production.
+
 **No dependency injection**: fishtest does not use FastAPI's `Depends()` /
-`Annotated` dependency system. Authentication, CSRF, and session access are
-enforced centrally -- in `_dispatch_view` for UI routes and per-handler in the
-API router -- not through injected dependencies.
+`Annotated` dependency system anywhere. Authentication, CSRF, and session
+access are enforced centrally -- in `_dispatch_view` for UI routes and
+per-handler in the API router -- not through injected dependencies. Despite its
+name, `server/fishtest/http/dependencies.py` contains plain accessor functions
+(`get_rundb`, `get_userdb`, `get_actiondb`, `get_workerdb`,
+`get_request_context`) that read `request.state` with an `app.state` fallback;
+they are called directly, never through `Depends`.
 
 **Lifespan**: Manages MongoDB client, scheduler, and caches. One
 `@asynccontextmanager` in `app.py`.
@@ -65,9 +80,12 @@ errors return JSON with `{"error": "...", "duration": N}`.
 `run_in_threadpool` by Starlette/FastAPI. Most fishtest handlers use
 `async def` with explicit `run_in_threadpool` calls for blocking DB work.
 
-**Testing**: tests build the real application with its full middleware stack
-and exercise it against a dedicated `fishtest_tests` MongoDB. Because the app
-uses no FastAPI dependencies, there are no `app.dependency_overrides`.
+**Testing**: `server/tests/test_support.py` -> `build_test_app` assembles a
+`FastAPI` instance with the production error handlers and the same middleware
+in the same order, minus the lifespan and minus
+`RejectNonPrimaryWorkerApiMiddleware`, and exercises it against a dedicated
+`fishtest_tests` MongoDB. Because the app uses no FastAPI dependencies, there
+are no `app.dependency_overrides`.
 
 ## Starlette
 
@@ -121,18 +139,28 @@ Current middleware stack (all are pure ASGI):
     `RejectNonPrimaryWorkerApiMiddleware` -> `AttachRequestStateMiddleware` ->
     `ShutdownGuardMiddleware` -> `HeadMethodMiddleware`
 
-**Request form limits** (DOS protection):
+**Request form limits** (DOS protection): `server/fishtest/views.py` parses UI
+form bodies with explicit caps taken from
+`server/fishtest/http/settings.py`.
 
 ```python
 post = await request.form(
-    max_files=FORM_MAX_FILES,          # UI_FORM_MAX_FILES = 2
-    max_fields=FORM_MAX_FIELDS,        # UI_FORM_MAX_FIELDS = 200
-    max_part_size=FORM_MAX_PART_SIZE,  # UI_FORM_MAX_PART_SIZE_BYTES = 200 MB
+    max_files=FORM_MAX_FILES,          # UI_FORM_MAX_FILES
+    max_fields=FORM_MAX_FIELDS,        # UI_FORM_MAX_FIELDS
+    max_part_size=FORM_MAX_PART_SIZE,  # UI_FORM_MAX_PART_SIZE_BYTES
 )
 ```
 
-**URL generation**: `request.url_for("route_name", **path_params)` -- all
-routes used by templates must have explicit `name=` parameters.
+These caps apply to UI form routes only. Worker API bodies are JSON and are
+bounded by nginx `client_max_body_size`; see
+[8-deployment.md](8-deployment.md).
+
+**URL generation**: this codebase does not use `url_for`. UI routes are
+registered by `server/fishtest/views.py` -> `_register_view_routes()` with
+`router.add_api_route(path, endpoint, methods=..., include_in_schema=False)`
+and no `name=`, so no route is addressable by name. Templates build URLs from
+the `urls` mapping supplied by `server/fishtest/http/boundary.py` ->
+`build_template_context()`, or from literal paths.
 
 **Response classes**:
 - `HTMLResponse` for UI endpoints
@@ -156,9 +184,13 @@ blocking DB and filesystem work off the event loop via `run_in_threadpool`.
 
 ### Project patterns
 
-**Environment setup**: A single `jinja2.Environment` instance is created at
-import time with `select_autoescape(["html", "xml", "j2"])`. Custom globals
-and filters are registered before any template renders.
+**Environment setup**: `server/fishtest/http/jinja.py` ->
+`default_environment` builds the `jinja2.Environment` with
+`FileSystemLoader(templates_dir())`, `select_autoescape(["html", "xml", "j2"])`,
+`undefined=StrictUndefined` and the `jinja2.ext.do` extension. Custom globals
+and filters are registered there, before any template renders.
+`templates_dir()` honours `FISHTEST_JINJA_TEMPLATES_DIR` and otherwise resolves
+the package `templates/` directory.
 
 **Template rendering**: Synchronous, always off the event loop.
 
@@ -178,8 +210,9 @@ async def page(request: Request):
 
 **Key rules**:
 - `Jinja2Templates.TemplateResponse()` injects `request` into the context if it
-    is missing, but repository code still passes it explicitly and relies on it
-    being present for `url_for` and shared context builders.
+    is missing, but repository code always passes it explicitly:
+    `http/jinja.py` -> `render_template_response` raises `ValueError` when
+    `request` is absent from the context.
 - `Jinja2Templates` accepts `directory=` or `env=`, not both.
 - `TemplateResponse` exposes `.template` and `.context` for test assertions.
 - Context processors must be sync functions.
@@ -187,14 +220,29 @@ async def page(request: Request):
 
 **Registered globals** (repository-specific):
 
-| Global | Source |
-|--------|--------|
-| `url_for` | Injected by Starlette |
-| `static_url` | `server/fishtest/http/jinja.py` |
-| `poll` | `server/fishtest/http/jinja.py` |
-| `htmx.input_changed_delay_ms` | `server/fishtest/http/jinja.py` |
-| Formatting helpers | `server/fishtest/http/template_helpers.py` |
-| `gh`, `fishtest` | registered in `server/fishtest/http/jinja.py` |
+All globals are registered in `server/fishtest/http/jinja.py` ->
+`default_environment` unless noted.
+
+| Global | Contents |
+|--------|----------|
+| `urls` | Named UI paths built by `http/boundary.py` -> `build_template_context()`; templates use this instead of `url_for` |
+| `static_url` | Maps a `fishtest:static/...` spec to `/static/...` plus a content-hash cache buster |
+| `poll` | Polling intervals in seconds, keyed by page (`tasks_detail`, `machines_homepage`, `live_elo`, `tests_run_tables`, `tests_stats`, `tests_view_detail`, `pending_users_nav`, `rate_limits_github`, `rate_limits_server`) |
+| `htmx` | `input_changed_delay_ms`, the shared search debounce baseline, from `http/settings.py` -> `HTMX_INPUT_CHANGED_DELAY_MS` |
+| `finished` | `filter_max_count_anon`, `filter_max_count_auth` |
+| `cookies` | `contributors_findme_max_age`, `ui_state_max_age` |
+| `gh`, `fishtest` | The `fishtest.github_api` and `fishtest` modules |
+| Formatting helpers | Re-exported from `server/fishtest/http/template_helpers.py` (`format_date`, `format_results`, `format_bounds`, `diff_url`, `worker_name`, and others) |
+| `copy`, `datetime`, `math`, `urllib`, `float` | Standard-library escape hatches used by templates |
+
+Every value under `poll`, `htmx`, `finished` and `cookies` is defined in
+`server/fishtest/http/settings.py` (`POLL_*_S`,
+`HTMX_INPUT_CHANGED_DELAY_MS`, `FINISHED_FILTER_MAX_COUNT_ANON`,
+`FINISHED_FILTER_MAX_COUNT_AUTH`, `UI_STATE_COOKIE_MAX_AGE_SECONDS`) and only
+re-exported by `jinja.py`. Change it in the settings module, not in a
+template.
+
+Custom filters: `urlencode`, `split`, `string`.
 
 **Autoescaping**: Enabled for `.html`, `.xml`, `.j2` extensions. Raw HTML
 must use `{{ value|safe }}` or `{% autoescape false %}`.
@@ -241,9 +289,10 @@ must use `{{ value|safe }}` or `{% autoescape false %}`.
     referrerpolicy="no-referrer"></script>
 ```
 
-**Detail-page diff renderer**: `/tests/view/{id}` loads jsdiff from
-`cdn.jsdelivr.net` in `tests_view.html.j2` for the inline Diff panel. The
-asset is pinned and protected with SRI.
+**Detail-page assets**: `/tests/view/{id}` additionally loads jsdiff (inline
+Diff panel) and highlight.js (source highlighting) from `cdn.jsdelivr.net` in
+`server/fishtest/templates/tests_view.html.j2`. Both are pinned and protected
+with SRI.
 
 ```html
 <script src="https://cdn.jsdelivr.net/npm/diff@9.0.0/dist/diff.min.js"
@@ -257,21 +306,25 @@ on every AJAX request. The server detects this header to decide between
 full-page and fragment rendering. A `Sec-Fetch-Mode` guard prevents
 htmx-boosted full-page navigations from being treated as fragment requests:
 
+`server/fishtest/views_helpers.py` -> `_is_hx_request`:
+
 ```python
-def _is_hx_request(request) -> bool:
+def _is_hx_request(request: Any) -> bool:
     headers = getattr(request, "headers", None)
     if headers is None:
         return False
     if (headers.get("HX-Request") or "").lower() != "true":
         return False
-    if (headers.get("Sec-Fetch-Mode") or "").lower() == "navigate":
-        return False
-    return True
+    # Never treat top-level document navigations as fragment requests,
+    # even if HX-Request appears in transit.
+    return (headers.get("Sec-Fetch-Mode") or "").lower() != "navigate"
 ```
 
 **Dual-mode rendering with Jinja2**: the view handler renders either a
-fragment template or the full-page template from the same URL. The
-`_render_hx_fragment()` helper encapsulates the check-and-render pattern:
+fragment template or the full-page template from the same URL.
+`server/fishtest/views.py` -> `_render_hx_fragment` encapsulates the
+check-and-render pattern, and `_render_hx_or_context` falls back to the
+page context when the request is not a fragment request:
 
 ```python
 def _render_hx_fragment(request, template_name, context):
@@ -298,7 +351,9 @@ with the table body.
 
 **Vary header for HTTP caching**: when the same URL can return either a
 full page or a fragment, `Vary: HX-Request` must be set on the response so
-that HTTP caches (nginx, CDNs) store separate representations:
+that HTTP caches (nginx, CDNs) store separate representations.
+`server/fishtest/views_helpers.py` -> `_append_vary_header` appends the token
+without duplicating an existing entry:
 
 ```python
 _append_vary_header(response, "HX-Request")
@@ -333,8 +388,11 @@ control client behavior:
 - **286** -- swap the response and stop polling (terminal state).
 
 **Request coordination**: `hx-sync` is used where user actions and polling can
-target the same fragment. The main repo pattern is `hx-sync="#machines-filters:abort"`
-so user-initiated sort/page changes beat the background poll.
+target the same fragment. The repo patterns are
+`hx-sync="#machines-filters:abort"` and `hx-sync="#tasks-filters:abort"`, so
+user-initiated sort and page changes beat the background poll. Pagination links
+receive their value through the `pagination_hx_sync` context key
+(`server/fishtest/templates/pagination.html.j2`).
 
 **Inherited attribute control**: inside filter forms that use inherited
 `hx-include`, sort and pagination links may opt out with
@@ -390,6 +448,33 @@ must be constructed with DOM API (`createElement`, `textContent`,
 prevent XSS from error messages and to keep htmx attributes functional
 (via `htmx.process()`).
 
+## Front-end CDN assets
+
+There is no npm build step. Every third-party front-end asset is loaded from
+`cdn.jsdelivr.net` with a pinned version, an SRI `integrity` hash,
+`crossorigin="anonymous"` and `referrerpolicy="no-referrer"`. Bumping a version
+requires recomputing the hash in the same commit.
+
+| Asset | Version | Loaded from |
+|-------|---------|-------------|
+| Bootstrap CSS and bundle JS | 5.3.8 | `templates/base.html.j2` |
+| Font Awesome Free | 7.3.1 | `templates/base.html.j2` |
+| htmx | 2.0.10 | `templates/base.html.j2` |
+| jsdiff | 9.0.0 | `templates/tests_view.html.j2` |
+| highlight.js CDN assets | 11.11.1 | `templates/tests_view.html.j2` |
+
+Paths are relative to `server/fishtest/`. First-party CSS and JS are served
+from `/static` through the `static_url` global, never from a CDN.
+
+| Topic | URL |
+|-------|-----|
+| Bootstrap 5.3 | https://getbootstrap.com/docs/5.3/getting-started/introduction/ |
+| Bootstrap 5.3 tables | https://getbootstrap.com/docs/5.3/content/tables/ |
+| Bootstrap 5.3 forms | https://getbootstrap.com/docs/5.3/forms/overview/ |
+| Font Awesome | https://docs.fontawesome.com/ |
+| highlight.js | https://highlightjs.readthedocs.io/en/latest/ |
+| Subresource Integrity (MDN) | https://developer.mozilla.org/en-US/docs/Web/Security/Subresource_Integrity |
+
 ## Python, MongoDB, and tooling
 
 ### Canonical references
@@ -397,47 +482,74 @@ prevent XSS from error messages and to keep htmx attributes functional
 | Topic | URL |
 |------|-----|
 | Python 3.14 docs | https://docs.python.org/3.14/ |
+| Python 3.14 `unittest` | https://docs.python.org/3.14/library/unittest.html |
 | MongoDB manual | https://www.mongodb.com/docs/manual/ |
+| MongoDB indexes | https://www.mongodb.com/docs/manual/core/indexes/ |
 | PyMongo | https://www.mongodb.com/docs/languages/python/pymongo-driver/current/ |
+| vtjson schema format | https://www.cantate.be/vtjson |
+| Uvicorn | https://www.uvicorn.org/ |
+| itsdangerous | https://itsdangerous.palletsprojects.com/en/stable/ |
+| uv | https://docs.astral.sh/uv/ |
 | Ruff | https://docs.astral.sh/ruff/ |
 | ty | https://docs.astral.sh/ty/ |
-| mypy | https://mypy.readthedocs.io/en/stable/ |
+| pre-commit | https://pre-commit.com/ |
+| Prettier | https://prettier.io/docs/en/ |
 | nginx | https://nginx.org/en/docs/ |
 
 Use [7-development.md](7-development.md) for local lint and test workflows.
 
-## Tooling references
+## Repository configuration map
 
-| Tool | Path | Purpose |
-|------|------|---------|
-| Repository dev tools | `pyproject.toml` | Shared repo tooling configuration |
-| Server Python project | `server/pyproject.toml` | Server dependency and tool configuration |
-| Worker Python project | `worker/pyproject.toml` | Worker dependency configuration |
-| Server test package | `server/tests/` | Unit and HTTP contract tests |
+| File or directory | Purpose |
+|-------------------|---------|
+| `pyproject.toml` | Root virtual project: `dev` group (pre-commit, ruff, ty) and the shared `[tool.ruff]` config CI passes with `--config` |
+| `uv.lock` | Lock file for the root dev group only |
+| `server/pyproject.toml`, `server/uv.lock` | Server runtime dependencies and the `test` group |
+| `worker/pyproject.toml`, `worker/uv.lock` | Worker runtime dependencies (Python >= 3.8) |
+| `.pre-commit-config.yaml` | Hygiene hooks, ruff check and format, `uv lock` |
+| `.editorconfig` | 2-space indent everywhere, 4 spaces for `*.py`, UTF-8, final newline |
+| `.github/workflows/` | `lint.yaml`, `server.yaml`, `worker_posix.yaml`, `worker_msys2.yaml` |
+| `server/fishtest/http/settings.py` | Every tunable UI, polling, form and threadpool constant |
+| `server/fishtest/constants.py` | Shared literals used by schemas and views |
+| `server/tests/` | Unit and HTTP contract tests |
+| `server/utils/` | Operational scripts; inventory in [8-deployment.md](8-deployment.md) |
 
 ## Testing patterns
 
 ### Test structure
 
 Server tests live in `server/tests/`. All tests use `unittest.TestCase`.
-MongoDB is required for most tests (the CI workflow starts `mongod` before
-running the suite). User-facing HTTP route tests are split by route family or
-one focused UI motif instead of accumulating in one omnibus module.
+MongoDB is required for most tests; `.github/workflows/server.yaml` starts
+`mongod` before running the suite. Tests use the `fishtest_tests` database, not
+`fishtest_new`. User-facing HTTP route tests are split by route family or one
+focused UI motif instead of accumulating in one omnibus module.
 
 ### Fixtures
 
-Most test files import `test_support`, which provides:
+Most test files import `test_support` (`server/tests/test_support.py`), which
+provides:
 
-- `get_rundb()`: returns a `RunDb` connected to the test MongoDB instance.
-- `build_test_app(...)`: constructs a FastAPI `TestApplication` with selectable
-  API and views routers.
-- `make_test_client(...)`: wraps `build_test_app` in a Starlette `TestClient`.
-- `cleanup_test_rundb(...)`: drops test collections after a test class runs.
+- `get_rundb()`: returns a `RunDb` bound to `db_name="fishtest_tests"`.
+- `require_fastapi()`: returns `(FastAPI, TestClient)` or raises
+  `unittest.SkipTest` when the server test dependencies are missing.
+- `build_test_app(*, rundb, include_api, include_views)`: returns a `FastAPI`
+  instance with the production error handlers and middleware order, minus the
+  lifespan and minus `RejectNonPrimaryWorkerApiMiddleware`.
+- `make_test_client(*, rundb, include_api, include_views)`: wraps
+  `build_test_app` in `fastapi.testclient.TestClient`.
+- `cleanup_test_rundb(...)`: clears named usernames and runs, optionally drops
+  the runs collection and closes the connection.
 - `find_run(...)`: retrieves a run from the database by field match.
-- `extract_csrf_token(html)`: parses a CSRF token from rendered HTML.
+- `extract_csrf_token(html)`: parses the `csrf-token` meta tag from rendered
+  HTML.
+- `extract_meta_content(...)`: reads an arbitrary meta tag from rendered HTML.
 
-User-facing UI route modules also reuse `ui_user_test_case.py` for shared
-client setup, login helpers, run creation, and DB cleanup.
+User-facing UI route modules also reuse `server/tests/ui_user_test_case.py`
+for shared client setup, login helpers, run creation, and DB cleanup. Its
+`UiUserTestCase` creates the fixture user with `UserDb.create_user`, then
+clears `pending` and `blocked` through `UserDb.save_user`; `_set_approver_state`
+adds `group:approvers`. Use the same sequence when a new test needs a
+privileged user.
 
 Worker-related fixtures must match the `short_worker_name` pattern
 (`.*-[\d]+cores-[a-zA-Z0-9]{2,8}`) or `WorkerDb.update_worker()` schema
@@ -467,4 +579,14 @@ validation fails.
 | `test_http_middleware.py` | Middleware behavior and blocked-user flow |
 | `test_http_settings.py` | Runtime settings and environment parsing |
 | `test_http_ui_session_semantics.py` | Session commit and UI CSRF semantics |
+| `test_http_ui_cookies.py` | Shared browser-readable UI cookie helpers |
+| `test_http_open_graph.py` | Open Graph metadata helpers |
 | `test_nn.py` | Neural network upload and listing |
+| `test_rundb.py` | `RunDb` persistence and run lifecycle behavior |
+| `test_kvstore.py` | Key-value store behavior |
+| `test_lru_cache.py` | LRU cache storage, eviction, and decorator behavior |
+| `test_github_api.py` | GitHub API client, rate-limit guard, and retry policy |
+| `test_delta_update_users.py` | Monthly contributor stats rebuild helpers from `server/utils/delta_update_users.py` |
+| `test_views_routes.py` | UI route HTTP method contracts |
+| `test_views_stats.py` | `/tests/stats` page and fragment contracts |
+| `test_support.py` | The shared fixtures themselves |
