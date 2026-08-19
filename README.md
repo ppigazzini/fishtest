@@ -18,3 +18,10 @@ The fishtest server:
 - Knows how to stop tests when they are statistically significant and publishes the final tests results.
 
 To get more information, such as the worker/server install and configuration instructions, visit the [Fishtest Wiki](https://github.com/official-stockfish/fishtest/wiki).
+
+### Documentation
+
+- [docs/0-README.md](docs/0-README.md) - documentation index: what each document
+  answers and where to look for a given subsystem.
+- [CONTRIBUTING.md](CONTRIBUTING.md) - development setup, coding style, and the
+  pull request workflow.
