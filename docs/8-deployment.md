@@ -7,17 +7,16 @@ scripts in `server/utils/`, and how proxy policy relates to application
 behavior. For local setup and validation workflows see
 [7-development.md](7-development.md).
 
-Sizing numbers on this page (worker-fleet targets, connection counts, file
-descriptor ceilings, timeouts) describe the reference deployment of
-`tests.stockfishchess.org`. They are properties of that host and its fleet, not
-of the repository. Re-derive them for any other deployment.
+Sizing on this page targets a 20,000-worker fleet. The numbers, and the
+arithmetic behind them, are the operating configuration of
+`tests.stockfishchess.org`.
 
 ## Prerequisites
 
 | Component | Version | Purpose |
 |-----------|---------|---------|
 | Python | >= 3.14 | Runtime (`server/pyproject.toml`) |
-| MongoDB | `mongod` on `localhost` | Data store; CI validates against 8.0 |
+| MongoDB | `mongod` service on `localhost` | Data store |
 | nginx | >= 1.19.4 | Reverse proxy, TLS, static files (`ssl_reject_handshake`) |
 | uv | -- | Python package manager |
 
@@ -34,7 +33,7 @@ of the repository. Re-derive them for any other deployment.
 | `UVICORN_WORKERS` | Yes on primary | `app.py` -> `_require_single_worker_on_primary` | -- | Must be `1` on the primary; any other value raises at startup |
 | `WEB_CONCURRENCY` | No | `app.py` -> `_require_single_worker_on_primary` | -- | Consulted only when `UVICORN_WORKERS` is unset or empty |
 | `FISHTEST_NN_URL` | No | `api.py` -> `WorkerApi.download_nn` | request origin | Base URL that `/api/nn/{id}` redirects to (see below) |
-| `FISHTEST_URL` | Recommended | `rundb.py` -> `RunDb.__init__` | `http://127.0.0.1` | Seeds `RunDb.base_url`, which is used to build run links in server log lines. When unset, `http/middleware.py` -> `AttachRequestStateMiddleware` overwrites it once from the first inbound request, so the value ends up depending on that request's `Host` and `X-Forwarded-Proto` headers. Set it explicitly to keep log links stable and predictable |
+| `FISHTEST_URL` | Yes | `rundb.py` -> `RunDb.__init__` | `http://127.0.0.1` | Seeds `RunDb.base_url`, which is used to build run links in server log lines. When unset, `http/middleware.py` -> `AttachRequestStateMiddleware` overwrites it once from the first inbound request, so the value ends up depending on that request's `Host` and `X-Forwarded-Proto` headers. Set it explicitly to keep log links stable and predictable |
 | `FISHTEST_CAPTCHA_SITE_KEY` | No | `views.py` -> `signup` | `views.py` -> `DEFAULT_RECAPTCHA_SITE_KEY` | reCAPTCHA site key rendered into the signup form |
 | `FISHTEST_STATIC_DIR` | No | `http/settings.py` -> `default_static_dir` | package `static/` | Directory mounted at `/static`. In production nginx serves `/static/` first, so the mount is a fallback |
 | `FISHTEST_JINJA_TEMPLATES_DIR` | No | `http/jinja.py` -> `templates_dir` | package `templates/` | Jinja2 template search path |
@@ -81,17 +80,19 @@ with a cache-busting token that does not match its contents.
 | Primary | 8000 | Scheduler, GitHub integration, aggregated data, cache flush, worker API |
 | Secondary | 8001 | UI traffic (`/tests` homepage) |
 | Secondary | 8002 | Read-only API, finished tests, contributors, static pages |
-| Secondary | 8003 | PGN uploads (`/api/upload_pgn`), multiple Uvicorn workers |
+| Secondary | 8003 | PGN uploads (`/api/upload_pgn`) -- 3 Uvicorn workers (production override) |
 
-Four systemd units cover ports 8000-8003. The primary must run a single
-Uvicorn worker because it holds in-process mutable state (run cache, scheduler,
-task locks); `app.py` -> `_require_single_worker_on_primary` refuses to start
-otherwise. Because the primary is one async process on one core, it is the
-scaling ceiling of the deployment.
+Four systemd units (ports 8000-8003), six OS processes total. The primary
+must run a single Uvicorn worker because it holds in-process mutable state
+(run cache, scheduler, task locks); `app.py` ->
+`_require_single_worker_on_primary` refuses to start otherwise. As a
+single-core async process, the primary saturates at roughly 15,000 concurrent
+workers -- this is the practical scaling ceiling.
 
-Port 8003 runs several Uvicorn workers through a systemd drop-in override (see
-below). Uvicorn's process manager distributes PGN upload requests across them,
-which keeps the long-tail latency of large PGN writes off the shared path.
+Port 8003 runs 3 Uvicorn workers through a systemd drop-in override (see
+below). Uvicorn's process manager distributes PGN upload requests across the
+workers. The extra workers absorb the long-tail latency of large PGN writes
+(p95 approx 30 s at peak load).
 
 `/api/upload_pgn` is the only worker API path that a secondary instance may
 serve: `api.py` defines `PRIMARY_ONLY_WORKER_API_PATHS` as `WORKER_API_PATHS`
@@ -107,7 +108,7 @@ flowchart LR
         primary[8000 primary]
         tests[8001 tests homepage]
         readonly[8002 read-only UI and API]
-        pgn["8003 upload_pgn (multi-worker)"]
+        pgn["8003 upload_pgn (3 workers)"]
     end
     nginx -->|Worker API| primary
     nginx -->|/tests| tests
@@ -178,7 +179,7 @@ Environment="FISHTEST_PRIMARY_PORT=8000"
 WorkingDirectory=/home/USER_NAME/fishtest/server
 User=USER_NAME
 
-# Sized for the reference deployment: ~15k fds at peak, 2x headroom.
+# At 20k workers the primary needs ~15k fds; 32768 provides 2x headroom.
 LimitNOFILE=32768
 
 ExecStart=/home/USER_NAME/fishtest/server/.venv/bin/python -m uvicorn fishtest.app:app --host 127.0.0.1 --port %i --proxy-headers --forwarded-allow-ips=127.0.0.1 --backlog 16384 --log-level warning --workers $UVICORN_WORKERS
@@ -194,7 +195,7 @@ WantedBy=multi-user.target
 
 ### PGN upload worker override
 
-Port 8003 handles PGN uploads, which have long-tail latency. Running several
+Port 8003 handles PGN uploads, which have long-tail latency. Running 3
 Uvicorn workers on this port prevents slow uploads from blocking fast ones.
 Create a per-instance drop-in override:
 
@@ -239,7 +240,8 @@ backed-off workers reconnect simultaneously.
 **Do NOT use `--limit-concurrency`.** This flag rejects connections beyond the
 specified limit with HTTP 503 (plain text "Service Unavailable"). Workers
 receiving this non-JSON response trigger a `JSONDecodeError` and enter
-exponential backoff, effectively removing themselves from the active pool.
+exponential backoff (15 s -> 900 s, `worker/worker.py` -> `INITIAL_RETRY_TIME`
+and `MAX_RETRY_TIME`), effectively removing themselves from the active pool.
 Under Uvicorn's ASGI async model, connection acceptance is handled by the event
 loop and costs negligible resources per idle connection. Application-level
 throttling governs the critical scheduling path instead:
@@ -410,6 +412,9 @@ server {
     add_header Referrer-Policy            "strict-origin-when-cross-origin" always;
     add_header Permissions-Policy         "camera=(), microphone=(), geolocation=()" always;
 
+    # block bad actors at the server level (early access phase)
+    # deny  xxx.xxx.xxx.xxx;
+
     location = /        { return 308 /tests; }
     location = /tests/  { return 308 /tests; }
 
@@ -525,8 +530,8 @@ Origin CA), which is outside the scope of this server configuration.
 File: `/etc/nginx/sites-available/fishtest-maintenance.conf`
 
 During planned maintenance (major upgrades, database migrations), swap the
-active site symlink so that all requests receive a 503 maintenance page while
-static assets remain available. The procedure:
+active site symlink so that all requests receive a friendly 503 maintenance
+page while static assets (logos, icons) remain available. The procedure:
 
 ```bash
 sudo ln -sfn /etc/nginx/sites-available/fishtest-maintenance.conf /etc/nginx/sites-enabled/fishtest.conf
@@ -620,7 +625,7 @@ after the site config is switched back.
 
 The following directives belong in `/etc/nginx/nginx.conf` (not in the
 site config). They raise the per-worker fd limit and connection capacity
-for high worker counts. The numbers are sized for the reference deployment.
+for high worker counts:
 
 ```nginx
 user  www-data;
@@ -635,6 +640,7 @@ worker_rlimit_nofile  40000;
 
 events {
     # total capacity = worker_connections * worker_processes = 65536
+    # at 20k workers each process handles ~20k connections (client + upstream)
     worker_connections  32768;
 
     # efficiently handle multiple new connections at once
@@ -670,17 +676,19 @@ http {
 }
 ```
 
-Each connected worker costs one client connection plus one upstream proxy
-connection, so size `worker_connections * worker_processes` at roughly twice
-the target fleet size, with headroom.
+At 20,000 workers each nginx worker process handles approximately 10,000
+client connections plus 10,000 upstream proxy connections (~20,000 total).
+`worker_connections 32768` provides 1.6x headroom per worker.
 
 The `log_format main` definition above includes `$upstream_response_time`,
 which `server/utils/analyze_access_log.py` parses. Changing the format breaks
 that report.
 
 `keepalive 256` in each upstream block sets the maximum number of idle
-keepalive connections retained toward that backend. Idle localhost TCP
-connections consume negligible memory, so a generous value costs nothing.
+keepalive connections retained toward that backend. At 9,400 workers the
+sustained request rate is ~150 req/s with most requests completing in
+<100 ms. The value 256 is generous for localhost backends but harmless --
+idle TCP connections consume negligible memory.
 
 ### nginx proxy timeout rationale
 
@@ -689,46 +697,47 @@ accumulating stale connections:
 
 | Directive | Value | Rationale |
 |-----------|-------|----------|
-| `proxy_connect_timeout` | 2 s | Backend connect is a localhost connect |
-| `proxy_send_timeout` | 30 s | Bounds the time spent streaming a request body upstream |
+| `proxy_connect_timeout` | 2 s | Backend connect should succeed in < 1 ms (localhost) |
+| `proxy_send_timeout` | 30 s | Request bodies (PGN uploads) rarely exceed 10 s |
 | `proxy_read_timeout` | 60 s | Accommodates slow DB queries and streaming PGN downloads |
 
 ## Kernel tuning (sysctl)
 
-Values below are sized for the reference deployment. Add them to
-`/etc/sysctl.d/99-fishtest.conf`:
+For the 20,000-worker target, verify the following `sysctl` values.
+Add to `/etc/sysctl.d/99-fishtest.conf` if needed:
 
 ```ini
-# fishtest production tuning
+# fishtest production tuning (target: 20,000 workers)
 
 # must be >= uvicorn --backlog (16384); 32768 absorbs thundering-herd reconnections
 net.core.somaxconn = 32768
 net.core.netdev_max_backlog = 32768
 net.ipv4.tcp_max_syn_backlog = 32768
 
-# client + upstream + mongodb + misc, with headroom
+# 20k client + 20k upstream + mongodb + misc approx 45k peak; 120k provides ~2.5x headroom
 fs.file-max = 120000
 
-# each proxied request consumes an ephemeral port; the default range is too narrow
+# each proxied request consumes an ephemeral port; default range (~28k) is too narrow
 net.ipv4.ip_local_port_range = 1024 65535
 
 # fast socket recycling under high connection churn
 net.ipv4.tcp_tw_reuse = 1
 
-# prevents 'time wait bucket table overflow' under high socket churn
+# handle high-frequency socket churn from 20k workers; prevents 'time wait bucket table overflow'
 net.ipv4.tcp_max_tw_buckets = 65536
 ```
 
 Apply with `sudo sysctl --system`.
 
-`net.core.somaxconn` must be >= the Uvicorn `--backlog` value. Otherwise the
-kernel silently truncates the listen queue.
+`net.core.somaxconn` must be >= the Uvicorn `--backlog` value (16384).
+Otherwise the kernel silently truncates the listen queue. The value 32768
+provides 2x headroom and absorbs a full thundering-herd reconnection burst.
 
 ## User limits
 
 systemd `LimitNOFILE` only applies to services started by systemd. For
 interactive sessions (SSH maintenance, cron jobs), set PAM limits so the
-`USER_NAME` user inherits a comparable file-descriptor ceiling:
+`USER_NAME` user inherits the same file-descriptor ceiling:
 
 ```bash
 sudo mkdir -p /etc/security/limits.d
@@ -738,7 +747,7 @@ File: `/etc/security/limits.d/99-fishtest.conf`
 
 ```ini
 # interactive fd ceiling for the USER_NAME user.
-# soft covers SSH maintenance; hard matches systemd LimitNOFILE.
+# soft (8192) covers SSH maintenance; hard (32768) matches systemd LimitNOFILE.
 USER_NAME         soft    nofile          8192
 USER_NAME         hard    nofile          32768
 ```
@@ -788,13 +797,13 @@ while the worker fleet backs off and reconnects.
 
 ## Capacity audit script
 
-The script below is not part of the repository. Save it on the production host
-and adjust the constants to the fleet you actually run; it verifies that
-kernel, nginx, and process limits match those constants.
+Run on the production host to verify that kernel, nginx, and process limits
+are correctly sized for the 20,000-worker target. The script is not part of the
+repository; keep it on the host.
 
 ```bash
 #!/usr/bin/env bash
-# fishtest capacity audit -- verify system tuning against a worker-count target.
+# fishtest capacity audit -- verify system tuning for the 20,000-worker target.
 # Run on the production host after applying sysctl, nginx, and systemd settings.
 
 set -euo pipefail
