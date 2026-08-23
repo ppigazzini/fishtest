@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import heapq
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import urlencode
 
 if TYPE_CHECKING:
@@ -287,6 +287,20 @@ def _append_no_store_headers(request: Any) -> None:  # noqa: ANN401
 def _form_string_value(form: Any, key: str) -> str:  # noqa: ANN401
     value = form.get(key)
     return value if isinstance(value, str) else ""
+
+
+FRAGMENT_REQUEST_HEADERS: Final = (
+    "HX-Request",
+    "HX-History-Restore-Request",
+    "HX-Request-Type",
+    "Sec-Fetch-Mode",
+)
+"""Every request header `_is_hx_request` reads.
+
+A dual-mode endpoint returns a fragment or a whole page for the same URL
+depending on these, so every one of them belongs in `Vary`. Declaring them once
+keeps that list from drifting away from the decision it describes.
+"""
 
 
 def _is_hx_request(request: Any) -> bool:  # noqa: ANN401
