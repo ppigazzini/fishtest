@@ -106,16 +106,34 @@ For a focused server-only loop when MongoDB is already running:
 
 See [0-README.md](0-README.md) for pre-commit hooks and CI workflows.
 
-## vtjson rules
+## valgebra rules
 
-Use vtjson for all server-side validation.
+Use [valgebra](https://ppigazzini.github.io/valgebra/) for all server-side
+validation. A schema denotes a set of Python values, and validation is
+membership: the document is checked as it stands, never copied or coerced.
 
 Core rules:
 
 - Define persisted document schemas in `server/fishtest/schemas.py`.
-- Treat persisted vtjson schemas as both documentation and the final server-side
+- Treat the persisted schemas as both documentation and the final server-side
     gate for stored data.
-- Keep vtjson as the only server-side data validation layer. Do not introduce
+- Write a schema as a typing annotation where typing can spell the set, and use
+    `Annotated[T, ...]` with the annotated-types markers for a refinement. Reach
+    for `union`, `intersection` and `complement` when the set is a combination,
+    and for a predicate only when no marker expresses the check.
+- Compile each schema once, at import, into a module-level `Validator`; call
+    `.validate(document)` at the boundary.
+- State the type a field actually stores. `int` and `float` are disjoint sets
+    and a literal is a typed singleton, so a field declared `float` rejects
+    `0` and a field declared `0.0` rejects `0`. Where a writer disagrees with
+    the schema, fix the writer: the schema is the statement of intent.
+- Name a cross-field rule and intersect it with the record, rather than burying
+    the check inside the record. A document then belongs to the record and to
+    every rule, which is what the algebra says and what the error report shows.
+- Pass `fail_fast=True` where the structure is unbounded (a run document, the
+    caches) so one bad field does not produce a report per element; let the
+    small documents aggregate every failure.
+- Keep valgebra as the only server-side data validation layer. Do not introduce
     Pydantic models or a second schema system for the same contracts.
 - Use different schemas when raw input and persisted data intentionally allow
     different values.

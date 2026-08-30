@@ -403,12 +403,10 @@ def validate_form(request: Any) -> dict[str, Any]:  # noqa: ANN401, C901, PLR091
             msg = f"filter {data['arch_filter']} has no compatible arches"
             raise ValueError(msg)
 
-    from vtjson import validate  # noqa: PLC0415
-
     from fishtest.schemas import tc as tc_schema  # noqa: PLC0415
 
-    validate(tc_schema, data["tc"], "data['tc']")
-    validate(tc_schema, data["new_tc"], "data['new_tc']")
+    tc_schema.validate(data["tc"])
+    tc_schema.validate(data["new_tc"])
 
     if request.POST.get("rescheduled_from"):
         data["rescheduled_from"] = request.POST["rescheduled_from"]

@@ -4,7 +4,7 @@ import unittest
 from datetime import UTC, datetime
 
 import test_support
-from vtjson import ValidationError
+from valgebra import ValidationError
 
 from fishtest.http.settings import (
     HTMX_INPUT_CHANGED_DELAY_MS,

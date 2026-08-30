@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from bson.objectid import ObjectId
 from pymongo import DESCENDING
 from pymongo.errors import OperationFailure
-from vtjson import ValidationError, validate
+from valgebra import ValidationError
 
 from fishtest.lru_cache import lru_cache
 from fishtest.schemas import ACTION_MESSAGE_SIZE, action_schema
@@ -306,7 +306,7 @@ class ActionDb:
         action["time"] = datetime.now(UTC).timestamp()
         action["_id"] = ObjectId()
         try:
-            validate(action_schema, action, "action")
+            action_schema.validate(action)
         except ValidationError as e:
             message = (
                 f"Internal Error. Request {str(action)} does not validate: {str(e)}"
