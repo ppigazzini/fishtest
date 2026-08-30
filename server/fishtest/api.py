@@ -86,19 +86,18 @@ class WorkerApi(GenericApi):
 
     def __init__(self, request):
         super().__init__(request)
-        # is the request valid json?
+        # Parse the document and check the shape every worker request shares in
+        # a single pass on the Rust path, rather than building it in Python and
+        # walking it again. Every endpoint below validates before reading the
+        # body, so the shape failure surfaces here rather than one call later.
         try:
-            self.request_body = request.json_body
-        except Exception:
-            self.handle_error("request is not json encoded")
-
-    def validate_username_password(self):
-        # Is the request syntactically correct?
-        try:
-            api_access_schema.validate(self.request_body)
+            self.request_body = api_access_schema.load(request.raw_body)
         except ValidationError as e:
+            if e.code == "json_invalid":
+                self.handle_error("request is not json encoded")
             self.handle_error(str(e))
 
+    def validate_username_password(self):
         # is the supplied password correct?
         token = self.request.userdb.authenticate(
             self.request_body["worker_info"]["username"],
