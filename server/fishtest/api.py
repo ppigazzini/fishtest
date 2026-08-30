@@ -15,6 +15,7 @@ from valgebra import ValidationError
 import fishtest.github_api as gh
 from fishtest.http.boundary import ApiRequestShim, get_request_shim
 from fishtest.schemas import (
+    ACTION_MESSAGE_SIZE,
     api_access_schema,
     api_schema,
     gzip_data,
@@ -202,7 +203,10 @@ class WorkerApi(GenericApi):
         return -1 if user is None else user["cpu_hours"]
 
     def message(self):
-        return self.request_body.get("message", "")
+        # The API accepts any string; an action caps it. Narrow it here, as
+        # ActionDb.log_message does, so a long report is trimmed rather than
+        # accepted and then dropped when the action fails to validate.
+        return self.request_body.get("message", "")[:ACTION_MESSAGE_SIZE]
 
     def stats(self):
         return self.request_body.get("stats", {})

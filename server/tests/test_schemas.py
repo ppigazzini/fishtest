@@ -418,6 +418,22 @@ class TestDocuments(unittest.TestCase):
         # the access check reads the same body, and admits the extra keys
         s.api_access_schema.validate(request)
 
+    def test_a_worker_message_is_narrowed_to_what_an_action_holds(self):
+        # The API accepts any string and an action caps it, so the server
+        # narrows in between; without that a long report was accepted and then
+        # dropped when the action failed to validate.
+        long_message = "x" * (s.ACTION_MESSAGE_SIZE + 1)
+        request = {
+            "password": "secret",
+            "worker_info": WORKER_INFO_API,
+            "message": long_message,
+        }
+        s.api_schema.validate(request)
+        self.assertFalse(s.action_message.is_valid(long_message))
+        self.assertTrue(
+            s.action_message.is_valid(long_message[: s.ACTION_MESSAGE_SIZE])
+        )
+
     def test_results_must_agree_with_the_pentanomial(self):
         s.results_schema.validate(ZERO_RESULTS)
         self.assertFalse(s.results_schema.is_valid({**ZERO_RESULTS, "wins": 1}))
