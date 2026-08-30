@@ -8,7 +8,7 @@ from unittest import mock
 
 import requests
 import test_support
-from vtjson import ValidationError, validate
+from valgebra import ValidationError
 
 import fishtest.github_api as gh
 from fishtest.schemas import books_schema, github_repo, github_repo_input
@@ -69,11 +69,7 @@ class CreateGitHubApiTest(unittest.TestCase):
             ).decode()
         )
         # test passes if no exception is raised
-        validate(
-            books_schema,
-            books,
-            name="books",
-        )
+        books_schema.validate(books)
         books1 = json.loads(
             gh.download_from_github(
                 "books.json",
@@ -146,19 +142,11 @@ class CreateGitHubApiTest(unittest.TestCase):
 
 class RepoSchemaValidationTests(unittest.TestCase):
     def test_github_repo_input_accepts_trailing_slash(self):
-        validate(
-            github_repo_input,
-            "https://github.com/official-stockfish/Stockfish/",
-            name="tests_repo",
-        )
+        github_repo_input.validate("https://github.com/official-stockfish/Stockfish/")
 
     def test_github_repo_rejects_trailing_slash(self):
         with self.assertRaises(ValidationError):
-            validate(
-                github_repo,
-                "https://github.com/official-stockfish/Stockfish/",
-                name="tests_repo",
-            )
+            github_repo.validate("https://github.com/official-stockfish/Stockfish/")
 
 
 class MasterInfoRobustnessTests(unittest.TestCase):

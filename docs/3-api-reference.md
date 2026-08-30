@@ -411,7 +411,8 @@ Returns GitHub API rate limit information.
 
 ## Validation
 
-Request bodies are validated against vtjson schemas defined in `schemas.py`:
+Request bodies are validated against the valgebra schemas defined in
+`schemas.py`:
 
 - `api_access_schema` -- validates the authentication fields (`username`,
   `password`, `worker_info`).
@@ -444,7 +445,7 @@ disambiguation.
 3. Return a dict containing `"duration"` (use `GenericApi.add_time()`).
 4. For application errors, use `GenericApi.handle_error()` which raises
    `HTTPException` with a dict detail payload.
-5. Add a vtjson schema in `schemas.py` if the endpoint accepts structured
+5. Add a schema in `schemas.py` if the endpoint accepts structured
    input.
 6. Add a contract test in `tests/test_api.py`.
 7. If the endpoint requires worker authentication, add its path to

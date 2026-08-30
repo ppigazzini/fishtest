@@ -5,7 +5,6 @@ from typing import Protocol, TypedDict
 from urllib.parse import urlparse
 
 import requests
-from vtjson import validate
 
 from fishtest.lru_cache import LRUCache, lru_cache
 from fishtest.schemas import sha as sha_schema
@@ -305,8 +304,8 @@ def compare_sha(
     # This sadly prevents us from using negative caching.
 
     # Non sha arguments cannot be safely cached
-    validate(sha_schema, sha1)
-    validate(sha_schema, sha2)
+    sha_schema.validate(sha1)
+    sha_schema.validate(sha2)
 
     if user2 is None:
         user2 = user1
