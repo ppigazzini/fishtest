@@ -22,6 +22,30 @@ from fishtest.stats import stat_util
 OID = ObjectId("64e74776a170cb1f26fa3930")
 RUN_ID = "64e74776a170cb1f26fa3930"
 NOW = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+LONG_WORKER = "host-4cores-abcd1234-abcd"
+SHORT_WORKER = "host-4cores-abcd1234"
+RUN_REF = {"run_id": "64e74776a170cb1f26fa3930", "run": "patch-abcdef0"}
+# One document per action, so reachability is shown rather than not-disproven.
+ACTION_WITNESSES = {
+    "failed_task": {**RUN_REF, "worker": LONG_WORKER, "task_id": 0, "message": "m"},
+    "crash_or_time": {**RUN_REF, "worker": LONG_WORKER, "task_id": 0, "message": "m"},
+    "dead_task": {**RUN_REF, "worker": LONG_WORKER, "task_id": 0},
+    "system_event": {"username": "fishtest.system", "message": "m"},
+    "new_run": {**RUN_REF, "message": "m"},
+    "upload_nn": {"nn": "nn-0000000000a0.nnue"},
+    "modify_run": {**RUN_REF, "message": "m"},
+    "delete_run": {**RUN_REF},
+    "stop_run": {**RUN_REF, "message": "m"},
+    "finished_run": {**RUN_REF, "message": "m"},
+    "approve_run": {**RUN_REF, "message": "approved"},
+    "purge_run": {**RUN_REF, "message": "m"},
+    "block_user": {"user": "someone", "message": "blocked"},
+    "accept_user": {"user": "someone", "message": "accepted"},
+    "block_worker": {"worker": SHORT_WORKER, "message": "blocked"},
+    "log_message": {"message": "m"},
+    "worker_log": {"worker": LONG_WORKER, "message": "m"},
+}
+
 ACTION_NAMES = (
     "failed_task",
     "crash_or_time",
@@ -656,10 +680,12 @@ class TestInternalStructures(unittest.TestCase):
 class TestSchemaAlgebra(unittest.TestCase):
     """Ask the schemas about themselves.
 
-    Subtyping is set inclusion and equivalence is mutual inclusion, decided
-    soundly: a True is always correct, a False is either a genuine non-relation
-    or one valgebra does not prove. So a True is an assertion and a False needs
-    a sampled check beside it.
+    is_subtype_of, is_equivalent and is_empty are sound in the True direction
+    only: a True is always correct, a False is either a genuine non-relation or
+    one valgebra does not prove. So every assertion here is positive. A property
+    that would need a False -- "this is not a subtype", "this is inhabited" --
+    is asserted through membership instead, which is exact in both directions,
+    or sampled with a witness.
     """
 
     def module_validators(self):
@@ -669,10 +695,15 @@ class TestSchemaAlgebra(unittest.TestCase):
             if isinstance(value, Validator) and not name.startswith("_")
         }
 
-    def test_no_schema_is_uninhabited(self):
-        # A schema no value can satisfy rejects every document silently; an
-        # unsatisfiable refinement or an impossible required field would show
-        # up here rather than in production.
+    def test_no_schema_is_provably_uninhabited(self):
+        """Catch the uninhabited schemas the decision procedure decides.
+
+        `is_empty()` is sound in the True direction only, so this asserts a
+        negative and cannot prove the rest inhabited: a contradictory
+        refinement is caught, an `intersection(record, bare_callable)` is not
+        -- `test_no_schema_swallowed_a_bare_callable` is what covers that one.
+        The name says what the assertion is worth.
+        """
         empty = [name for name, v in self.module_validators().items() if v.is_empty()]
         self.assertEqual(empty, [])
 
@@ -727,11 +758,14 @@ class TestSchemaAlgebra(unittest.TestCase):
             )
 
     def test_every_branch_of_the_union_is_reachable(self):
-        # A branch no document can reach is dead weight in the union; each
-        # action name must be admitted by some document.
-        for name in ACTION_NAMES:
-            reachable = intersection(s.action_schema, s.open_record({"action": name}))
-            self.assertFalse(reachable.is_empty(), name)
+        # A branch no document can reach is dead weight in the union. Shown
+        # with a witness per action: membership is exact, where a False from
+        # is_empty() would only mean "not proven unreachable".
+        for name, extra in ACTION_WITNESSES.items():
+            document = {"_id": OID, "time": 1.0, "username": "user00", **extra}
+            document["action"] = name
+            s.action_schema.validate(document, fail_fast=True)
+        self.assertEqual(sorted(ACTION_WITNESSES), sorted(ACTION_NAMES))
 
     def test_the_recipes_denote_what_they_claim(self):
         self.assertTrue(s.has("a").is_equivalent(Validator({"a": anything}).open()))
@@ -757,9 +791,10 @@ class TestSchemaAlgebra(unittest.TestCase):
         self.assertTrue(
             s.worker_info_schema_runs.is_subtype_of(s.worker_info_schema_api.open())
         )
-        self.assertFalse(
-            s.worker_info_schema_runs.is_subtype_of(s.worker_info_schema_api)
-        )
+        # The other half is a membership question, which is exact, rather than
+        # a subtyping one, whose False would only mean "not proven".
+        self.assertTrue(s.worker_info_schema_runs.is_valid(WORKER_INFO_RUNS))
+        self.assertFalse(s.worker_info_schema_api.is_valid(WORKER_INFO_RUNS))
 
     def test_a_raw_input_schema_admits_the_persisted_form(self):
         # Regex-against-regex inclusion is outside what valgebra decides, so
