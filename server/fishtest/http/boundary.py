@@ -69,12 +69,14 @@ class ApiRequestShim:
         *,
         json_body: object | None = None,
         json_error: bool = False,
+        raw_body: bytes = b"",
         matchdict: dict[str, str] | None = None,
     ) -> None:
         """Initialize the request shim with parsed request metadata."""
         self._request = request
         self._json_body = json_body
         self._json_error = json_error
+        self.raw_body = raw_body
         self.matchdict = matchdict or {}
         self.params = request.query_params
         self.headers = request.headers
@@ -135,6 +137,7 @@ async def get_request_shim(
         request,
         json_body=json_body.body,
         json_error=json_body.error,
+        raw_body=await request.body(),
         matchdict=matchdict,
     )
 
