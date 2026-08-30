@@ -1,7 +1,5 @@
 from datetime import UTC, datetime
 
-from vtjson import validate
-
 from fishtest.schemas import worker_schema
 
 
@@ -35,7 +33,7 @@ class WorkerDb:
             "message": message,
             "last_updated": datetime.now(UTC),
         }
-        validate(worker_schema, r, "worker")  # may throw exception
+        worker_schema.validate(r)  # may throw exception
         self.workers.replace_one({"worker_name": worker_name}, r, upsert=True)
 
     def get_blocked_workers(self):

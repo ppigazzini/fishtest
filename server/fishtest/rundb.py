@@ -15,7 +15,7 @@ from bson.codec_options import CodecOptions
 from bson.objectid import ObjectId
 from pymongo import DESCENDING, MongoClient
 from pymongo.errors import OperationFailure
-from vtjson import ValidationError, validate
+from valgebra import ValidationError
 
 import fishtest.github_api as gh
 import fishtest.run_cache
@@ -249,34 +249,16 @@ class RunDb:
         try:
             self.run_cache.validate()
             with self.wtt_lock:
-                validate(
-                    wtt_map_schema,
-                    self.wtt_map,
-                    name="wtt_map",
-                )
+                wtt_map_schema.validate(self.wtt_map, fail_fast=True)
             with self.connections_lock:
-                validate(
-                    connections_counter_schema,
-                    self.connections_counter,
-                    name="connections_counter",
+                connections_counter_schema.validate(
+                    self.connections_counter, fail_fast=True
                 )
             with self.unfinished_runs_lock:
-                validate(
-                    unfinished_runs_schema,
-                    self.unfinished_runs,
-                    name="unfinished_runs",
-                )
+                unfinished_runs_schema.validate(self.unfinished_runs, fail_fast=True)
             with self.worker_runs_lock:
-                validate(
-                    worker_runs_schema,
-                    self.worker_runs,
-                    name="worker_runs",
-                )
-            validate(
-                books_schema,
-                self.books,
-                name="books",
-            )
+                worker_runs_schema.validate(self.worker_runs, fail_fast=True)
+            books_schema.validate(self.books, fail_fast=True)
         except ValidationError as e:
             message = f"Validation of internal data structures failed: {str(e)}"
             print(message, flush=True)
@@ -336,7 +318,7 @@ class RunDb:
         try:
             with self.active_run_lock(run_id):
                 print(f"Validating random run {run_id}...")
-                validate(runs_schema, run, "run")
+                runs_schema.validate(run, fail_fast=True)
         except ValidationError as e:
             message = f"The run object {run_id} does not validate: {str(e)}"
             if "version" in run and run["version"] >= RUN_VERSION:
@@ -616,7 +598,7 @@ class RunDb:
             "tests_repo": gh.canonicalize_repo_url(tests_repo),
             "auto_purge": auto_purge,
             "throughput": throughput,
-            "itp": 100,  # internal throughput
+            "itp": 100.0,  # internal throughput
             "priority": priority,
             "adjudication": adjudication,
         }
@@ -706,7 +688,7 @@ class RunDb:
             new_run["rescheduled_from"] = rescheduled_from
 
         try:
-            validate(runs_schema, new_run, "run")
+            runs_schema.validate(new_run, fail_fast=True)
         except ValidationError as e:
             message = f"The new run object does not validate: {str(e)}"
             print(message, flush=True)
@@ -725,7 +707,7 @@ class RunDb:
     def upload_pgn(self, run_id, pgn_zip):
         record = {"run_id": run_id, "pgn_zip": pgn_zip, "size": len(pgn_zip)}
         try:
-            validate(pgns_schema, record)
+            pgns_schema.validate(record)
         except ValidationError as e:
             message = f"Internal Error. Pgn record has the wrong format: {str(e)}"
             print(message, flush=True)
@@ -778,7 +760,7 @@ class RunDb:
         return pgns_reader, total_size
 
     def write_nn(self, net):
-        validate(nn_schema, net, "net")
+        nn_schema.validate(net)
         self.nndb.replace_one({"name": net["name"]}, net, upsert=True)
 
     def get_nn(self, name):
@@ -944,7 +926,7 @@ class RunDb:
         runs["pending"].sort(
             key=lambda run: (
                 run["args"]["priority"],
-                run["args"]["itp"] if "itp" in run["args"] else 100,
+                run["args"]["itp"] if "itp" in run["args"] else 100.0,
             )
         )
         runs["active"].sort(
@@ -1903,7 +1885,7 @@ After fixing the issues you can unblock the worker at
         self.set_inactive_run(run)
 
         try:
-            validate(runs_schema, run, "run")
+            runs_schema.validate(run, fail_fast=True)
         except ValidationError as e:
             message = f"The run object {run_id} does not validate: {str(e)}"
             if "version" in run and run["version"] >= RUN_VERSION:

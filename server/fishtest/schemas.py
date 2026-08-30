@@ -2,40 +2,41 @@
 # can be statically validated before they are processed further or written
 # to the database.
 #
-# See https://www.cantate.be/vtjson for extensive documentation on the schema format.
+# A schema denotes a *set* of Python values and validation is membership: the
+# document is checked as it stands, never copied or coerced. Standard typing
+# annotations are the notation — `Literal`, `list[T]`, `dict[K, V]`, `X | Y` —
+# and `Annotated[T, ...]` narrows a base with the annotated-types markers. The
+# native list and record literals carry the two shapes typing has no syntax for:
+# a fixed-length list, and a record whose optional keys end in `?`. `union`,
+# `intersection` and `complement` compose all of it into a Boolean lattice, and
+# the recipes below are the standard compositions over that lattice.
+#
+# See https://ppigazzini.github.io/valgebra/ for the schema language, the
+# algebra, and the error model.
+#
+# Every schema here is compiled once, at import, into a Validator; a boundary
+# calls `.validate(document)` on it. A `Predicate` is the one constraint that
+# leaves Rust for Python, so it appears only where no marker denotes the set —
+# a mapping's cross-field arithmetic, an address, a mailbox, a signature.
 
 import copy
+import ipaddress
 import math
+import re
 from datetime import UTC, datetime
+from itertools import combinations
+from typing import Annotated, Literal
 
+import annotated_types as at
 from bson.objectid import ObjectId
-from vtjson import (
+from email_validator import validate_email
+from valgebra import (
+    Regex,
+    Validator,
     anything,
-    at_least_one_of,
-    at_most_one_of,
-    cond,
-    div,
-    email,
-    fields,
-    ge,
-    glob,
-    gt,
-    ifthen,
-    intersect,
-    ip_address,
-    keys,
-    lax,
-    magic,
-    nothing,
-    one_of,
-    quote,
-    regex,
-    regex_pattern,
-    set_label,
-    set_name,
-    size,
+    complement,
+    intersection,
     union,
-    unique,
 )
 
 import fishtest.stats.stat_util
@@ -46,104 +47,230 @@ from fishtest.constants import (
     supported_compilers,
 )
 
-run_id = intersect(str, set_name(ObjectId.is_valid, "valid_object_id"))
-run_id_pgns = regex(r"[a-f0-9]{24}-(0|[1-9]\d*)", name="run_id_pgns")
-run_name = intersect(regex(r".*-[a-f0-9]{7}", name="run_name"), size(0, 23 + 1 + 7))
+# Compositions over the lattice.
+
+
+def implies(condition, then, otherwise=anything):
+    """A value in `condition` must also be in `then`, else in `otherwise`.
+
+    The union of two intersections: a value either matches the condition and
+    must then satisfy the consequent, or fails the condition and must satisfy
+    the alternative.
+    """
+    return union(
+        intersection(condition, then),
+        intersection(complement(condition), otherwise),
+    )
+
+
+def has(*names):
+    """A mapping carrying every one of `names`, whatever the values are.
+
+    An open record requiring a key asserts only that the key is there, so a
+    conjunction of them is the presence test.
+    """
+    return intersection(*(Validator({name: anything}).open() for name in names))
+
+
+def at_least_one_of(*names):
+    """A mapping carrying at least one of `names`."""
+    return union(*(has(name) for name in names))
+
+
+def at_most_one_of(*names):
+    """A mapping carrying at most one of `names`.
+
+    The complement of "some two of them are both present". Meeting it with
+    `dict` keeps the schema a statement about mappings: a complement on its own
+    admits every value the inner one rejects, a non-mapping included.
+    """
+    return intersection(
+        dict,
+        complement(union(*(has(a, b) for a, b in combinations(names, 2)))),
+    )
+
+
+def one_of(*names):
+    """A mapping carrying exactly one of `names`."""
+    return intersection(at_least_one_of(*names), at_most_one_of(*names))
+
+
+def open_record(fields):
+    """A record admitting undeclared keys, its nested records left closed.
+
+    `Validator.open()` opens every record in a schema, nested ones included.
+    Where only this record may take extra keys, a catch-all clause over every
+    key frees exactly its own undeclared ones, and the declared fields keep
+    precedence over it.
+    """
+    return Validator({**fields, anything: anything})
+
+
+# Scalars.
+
+uint = Validator(Annotated[int, at.Ge(0)])
+suint = Validator(Annotated[int, at.Gt(0)])
+ufloat = Validator(Annotated[float, at.Ge(0.0)])
+sfloat = Validator(Annotated[float, at.Gt(0.0)])
+# A match is played in pairs, so a game count is even.
+game_count = Validator(Annotated[int, at.Ge(0), at.MultipleOf(2)])
+
+task_id = uint
+timestamp = ufloat
+
+
+def is_utc(value):
+    return value.tzinfo == UTC
+
+
+def is_unique(values):
+    return len(set(values)) == len(values)
+
+
+def is_gzip_data(value):
+    # The gzip signature, which is what a mime-type probe reads for it too.
+    return value[:2] == b"\x1f\x8b"
+
+
+def is_ip_address(value):
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return True
+
+
+def is_email(value):
+    # Deliverability needs DNS; the registration form checks that separately.
+    validate_email(value, check_deliverability=False)
+    return True
+
+
+def is_regex_pattern(value):
+    re.compile(value)
+    return True
+
+
+datetime_utc = Validator(Annotated[datetime, at.Predicate(is_utc)])
+gzip_data = Validator(Annotated[bytes, at.Predicate(is_gzip_data)])
+ip_address = Validator(Annotated[str, at.Predicate(is_ip_address)])
+email = Validator(Annotated[str, at.Predicate(is_email)])
+regex_pattern = Validator(Annotated[str, at.Predicate(is_regex_pattern)])
+
+# A Mongo ObjectId renders as 24 lowercase hex digits.
+run_id = Validator(Annotated[str, Regex(r"[a-f0-9]{24}")])
+run_id_pgns = Validator(Annotated[str, Regex(r"[a-f0-9]{24}-(0|[1-9]\d*)")])
+run_name = Validator(Annotated[str, Regex(r".*-[a-f0-9]{7}"), at.MaxLen(23 + 1 + 7)])
+
 ACTION_MESSAGE_SIZE = 5120
-action_message = intersect(str, size(0, ACTION_MESSAGE_SIZE))
-worker_message = intersect(str, size(0, 500))
-short_worker_name = regex(r".*-[\d]+cores-[a-zA-Z0-9]{2,8}", name="short_worker_name")
-long_worker_name = regex(
-    r".*-[\d]+cores-[a-zA-Z0-9]{2,8}-[a-f0-9]{4}\*?", name="long_worker_name"
+action_message = Validator(Annotated[str, at.MaxLen(ACTION_MESSAGE_SIZE)])
+worker_message = Validator(Annotated[str, at.MaxLen(500)])
+
+short_worker_name = Validator(Annotated[str, Regex(r".*-[\d]+cores-[a-zA-Z0-9]{2,8}")])
+long_worker_name = Validator(
+    Annotated[str, Regex(r".*-[\d]+cores-[a-zA-Z0-9]{2,8}-[a-f0-9]{4}\*?")]
 )
-worker_arch = set_name(union(*supported_arches), "valid_worker_arch")
-compiler = union(*supported_compilers)
-valid_username = regex(VALID_USERNAME_PATTERN, name="valid_username")
+worker_arch = Validator(Literal[*supported_arches])
+compiler = Validator(Literal[*supported_compilers])
+
+valid_username = Validator(Annotated[str, Regex(VALID_USERNAME_PATTERN)])
 legacy_usernames = set()  # will be updated when the application starts up
-legacy_username = intersect(
-    str, set_name(lambda x: x in legacy_usernames, "legacy_username")
+# The predicate reads the module global, so the startup update is picked up.
+legacy_username = Validator(
+    Annotated[str, at.Predicate(lambda value: value in legacy_usernames)]
 )
-username = union(valid_username, legacy_username)
-action_username = union(username, "fishtest.system")
-net_name = regex(r"nn-[a-f0-9]{12}.nnue", name="net_name")
-tc = regex(r"([1-9]\d*/)?\d+(\.\d+)?(\+\d+(\.\d+)?)?", name="tc")
-str_int = regex(r"[1-9]\d*", name="str_int")
-sha = regex(r"[a-f0-9]{40}", name="sha")
-sri384 = regex(r"(sha384-)?[0-9A-Za-z+/]{64}", name="sri384")
-uuid = regex(r"[0-9a-zA-Z]{2,8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}", name="uuid")
-country_code = regex(r"[A-Z][A-Z]", name="country_code")
-epd_file = glob("*.epd", name="epd_file")
-pgn_file = glob("*.pgn", name="pgn_file")
-book = union(epd_file, pgn_file)
-even = div(2, name="even")
-datetime_utc = intersect(datetime, fields({"tzinfo": UTC}))
-gzip_data = magic("application/gzip", name="gzip_data")
-residual_color = set_name(union("green", "yellow", "red"), "residual_color")
+username = valid_username | legacy_username
+action_username = username | Literal["fishtest.system"]
+
+net_name = Validator(Annotated[str, Regex(r"nn-[a-f0-9]{12}.nnue")])
+tc = Validator(Annotated[str, Regex(r"([1-9]\d*/)?\d+(\.\d+)?(\+\d+(\.\d+)?)?")])
+str_int = Validator(Annotated[str, Regex(r"[1-9]\d*")])
+sha = Validator(Annotated[str, Regex(r"[a-f0-9]{40}")])
+sri384 = Validator(Annotated[str, Regex(r"(sha384-)?[0-9A-Za-z+/]{64}")])
+uuid = Validator(
+    Annotated[str, Regex(r"[0-9a-zA-Z]{2,8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}")]
+)
+country_code = Validator(Annotated[str, Regex(r"[A-Z][A-Z]")])
+
+epd_file = Validator(Annotated[str, Regex(r".*\.epd")])
+pgn_file = Validator(Annotated[str, Regex(r".*\.pgn")])
+book = epd_file | pgn_file
+
+residual_color = Validator(Literal["green", "yellow", "red"])
+
 # Accept trailing slash only at raw-input boundaries. Persisted documents use
 # the slash-free canonical form.
-github_repo_input = regex(
-    r"https:\/\/(www\.)?github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?",
-    "github_repo_input",
+github_repo_input = Validator(
+    Annotated[
+        str,
+        Regex(r"https:\/\/(www\.)?github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?"),
+    ]
 )
-github_repo = regex(
-    r"https:\/\/(www\.)?github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+",
-    "github_repo",
+github_repo = Validator(
+    Annotated[
+        str, Regex(r"https:\/\/(www\.)?github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+")
+    ]
 )
-ascii = set_name(lambda x: x.isascii(), name="ascii")
-set_option = r"[^\s=]+=[^\s=]+"
-option_list = intersect(
-    str, ascii, regex(rf"(|({set_option} )*{set_option})", name="option_list")
-)
+tests_repo = github_repo | Literal[""]
+tests_repo_input = github_repo_input | Literal[""]
+# The machines view addresses one worker or the whole list.
+worker_name_or_show = short_worker_name | Literal["show"]
 
-uint = intersect(int, ge(0))
-suint = intersect(int, gt(0))
-ufloat = intersect(float, ge(0))
-unumber = intersect(float, ge(0))
-sunumber = intersect(float, gt(0))
-
-task_id = set_name(uint, "task_id")
-timestamp = set_name(ufloat, "timestamp")
+# An engine option is `Name=Value`, space separated: printable ASCII with no
+# space and no second `=`.
+OPTION_CHAR = r"[\x21-\x3c\x3e-\x7e]"
+SET_OPTION = rf"{OPTION_CHAR}+={OPTION_CHAR}+"
+option_list = Validator(Annotated[str, Regex(rf"(|({SET_OPTION} )*{SET_OPTION})")])
 
 
 def size_is_length(pgn_doc):
     return pgn_doc["size"] == len(pgn_doc["pgn_zip"])
 
 
-pgns_schema = intersect(
+# The stored size is the length of the blob it describes.
+size_matches_blob = Validator(Annotated[dict, at.Predicate(size_is_length)])
+
+pgns_schema = intersection(
     {
         "_id?": ObjectId,
         "run_id": run_id_pgns,
-        "pgn_zip": intersect(bytes, gzip_data),
+        "pgn_zip": gzip_data,
         "size": uint,
     },
-    size_is_length,
+    size_matches_blob,
 )
 
-user_schema = {
-    "_id?": ObjectId,
-    "username": username,
-    "password": intersect(str, size(0, PASSWORD_MAX_LENGTH)),
-    "registration_time": datetime_utc,
-    "pending": bool,
-    "blocked": bool,
-    "email": email,
-    "groups": intersect([str, ...], unique),
-    "tests_repo": union(github_repo, ""),
-    "machine_limit": uint,
-}
+user_schema = Validator(
+    {
+        "_id?": ObjectId,
+        "username": username,
+        "password": Annotated[str, at.MaxLen(PASSWORD_MAX_LENGTH)],
+        "registration_time": datetime_utc,
+        "pending": bool,
+        "blocked": bool,
+        "email": email,
+        "groups": Annotated[list[str], at.Predicate(is_unique)],
+        "tests_repo": tests_repo,
+        "machine_limit": uint,
+    }
+)
 
-kvstore_schema = {
-    "_id": str,
-    "value": anything,
-}
+kvstore_schema = Validator(
+    {
+        "_id": str,
+        "value": anything,
+    }
+)
 
-worker_schema = {
-    "_id?": ObjectId,
-    "worker_name": short_worker_name,
-    "blocked": bool,
-    "message": worker_message,
-    "last_updated": datetime_utc,
-}
+worker_schema = Validator(
+    {
+        "_id?": ObjectId,
+        "worker_name": short_worker_name,
+        "blocked": bool,
+        "message": worker_message,
+        "last_updated": datetime_utc,
+    }
+)
 
 
 def first_test_before_last(net_doc):
@@ -157,42 +284,50 @@ def first_test_before_last(net_doc):
         )
 
 
-nn_schema = intersect(
+net_test = Validator({"date": datetime_utc, "id": run_id})
+
+# A net's first test cannot postdate its last.
+tests_in_order = Validator(Annotated[dict, at.Predicate(first_test_before_last)])
+
+nn_schema = intersection(
     {
         "_id?": ObjectId,
         "downloads": uint,
-        "first_test?": {"date": datetime_utc, "id": run_id},
+        "first_test?": net_test,
         "is_master?": True,
-        "last_test?": {"date": datetime_utc, "id": run_id},
+        "last_test?": net_test,
         "name": net_name,
         "user": username,
     },
-    ifthen(
+    # A net that has been tested at all carries both ends of the interval.
+    implies(
         at_least_one_of("is_master", "first_test", "last_test"),
-        intersect(
-            keys("first_test", "last_test"),
-            first_test_before_last,
+        intersection(
+            has("first_test", "last_test"),
+            tests_in_order,
         ),
     ),
 )
 
 # not yet used, not tested
-contributors_schema = {
-    "_id": ObjectId,
-    "cpu_hours": unumber,
-    "diff": unumber,
-    "games": uint,
-    "games_per_hour": unumber,
-    "last_updated": datetime_utc,
-    "str_last_updated": str,
-    "tests": uint,
-    "tests_repo": union(github_repo, ""),
-    "username": username,
-}
+contributors_schema = Validator(
+    {
+        "_id": ObjectId,
+        "cpu_hours": ufloat,
+        "diff": ufloat,
+        "games": uint,
+        "games_per_hour": ufloat,
+        "last_updated": datetime_utc,
+        "str_last_updated": str,
+        "tests": uint,
+        "tests_repo": tests_repo,
+        "username": username,
+    }
+)
 
 
-action_name = set_name(
-    union(
+action_name = Validator(
+    Literal[
         "failed_task",
         "crash_or_time",
         "dead_task",
@@ -210,244 +345,183 @@ action_name = set_name(
         "block_worker",
         "log_message",
         "worker_log",
-    ),
-    "action_name",
+    ]
 )
 
-
-def action_is(action_name):
-    return lax({"action": action_name})
-
-
-action_schema = intersect(
-    # First make sure that we recognize the action name.
-    lax(
+# The action documents are a tagged union: every branch pins its own "action"
+# literal, so the branches are pairwise disjoint and a document can satisfy at
+# most the one its own action names. The recognized names are asserted beside
+# the union, so an unknown action fails there rather than against every branch.
+action_schema = intersection(
+    open_record({"action": action_name}),
+    union(
         {
-            "action": action_name,
-        }
-    ),
-    # For every action name introduce a specific schema.
-    cond(
-        (
-            action_is("failed_task"),
+            "_id": ObjectId,
+            "time": timestamp,
+            "action": "failed_task",
+            "username": action_username,
+            "worker": long_worker_name,
+            "run_id": run_id,
+            "run": run_name,
+            "task_id": task_id,
+            "message": action_message,
+        },
+        {
+            "_id": ObjectId,
+            "time": timestamp,
+            "action": "crash_or_time",
+            "username": action_username,
+            "worker": long_worker_name,
+            "run_id": run_id,
+            "run": run_name,
+            "task_id": task_id,
+            "message": action_message,
+        },
+        {
+            "_id": ObjectId,
+            "time": timestamp,
+            "action": "dead_task",
+            "username": action_username,
+            "worker": long_worker_name,
+            "run_id": run_id,
+            "run": run_name,
+            "task_id": task_id,
+        },
+        {
+            "_id": ObjectId,
+            "time": timestamp,
+            "action": "system_event",
+            "username": "fishtest.system",
+            "message": action_message,
+        },
+        {
+            "_id": ObjectId,
+            "time": timestamp,
+            "action": "new_run",
+            "username": action_username,
+            "run_id": run_id,
+            "run": run_name,
+            "message": action_message,
+        },
+        {
+            "_id": ObjectId,
+            "time": timestamp,
+            "action": "upload_nn",
+            "username": action_username,
+            "nn": net_name,
+        },
+        {
+            "_id": ObjectId,
+            "time": timestamp,
+            "action": "modify_run",
+            "username": action_username,
+            "run_id": run_id,
+            "run": run_name,
+            "message": action_message,
+        },
+        {
+            "_id": ObjectId,
+            "time": timestamp,
+            "action": "delete_run",
+            "username": action_username,
+            "run_id": run_id,
+            "run": run_name,
+        },
+        intersection(
             {
                 "_id": ObjectId,
                 "time": timestamp,
-                "action": "failed_task",
-                "username": action_username,
-                "worker": long_worker_name,
-                "run_id": run_id,
-                "run": run_name,
-                "task_id": task_id,
-                "message": action_message,
-            },
-        ),
-        (
-            action_is("crash_or_time"),
-            {
-                "_id": ObjectId,
-                "time": timestamp,
-                "action": "crash_or_time",
-                "username": action_username,
-                "worker": long_worker_name,
-                "run_id": run_id,
-                "run": run_name,
-                "task_id": task_id,
-                "message": action_message,
-            },
-        ),
-        (
-            action_is("dead_task"),
-            {
-                "_id": ObjectId,
-                "time": timestamp,
-                "action": "dead_task",
-                "username": action_username,
-                "worker": long_worker_name,
-                "run_id": run_id,
-                "run": run_name,
-                "task_id": task_id,
-            },
-        ),
-        (
-            action_is("system_event"),
-            {
-                "_id": ObjectId,
-                "time": timestamp,
-                "action": "system_event",
-                "username": "fishtest.system",
-                "message": action_message,
-            },
-        ),
-        (
-            action_is("new_run"),
-            {
-                "_id": ObjectId,
-                "time": timestamp,
-                "action": "new_run",
-                "username": action_username,
-                "run_id": run_id,
-                "run": run_name,
-                "message": action_message,
-            },
-        ),
-        (
-            action_is("upload_nn"),
-            {
-                "_id": ObjectId,
-                "time": timestamp,
-                "action": "upload_nn",
-                "username": action_username,
-                "nn": net_name,
-            },
-        ),
-        (
-            action_is("modify_run"),
-            {
-                "_id": ObjectId,
-                "time": timestamp,
-                "action": "modify_run",
+                "action": "stop_run",
                 "username": action_username,
                 "run_id": run_id,
                 "run": run_name,
                 "message": action_message,
-            },
-        ),
-        (
-            action_is("delete_run"),
-            {
-                "_id": ObjectId,
-                "time": timestamp,
-                "action": "delete_run",
-                "username": action_username,
-                "run_id": run_id,
-                "run": run_name,
-            },
-        ),
-        (
-            action_is("stop_run"),
-            intersect(
-                {
-                    "_id": ObjectId,
-                    "time": timestamp,
-                    "action": "stop_run",
-                    "username": action_username,
-                    "run_id": run_id,
-                    "run": run_name,
-                    "message": action_message,
-                    "worker?": long_worker_name,
-                    "task_id?": task_id,
-                },
-                ifthen(at_least_one_of("worker", "task_id"), keys("worker", "task_id")),
-            ),
-        ),
-        (
-            action_is("finished_run"),
-            {
-                "_id": ObjectId,
-                "time": timestamp,
-                "action": "finished_run",
-                "username": action_username,
-                "run_id": run_id,
-                "run": run_name,
-                "message": action_message,
-            },
-        ),
-        (
-            action_is("approve_run"),
-            {
-                "_id": ObjectId,
-                "time": timestamp,
-                "action": "approve_run",
-                "username": action_username,
-                "run_id": run_id,
-                "run": run_name,
-                "message": union("approved", "unapproved"),
-            },
-        ),
-        (
-            action_is("purge_run"),
-            {
-                "_id": ObjectId,
-                "time": timestamp,
-                "action": "purge_run",
-                "username": action_username,
-                "run_id": run_id,
-                "run": run_name,
-                "message": action_message,
-            },
-        ),
-        (
-            action_is("block_user"),
-            {
-                "_id": ObjectId,
-                "time": timestamp,
-                "action": "block_user",
-                "username": action_username,
-                "user": str,
-                "message": union("blocked", "unblocked"),
-            },
-        ),
-        (
-            action_is("accept_user"),
-            {
-                "_id": ObjectId,
-                "time": timestamp,
-                "action": "accept_user",
-                "username": action_username,
-                "user": str,
-                "message": "accepted",
-            },
-        ),
-        (
-            action_is("block_worker"),
-            {
-                "_id": ObjectId,
-                "time": timestamp,
-                "action": "block_worker",
-                "username": action_username,
-                "worker": short_worker_name,
-                "message": union("blocked", "unblocked"),
-            },
-        ),
-        (
-            action_is("log_message"),
-            {
-                "_id": ObjectId,
-                "time": timestamp,
-                "action": "log_message",
-                "username": action_username,
                 "worker?": long_worker_name,
-                "message": action_message,
+                "task_id?": task_id,
             },
+            # A stop attributed to a task names the worker that ran it.
+            implies(at_least_one_of("worker", "task_id"), has("worker", "task_id")),
         ),
-        (
-            action_is("worker_log"),
-            intersect(
-                {
-                    "_id": ObjectId,
-                    "time": timestamp,
-                    "action": "worker_log",
-                    "username": action_username,
-                    "worker": long_worker_name,
-                    "message": action_message,
-                    "run_id?": run_id,
-                    "run?": run_name,
-                    "task_id?": task_id,
-                },
-                ifthen(
-                    at_least_one_of("run_id", "run", "task_id"),
-                    keys("run_id", "run"),
-                ),
-            ),
+        {
+            "_id": ObjectId,
+            "time": timestamp,
+            "action": "finished_run",
+            "username": action_username,
+            "run_id": run_id,
+            "run": run_name,
+            "message": action_message,
+        },
+        {
+            "_id": ObjectId,
+            "time": timestamp,
+            "action": "approve_run",
+            "username": action_username,
+            "run_id": run_id,
+            "run": run_name,
+            "message": Literal["approved", "unapproved"],
+        },
+        {
+            "_id": ObjectId,
+            "time": timestamp,
+            "action": "purge_run",
+            "username": action_username,
+            "run_id": run_id,
+            "run": run_name,
+            "message": action_message,
+        },
+        {
+            "_id": ObjectId,
+            "time": timestamp,
+            "action": "block_user",
+            "username": action_username,
+            "user": str,
+            "message": Literal["blocked", "unblocked"],
+        },
+        {
+            "_id": ObjectId,
+            "time": timestamp,
+            "action": "accept_user",
+            "username": action_username,
+            "user": str,
+            "message": "accepted",
+        },
+        {
+            "_id": ObjectId,
+            "time": timestamp,
+            "action": "block_worker",
+            "username": action_username,
+            "worker": short_worker_name,
+            "message": Literal["blocked", "unblocked"],
+        },
+        {
+            "_id": ObjectId,
+            "time": timestamp,
+            "action": "log_message",
+            "username": action_username,
+            "worker?": long_worker_name,
+            "message": action_message,
+        },
+        intersection(
+            {
+                "_id": ObjectId,
+                "time": timestamp,
+                "action": "worker_log",
+                "username": action_username,
+                "worker": long_worker_name,
+                "message": action_message,
+                "run_id?": run_id,
+                "run?": run_name,
+                "task_id?": task_id,
+            },
+            # A log attributed to a run names it both ways.
+            implies(at_least_one_of("run_id", "run", "task_id"), has("run_id", "run")),
         ),
-        # we should never get here
-        (anything, nothing),
     ),
 )
 
 
-worker_info_schema_api = {
+# A fixed-length list is the native literal: typing has no syntax for it.
+worker_info_fields = {
     "uname": str,
     "architecture": [str, str],
     "concurrency": suint,
@@ -460,17 +534,22 @@ worker_info_schema_api = {
     "compiler": compiler,
     "unique_key": uuid,
     "modified": bool,
-    "worker_arch": union(worker_arch, "unknown"),
+    "worker_arch": worker_arch | Literal["unknown"],
     "ARCH": str,
-    "nps": unumber,
+    "nps": ufloat,
     "near_github_api_limit": bool,
 }
 
-worker_info_schema_runs = {
-    **copy.deepcopy(worker_info_schema_api),
-    "remote_addr": ip_address,
-    "country_code": union(country_code, "?"),
-}
+# The worker states its own identity; the server adds what it observed.
+worker_info_schema_api = Validator(worker_info_fields)
+
+worker_info_schema_runs = Validator(
+    {
+        **worker_info_fields,
+        "remote_addr": ip_address,
+        "country_code": country_code | Literal["?"],
+    }
+)
 
 
 def valid_results(stats):
@@ -483,7 +562,10 @@ def valid_results(stats):
     )
 
 
-results_schema = intersect(
+# The game counts and the pentanomial frequencies describe the same games.
+results_add_up = Validator(Annotated[dict, at.Predicate(valid_results)])
+
+results_schema = intersection(
     {
         "wins": uint,
         "losses": uint,
@@ -492,7 +574,7 @@ results_schema = intersect(
         "time_losses": uint,
         "pentanomial": [uint, uint, uint, uint, uint],
     },
-    valid_results,
+    results_add_up,
 )
 
 
@@ -500,9 +582,26 @@ def valid_spsa_results(stats):
     return stats["wins"] + stats["losses"] + stats["draws"] == stats["num_games"]
 
 
-api_access_schema = lax({"password": str, "worker_info": {"username": username}})
+# An SPSA batch reports every game it was given.
+spsa_results_add_up = Validator(Annotated[dict, at.Predicate(valid_spsa_results)])
 
-api_schema = intersect(
+spsa_results_schema = intersection(
+    {
+        "wins": uint,
+        "losses": uint,
+        "draws": uint,
+        "num_games": game_count,
+        "sig": uint,
+    },
+    spsa_results_add_up,
+)
+
+
+api_access_schema = Validator(
+    {"password": str, "worker_info": {"username": username}}
+).open()
+
+api_schema = intersection(
     {
         "password": str,
         "run_id?": run_id,
@@ -510,19 +609,11 @@ api_schema = intersect(
         "pgn?": str,
         "message?": str,
         "worker_info": worker_info_schema_api,
-        "spsa?": intersect(
-            {
-                "wins": uint,
-                "losses": uint,
-                "draws": uint,
-                "num_games": intersect(uint, even),
-                "sig": uint,
-            },
-            valid_spsa_results,
-        ),
+        "spsa?": spsa_results_schema,
         "stats?": results_schema,
     },
-    ifthen(keys("task_id"), keys("run_id")),
+    # A task is only addressable through the run that owns it.
+    implies(has("task_id"), has("run_id")),
 )
 
 
@@ -533,6 +624,16 @@ zero_results = {
     "crashes": 0,
     "time_losses": 0,
     "pentanomial": 5 * [0],
+}
+
+# The same document as a schema: every field is the literal it holds.
+zero_results_schema = {
+    "wins": 0,
+    "draws": 0,
+    "losses": 0,
+    "crashes": 0,
+    "time_losses": 0,
+    "pentanomial": [0, 0, 0, 0, 0],
 }
 
 
@@ -690,13 +791,17 @@ def is_undecided(run):
     return True
 
 
-valid_aggregated_data = intersect(
-    final_results_must_match,
-    cores_must_match,
-    workers_must_match,
-    committed_games_must_match,
-    total_games_must_match,
-    flags_must_match,
+# The run document repeats what its tasks say; each of these decides one of
+# those repetitions against the tasks themselves.
+run_is_undecided = Validator(Annotated[dict, at.Predicate(is_undecided)])
+
+valid_aggregated_data = intersection(
+    Annotated[dict, at.Predicate(final_results_must_match)],
+    Annotated[dict, at.Predicate(cores_must_match)],
+    Annotated[dict, at.Predicate(workers_must_match)],
+    Annotated[dict, at.Predicate(committed_games_must_match)],
+    Annotated[dict, at.Predicate(total_games_must_match)],
+    Annotated[dict, at.Predicate(flags_must_match)],
 )
 
 # The following schema only matches new runs. The old runs
@@ -709,18 +814,166 @@ valid_aggregated_data = intersect(
 # about non-validation of runs created with the prior
 # schema.
 
-RUN_VERSION = 24
+RUN_VERSION = 25
 
-runs_schema = intersect(
+sprt_overshoot = Validator(
+    {
+        "last_update": uint,
+        "skipped_updates": uint,
+        "ref0": float,
+        "m0": float,
+        "sq0": ufloat,
+        "ref1": float,
+        "m1": float,
+        "sq1": ufloat,
+    }
+)
+
+sprt_schema = Validator(
+    intersection(
+        {
+            "alpha": 0.05,
+            "beta": 0.05,
+            "elo0": float,
+            "elo1": float,
+            "elo_model": "normalized",
+            "state": Literal["", "accepted", "rejected"],
+            "llr": float,
+            "batch_size": suint,
+            # The bounds follow from alpha and beta, which this record pins.
+            "lower_bound": -math.log(19),
+            "upper_bound": math.log(19),
+            "lost_samples?": uint,
+            "illegal_update?": uint,
+            "overshoot?": sprt_overshoot,
+        },
+        # Overshoot accounting and sample loss are the two ways a batch can be
+        # reconciled, and a test uses one of them.
+        one_of("overshoot", "lost_samples"),
+    )
+)
+
+spsa_param = Validator(
+    {
+        "name": str,
+        "start": float,
+        "min": float,
+        "max": float,
+        "c_end": sfloat,
+        "r_end": ufloat,
+        "c": sfloat,
+        "a_end": ufloat,
+        "a": ufloat,
+        "theta": float,
+    }
+)
+
+spsa_param_sample = Validator({"theta": float, "R": ufloat, "c": ufloat})
+
+spsa_schema = Validator(
+    {
+        "algorithm?": "classic",
+        "A": uint,  # an iteration offset, in game pairs
+        "alpha": ufloat,
+        "gamma": ufloat,
+        "raw_params": str,
+        "iter": uint,
+        "num_iter": uint,
+        "params": list[spsa_param],
+        "param_history?": list[list[spsa_param_sample]],
+    }
+)
+
+run_args_schema = Validator(
+    intersection(
+        {
+            "base_tag": str,
+            "new_tag": str,
+            "base_nets": Annotated[list[net_name], at.Predicate(is_unique)],
+            "new_nets": Annotated[list[net_name], at.Predicate(is_unique)],
+            "num_games": game_count,
+            "tc": tc,
+            "new_tc": tc,
+            "book": book,
+            "book_depth": str_int,
+            "threads": suint,
+            "resolved_base": sha,
+            "resolved_new": sha,
+            "msg_base": str,
+            "msg_new": str,
+            "base_options": option_list,
+            "new_options": option_list,
+            "info": str,
+            "base_signature": str_int,
+            "new_signature": str_int,
+            "username": username,
+            "tests_repo": github_repo,
+            "master_repo?": github_repo,  # present only when non-standard (rare)
+            "auto_purge": bool,
+            "throughput": uint,  # a percentage
+            "itp": ufloat,  # throughput after the scheduler's adjustments
+            "priority": int,
+            "adjudication": bool,
+            "arch_filter?": regex_pattern,
+            "compiler?": compiler,
+            "sprt?": sprt_schema,
+            "spsa?": spsa_schema,
+        },
+        # A test is either an SPRT or an SPSA tuning run, never both.
+        at_most_one_of("sprt", "spsa"),
+    )
+)
+
+task_schema = Validator(
+    intersection(
+        {
+            "num_games": game_count,
+            "active": bool,
+            "last_updated": datetime_utc,
+            "start": uint,
+            "bad?": True,
+            "stats": results_schema,
+            "spsa_params?": {
+                "iter": uint,
+                "packed_flips": bytes,  # TODO: check length
+            },
+            "worker_info": worker_info_schema_runs,
+        },
+        # A task marked bad has been stopped and its games discounted.
+        implies(
+            has("bad"),
+            open_record({"active": False, "stats": zero_results_schema}),
+        ),
+        # Only a running task holds the SPSA state it is playing with.
+        implies(has("spsa_params"), open_record({"active": True})),
+    )
+)
+
+bad_task_schema = Validator(
+    {
+        "num_games": game_count,
+        "active": False,
+        "last_updated": datetime_utc,
+        "start": uint,
+        "residual": float,
+        "residual_color": residual_color,
+        "bad": True,
+        "task_id": task_id,
+        "stats": results_schema,
+        "worker_info": worker_info_schema_runs,
+    }
+)
+
+runs_schema = intersection(
     {
         "_id": ObjectId,
         "version": uint,
         "start_time": datetime_utc,
         "last_updated": datetime_utc,
-        "tc_base": unumber,
+        "tc_base": ufloat,
         "rescheduled_from?": run_id,
         "approved": bool,
-        "approver": union(username, ""),
+        "approver": username | Literal[""],
         "finished": bool,
         "deleted": bool,
         "failed": bool,
@@ -734,210 +987,84 @@ runs_schema = intersect(
         "results": results_schema,
         "nps": ufloat,
         "games_per_minute": ufloat,
-        "args": intersect(
-            {
-                "base_tag": str,
-                "new_tag": str,
-                "base_nets": intersect([net_name, ...], unique),
-                "new_nets": intersect([net_name, ...], unique),
-                "num_games": intersect(uint, even),
-                "tc": tc,
-                "new_tc": tc,
-                "book": book,
-                "book_depth": str_int,
-                "threads": suint,
-                "resolved_base": sha,
-                "resolved_new": sha,
-                "msg_base": str,
-                "msg_new": str,
-                "base_options": option_list,
-                "new_options": option_list,
-                "info": str,
-                "base_signature": str_int,
-                "new_signature": str_int,
-                "username": username,
-                "tests_repo": github_repo,
-                "master_repo?": github_repo,  # present only when non-standard (rare)
-                "auto_purge": bool,
-                "throughput": unumber,
-                "itp": unumber,
-                "priority": float,
-                "adjudication": bool,
-                "arch_filter?": regex_pattern,
-                "compiler?": compiler,
-                "sprt?": intersect(
-                    {
-                        "alpha": 0.05,
-                        "beta": 0.05,
-                        "elo0": float,
-                        "elo1": float,
-                        "elo_model": "normalized",
-                        "state": union("", "accepted", "rejected"),
-                        "llr": float,
-                        "batch_size": suint,
-                        "lower_bound": -math.log(19),
-                        "upper_bound": math.log(19),
-                        "lost_samples?": uint,
-                        "illegal_update?": uint,
-                        "overshoot?": {
-                            "last_update": uint,
-                            "skipped_updates": uint,
-                            "ref0": float,
-                            "m0": float,
-                            "sq0": unumber,
-                            "ref1": float,
-                            "m1": float,
-                            "sq1": unumber,
-                        },
-                    },
-                    one_of("overshoot", "lost_samples"),
-                ),
-                "spsa?": {
-                    "algorithm?": "classic",
-                    "A": unumber,
-                    "alpha": unumber,
-                    "gamma": unumber,
-                    "raw_params": str,
-                    "iter": uint,
-                    "num_iter": uint,
-                    "params": [
-                        {
-                            "name": str,
-                            "start": float,
-                            "min": float,
-                            "max": float,
-                            "c_end": sunumber,
-                            "r_end": unumber,
-                            "c": sunumber,
-                            "a_end": unumber,
-                            "a": unumber,
-                            "theta": float,
-                        },
-                        ...,
-                    ],
-                    "param_history?": [
-                        [
-                            {"theta": float, "R": unumber, "c": unumber},
-                            ...,
-                        ],
-                        ...,
-                    ],
-                },
-            },
-            at_most_one_of("sprt", "spsa"),
-        ),
-        "tasks": [
-            intersect(
-                {
-                    "num_games": intersect(uint, even),
-                    "active": bool,
-                    "last_updated": datetime_utc,
-                    "start": uint,
-                    "bad?": True,
-                    "stats": results_schema,
-                    "spsa_params?": {
-                        "iter": uint,
-                        "packed_flips": bytes,  # TODO: check length
-                    },
-                    "worker_info": worker_info_schema_runs,
-                },
-                ifthen(
-                    keys("bad"), lax({"active": False, "stats": quote(zero_results)})
-                ),
-                ifthen(keys("spsa_params"), lax({"active": True})),
-            ),
-            ...,
-        ],
-        "bad_tasks": [
-            {
-                "num_games": intersect(uint, even),
-                "active": False,
-                "last_updated": datetime_utc,
-                "start": uint,
-                "residual": float,
-                "residual_color": residual_color,
-                "bad": True,
-                "task_id": task_id,
-                "stats": results_schema,
-                "worker_info": worker_info_schema_runs,
-            },
-            ...,
-        ],
+        "args": run_args_schema,
+        "tasks": list[task_schema],
+        "bad_tasks": list[bad_task_schema],
     },
-    lax(ifthen({"failed": True}, {"failures": suint})),
-    lax(ifthen({"approved": True}, {"approver": username}, {"approver": ""})),
-    lax(ifthen({"is_green": True}, {"is_yellow": False})),
-    lax(ifthen({"is_yellow": True}, {"is_green": False})),
-    lax(
-        ifthen(
-            {"finished": True},
+    # The conjuncts below constrain a few fields each, so each one is opened:
+    # a field a conjunct does not name is the other conjuncts' business.
+    implies({"failed": True}, {"failures": suint}).open(),
+    implies({"approved": True}, {"approver": username}, {"approver": ""}).open(),
+    implies({"is_green": True}, {"is_yellow": False}).open(),
+    implies({"is_yellow": True}, {"is_green": False}).open(),
+    implies(
+        {"finished": True},
+        # A finished run holds no worker and burns no cores.
+        {
+            "workers": 0,
+            "cores": 0,
+            "nps": 0.0,
+            "games_per_minute": 0.0,
+            "tasks": [{"active": False}, ...],
+        },
+        # An unfinished run has not reached a verdict.
+        intersection(
             {
-                "workers": 0,
-                "cores": 0,
-                "nps": 0.0,
-                "games_per_minute": 0.0,
-                "tasks": [{"active": False}, ...],
+                "is_green": False,
+                "is_yellow": False,
+                "failed": False,
+                "deleted": False,
             },
-            intersect(
-                {
-                    "is_green": False,
-                    "is_yellow": False,
-                    "failed": False,
-                    "deleted": False,
-                },
-                is_undecided,
-            ),
-        )
-    ),
+            run_is_undecided,
+        ),
+    ).open(),
     valid_aggregated_data,
 )
 
-runs_schema = set_label(runs_schema, "runs_schema")
-
-cache_schema = {
-    run_id: {
-        "run": runs_schema,
+cache_entry_schema = Validator(
+    {
+        # The run itself is validated where it is written and where it is read
+        # back, so the cache is checked for its own shape only.
+        "run": dict,
         "is_changed": bool,  # Indicates if the run has changed since last_sync_time.
         "last_sync_time": timestamp,  # Last sync time (reading from or writing to db). If never synced then creation time.
         "last_access_time": timestamp,  # Last time the cache entry was touched (via buffer() or get_run()).
         "priority": int,  # Entries with higher priority are synced first.
-    },
-}
-
-wtt_map_schema = {
-    short_worker_name: (run_id, task_id),
-}
-
-connections_counter_schema = {
-    ip_address: suint,
-}
-
-unfinished_runs_schema = {
-    run_id,
-}
-
-worker_runs_schema = {
-    short_worker_name: {
-        run_id: True,
-        "last_run": run_id,
     }
-}
+)
+
+cache_schema = Validator(dict[run_id, cache_entry_schema])
+
+wtt_map_schema = Validator(dict[short_worker_name, tuple[run_id, task_id]])
+
+connections_counter_schema = Validator(dict[ip_address, suint])
+
+unfinished_runs_schema = Validator(set[run_id])
+
+# A record with a typed catch-all: "last_run" names a run, and every other key
+# is itself a run the worker has taken part in.
+worker_runs_entry_schema = Validator({"last_run": run_id, run_id: True})
+
+worker_runs_schema = Validator(dict[short_worker_name, worker_runs_entry_schema])
 
 
-def total_is_white_plus_black(book):
-    return book["total"] == book["white"] + book["black"]
+def total_is_white_plus_black(book_doc):
+    return book_doc["total"] == book_doc["white"] + book_doc["black"]
 
 
-books_schema = {
-    book: intersect(
-        {
-            "total": uint,
-            "white": uint,
-            "black": uint,
-            "min_depth": union(uint, None),
-            "max_depth": union(uint, None),
-            "sri": sri384,
-        },
-        total_is_white_plus_black,
-    ),
-}
+# Every position in the book opens with one side or the other.
+book_totals_add_up = Validator(Annotated[dict, at.Predicate(total_is_white_plus_black)])
+
+book_schema = intersection(
+    {
+        "total": uint,
+        "white": uint,
+        "black": uint,
+        "min_depth": uint | None,
+        "max_depth": uint | None,
+        "sri": sri384,
+    },
+    book_totals_add_up,
+)
+
+books_schema = Validator(dict[book, book_schema])

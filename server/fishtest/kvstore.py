@@ -4,7 +4,6 @@ from datetime import UTC
 from bson.codec_options import CodecOptions
 from bson.errors import InvalidDocument
 from pymongo import MongoClient
-from vtjson import validate
 
 
 class KeyValueStore(MutableMapping):
@@ -24,7 +23,7 @@ class KeyValueStore(MutableMapping):
         document = {"_id": key, "value": value}
         from fishtest.schemas import kvstore_schema  # circular import issue
 
-        validate(kvstore_schema, document)  # assertion!
+        kvstore_schema.validate(document)  # assertion!
         try:
             self.__kvstore.replace_one({"_id": key}, document, upsert=True)
         except InvalidDocument:

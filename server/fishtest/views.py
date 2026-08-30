@@ -29,7 +29,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import Request  # noqa: TC002
 from starlette.responses import HTMLResponse, RedirectResponse, Response
-from vtjson import ValidationError, union, validate
+from valgebra import ValidationError
 
 import fishtest.github_api as gh
 import fishtest.stats.stat_util
@@ -110,10 +110,10 @@ from fishtest.http.ui_pipeline import apply_http_cache
 from fishtest.run_cache import Prio
 from fishtest.schemas import (
     RUN_VERSION,
-    github_repo_input,
     is_undecided,
     runs_schema,
-    short_worker_name,
+    tests_repo_input,
+    worker_name_or_show,
 )
 from fishtest.spsa_workflow import build_spsa_form_values, format_spsa_value
 from fishtest.util import (
@@ -749,7 +749,7 @@ def signup(request: _ViewContext) -> dict[str, Any] | RedirectResponse:  # noqa:
         errors.append("Error! Alphanumeric username required")
 
     try:
-        validate(union(github_repo_input, ""), tests_repo, "tests_repo")
+        tests_repo_input.validate(tests_repo)
     except ValidationError as e:
         errors.append(f"Error! Invalid tests repo {tests_repo}: {e!s}")
 
@@ -1065,7 +1065,7 @@ def workers(request: _ViewContext) -> dict[str, Any] | Response:  # noqa: C901, 
     admin_context = {}
 
     try:
-        validate(union(short_worker_name, "show"), worker_name, name="worker_name")
+        worker_name_or_show.validate(worker_name)
     except ValidationError as e:
         request.session.flash(str(e), "error")
     else:
@@ -1728,7 +1728,7 @@ def user(request: _ViewContext) -> dict[str, Any] | RedirectResponse:  # noqa: C
                     return home(request)
 
             try:
-                validate(union(github_repo_input, ""), tests_repo, "tests_repo")
+                tests_repo_input.validate(tests_repo)
             except ValidationError as e:
                 request.session.flash(
                     f"Error! Invalid test repo {tests_repo}: {e!s}",
@@ -2662,7 +2662,7 @@ def tests_delete(request: _ViewContext) -> RedirectResponse | dict[str, Any]:
         request.rundb.set_inactive_run(run)
         run["deleted"] = True
         try:
-            validate(runs_schema, run, "run")
+            runs_schema.validate(run, fail_fast=True)
         except ValidationError as e:
             message = (
                 f"The run object {request.POST['run-id']} does not validate: {e!s}"
