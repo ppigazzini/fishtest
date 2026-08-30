@@ -182,7 +182,7 @@ legacy_username = Validator(
 username = valid_username | legacy_username
 action_username = username | Literal["fishtest.system"]
 
-net_name = Validator(Annotated[str, Regex(r"nn-[a-f0-9]{12}.nnue")])
+net_name = Validator(Annotated[str, Regex(r"nn-[a-f0-9]{12}\.nnue")])
 tc = Validator(Annotated[str, Regex(r"([1-9]\d*/)?\d+(\.\d+)?(\+\d+(\.\d+)?)?")])
 str_int = Validator(Annotated[str, Regex(r"[1-9]\d*")])
 sha = Validator(Annotated[str, Regex(r"[a-f0-9]{40}")])
@@ -213,6 +213,8 @@ github_repo = Validator(
 )
 tests_repo = github_repo | Literal[""]
 tests_repo_input = github_repo_input | Literal[""]
+# A UNIX timestamp as a query parameter carries seconds, optionally fractional.
+unix_timestamp_param = Validator(Annotated[str, Regex(r"\d{10}(\.\d+)?")])
 # The machines view addresses one worker or the whole list.
 worker_name_or_show = short_worker_name | Literal["show"]
 

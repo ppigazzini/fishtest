@@ -13,7 +13,6 @@ import gzip
 import hashlib
 import logging
 import os
-import re
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -111,8 +110,10 @@ from fishtest.run_cache import Prio
 from fishtest.schemas import (
     RUN_VERSION,
     is_undecided,
+    net_name,
     runs_schema,
     tests_repo_input,
+    valid_username,
     worker_name_or_show,
 )
 from fishtest.spsa_workflow import build_spsa_form_values, format_spsa_value
@@ -745,8 +746,8 @@ def signup(request: _ViewContext) -> dict[str, Any] | RedirectResponse:  # noqa:
         errors.append("Error! Invalid email: " + validated_email)
     if len(signup_username) == 0:
         errors.append("Error! Username required")
-    if not signup_username.isalnum():
-        errors.append("Error! Alphanumeric username required")
+    elif not valid_username.is_valid(signup_username):
+        errors.append("Error! Alphanumeric username of 2 characters or more required")
 
     try:
         tests_repo_input.validate(tests_repo)
@@ -1233,7 +1234,7 @@ def upload(request: _ViewContext) -> dict[str, Any] | RedirectResponse:  # noqa:
     errors = []
     if len(network) >= _MAX_NETWORK_SIZE_BYTES:
         errors.append("Network must be < 200MB")
-    if not re.match(r"^nn-[0-9a-f]{12}\.nnue$", filename):
+    if not net_name.is_valid(filename):
         errors.append('Name must match "nn-[SHA256 first 12 digits].nnue"')
     net_hash = hashlib.sha256(network).hexdigest()
     if net_hash[:12] != filename[3:15]:

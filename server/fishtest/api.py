@@ -14,7 +14,12 @@ from valgebra import ValidationError
 
 import fishtest.github_api as gh
 from fishtest.http.boundary import ApiRequestShim, get_request_shim
-from fishtest.schemas import api_access_schema, api_schema, gzip_data
+from fishtest.schemas import (
+    api_access_schema,
+    api_schema,
+    gzip_data,
+    unix_timestamp_param,
+)
 from fishtest.stats.stat_util import SPRT_elo, get_elo
 from fishtest.util import strip_run, worker_name
 
@@ -370,7 +375,7 @@ class UserApi(GenericApi):
         page_size = 50
 
         last_updated = None
-        if timestamp != "" and re.match(r"^\d{10}(\.\d+)?$", timestamp):
+        if timestamp != "" and unix_timestamp_param.is_valid(timestamp):
             last_updated = datetime.fromtimestamp(float(timestamp))
         elif timestamp != "":
             self.handle_error("Please provide a valid UNIX timestamp.")
