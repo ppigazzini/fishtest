@@ -749,6 +749,18 @@ class TestSchemaAlgebra(unittest.TestCase):
         self.assertFalse(s.open_record(nested).is_valid(extra_inside))
         self.assertTrue(Validator(nested).open().is_valid(extra_inside))
 
+    def test_the_stored_worker_info_extends_the_received_one(self):
+        # Closed-record width is inside what valgebra decides, so this relation
+        # is proven rather than sampled: everything a worker sends is admitted
+        # by the stored shape once its own extra keys are allowed for, and the
+        # closed received shape does not admit them.
+        self.assertTrue(
+            s.worker_info_schema_runs.is_subtype_of(s.worker_info_schema_api.open())
+        )
+        self.assertFalse(
+            s.worker_info_schema_runs.is_subtype_of(s.worker_info_schema_api)
+        )
+
     def test_a_raw_input_schema_admits_the_persisted_form(self):
         # Regex-against-regex inclusion is outside what valgebra decides, so
         # this is sampled rather than asserted with is_subtype_of.
