@@ -175,6 +175,8 @@ compiler = Validator(Literal[*supported_compilers])
 
 valid_username = Validator(Annotated[str, Regex(VALID_USERNAME_PATTERN)])
 legacy_usernames = set()  # will be updated when the application starts up
+# What the application loads into the set above, read from the kvstore.
+legacy_usernames_schema = Validator(list[str])
 # The predicate reads the module global, so the startup update is picked up.
 legacy_username = Validator(
     Annotated[str, at.Predicate(lambda value: value in legacy_usernames)]
@@ -778,6 +780,27 @@ def flags_must_match(run):
     return True
 
 
+def packed_flips_length_must_match(run):
+    """An SPSA task packs one bit per tuned parameter, rounded up to bytes.
+
+    The length is fixed by the run's own parameter list, so no schema on the
+    task alone can state it. A blob of the wrong length unpacks to the wrong
+    flips rather than to an error, which is why this is checked here.
+    """
+    params = run["args"].get("spsa", {}).get("params", [])
+    expected = -(-len(params) // 8)
+    for task_index, task in enumerate(run["tasks"]):
+        if "spsa_params" not in task:
+            continue
+        packed = task["spsa_params"]["packed_flips"]
+        if len(packed) != expected:
+            raise Exception(
+                f"Task {task_index} packs {len(packed)} bytes of SPSA flips, "
+                f"but {len(params)} parameters need {expected}"
+            )
+    return True
+
+
 def is_undecided(run):
     completed_games = (
         run["results"]["wins"] + run["results"]["losses"] + run["results"]["draws"]
@@ -799,6 +822,7 @@ run_is_undecided = Validator(Annotated[dict, at.Predicate(is_undecided)])
 
 valid_aggregated_data = intersection(
     Annotated[dict, at.Predicate(final_results_must_match)],
+    Annotated[dict, at.Predicate(packed_flips_length_must_match)],
     Annotated[dict, at.Predicate(cores_must_match)],
     Annotated[dict, at.Predicate(workers_must_match)],
     Annotated[dict, at.Predicate(committed_games_must_match)],
@@ -932,7 +956,9 @@ task_schema = intersection(
         "stats": results_schema,
         "spsa_params?": {
             "iter": uint,
-            "packed_flips": bytes,  # TODO: check length
+            # One bit per tuned parameter; the run-level rule below decides
+            # the length, which only the run's own parameter list fixes.
+            "packed_flips": bytes,
         },
         "worker_info": worker_info_schema_runs,
     },

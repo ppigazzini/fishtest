@@ -1,6 +1,5 @@
 import copy
 import heapq
-import json
 import math
 import os
 import random
@@ -193,11 +192,16 @@ class RunDb:
     def update_books(self):
         books = None
         try:
-            books = json.loads(
+            # books.json is third-party input, so it is parsed and checked in
+            # one pass before it reaches the database. Keeping the previous
+            # metadata beats storing a document nothing here can read.
+            books = books_schema.load(
                 gh.download_from_github(
                     "books.json", repo="books", ignore_rate_limit=True
-                ).decode()
+                )
             )
+        except ValidationError as e:
+            print(f"The book metadata from GitHub does not validate: {e!s}", flush=True)
         except Exception as e:
             print(f"Unable to download book metadata from GitHub: {str(e)}", flush=True)
         if books is not None:
