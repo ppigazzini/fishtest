@@ -12,7 +12,7 @@ import unittest
 from datetime import UTC, datetime
 
 from bson.objectid import ObjectId
-from valgebra import ValidationError, Validator
+from valgebra import ValidationError, Validator, anything, intersection
 
 from fishtest import schemas as s
 from fishtest import spsa_workflow
@@ -21,6 +21,25 @@ from fishtest.stats import stat_util
 OID = ObjectId("64e74776a170cb1f26fa3930")
 RUN_ID = "64e74776a170cb1f26fa3930"
 NOW = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+ACTION_NAMES = (
+    "failed_task",
+    "crash_or_time",
+    "dead_task",
+    "system_event",
+    "new_run",
+    "upload_nn",
+    "modify_run",
+    "delete_run",
+    "stop_run",
+    "finished_run",
+    "approve_run",
+    "purge_run",
+    "block_user",
+    "accept_user",
+    "block_worker",
+    "log_message",
+    "worker_log",
+)
 
 ZERO_RESULTS = {
     "wins": 0,
@@ -572,6 +591,121 @@ class TestInternalStructures(unittest.TestCase):
         }
         s.books_schema.validate({"UHO.epd": book})
         self.assertFalse(s.books_schema.is_valid({"UHO.epd": {**book, "total": 11}}))
+
+
+class TestSchemaAlgebra(unittest.TestCase):
+    """Ask the schemas about themselves.
+
+    Subtyping is set inclusion and equivalence is mutual inclusion, decided
+    soundly: a True is always correct, a False is either a genuine non-relation
+    or one valgebra does not prove. So a True is an assertion and a False needs
+    a sampled check beside it.
+    """
+
+    def module_validators(self):
+        return {
+            name: value
+            for name, value in vars(s).items()
+            if isinstance(value, Validator) and not name.startswith("_")
+        }
+
+    def test_no_schema_is_uninhabited(self):
+        # A schema no value can satisfy rejects every document silently; an
+        # unsatisfiable refinement or an impossible required field would show
+        # up here rather than in production.
+        empty = [name for name, v in self.module_validators().items() if v.is_empty()]
+        self.assertEqual(empty, [])
+
+    def test_a_refinement_is_a_subtype_of_what_it_refines(self):
+        for narrow, wide in [
+            (s.suint, s.uint),
+            (s.game_count, s.uint),
+            (s.sfloat, s.ufloat),
+            (s.uint, int),
+            (s.ufloat, float),
+            (s.valid_username, s.username),
+            (s.username, s.action_username),
+            (s.short_worker_name, s.worker_name_or_show),
+            (s.epd_file, s.book),
+            (s.pgn_file, s.book),
+        ]:
+            self.assertTrue(narrow.is_subtype_of(wide), f"{narrow!r} </= {wide!r}")
+
+    def test_an_int_field_and_a_float_field_share_no_value(self):
+        # The two are disjoint sets, which is what lets a field state which one
+        # it stores.
+        self.assertTrue(intersection(s.uint, s.ufloat).is_empty())
+
+    def test_the_action_name_guard_is_redundant(self):
+        # The union alone already decides membership, since every branch pins
+        # its own "action". The guard is kept for the error it produces, and
+        # this proves keeping it does not change the set.
+        guard = s.open_record({"action": s.action_name})
+        self.assertTrue(s.action_schema.is_subtype_of(guard))
+
+    def test_the_discriminant_selects_the_shape(self):
+        # The branches are disjoint by construction: each pins its own "action",
+        # and a document carries one. What is worth checking is that the name
+        # decides which fields are required, so a document wearing the wrong
+        # name is rejected on the fields the new name demands.
+        #
+        # Note this is not "no other name is accepted": two actions can require
+        # the same fields, and then relabelling produces a document that really
+        # is a valid instance of the other branch. That is the discriminant
+        # working, not an overlap.
+        system_event = {
+            "_id": OID,
+            "time": 1.0,
+            "action": "system_event",
+            "username": "fishtest.system",
+            "message": "started",
+        }
+        s.action_schema.validate(system_event)
+        for name in ("new_run", "upload_nn", "delete_run", "failed_task"):
+            self.assertFalse(
+                s.action_schema.is_valid({**system_event, "action": name}), name
+            )
+
+    def test_every_branch_of_the_union_is_reachable(self):
+        # A branch no document can reach is dead weight in the union; each
+        # action name must be admitted by some document.
+        for name in ACTION_NAMES:
+            reachable = intersection(s.action_schema, s.open_record({"action": name}))
+            self.assertFalse(reachable.is_empty(), name)
+
+    def test_the_recipes_denote_what_they_claim(self):
+        self.assertTrue(s.has("a").is_equivalent(Validator({"a": anything}).open()))
+        self.assertTrue(
+            s.one_of("a", "b").is_equivalent(
+                intersection(s.at_least_one_of("a", "b"), s.at_most_one_of("a", "b"))
+            )
+        )
+
+    def test_open_record_opens_one_level_where_open_opens_all(self):
+        flat = {"active": False, "n": int}
+        self.assertTrue(s.open_record(flat).is_equivalent(Validator(flat).open()))
+        nested = {"active": False, "stats": {"wins": int}}
+        extra_inside = {"active": False, "stats": {"wins": 1, "x": 2}}
+        self.assertFalse(s.open_record(nested).is_valid(extra_inside))
+        self.assertTrue(Validator(nested).open().is_valid(extra_inside))
+
+    def test_a_raw_input_schema_admits_the_persisted_form(self):
+        # Regex-against-regex inclusion is outside what valgebra decides, so
+        # this is sampled rather than asserted with is_subtype_of.
+        repos = [
+            "https://github.com/official-stockfish/Stockfish",
+            "https://www.github.com/a/b",
+            "https://github.com/a.b-c_d/e.f-g_h",
+        ]
+        for repo in repos:
+            self.assertTrue(s.github_repo.is_valid(repo))
+            self.assertTrue(s.github_repo_input.is_valid(repo))
+            self.assertTrue(s.github_repo_input.is_valid(repo + "/"))
+            self.assertFalse(s.github_repo.is_valid(repo + "/"))
+
+    def test_a_schema_prints_back_as_its_annotation(self):
+        self.assertEqual(repr(s.uint), "Annotated[int, Ge(0)]")
+        self.assertEqual(repr(s.run_id), 'Annotated[str, Regex("[a-f0-9]{24}")]')
 
 
 class TestErrorModel(unittest.TestCase):
