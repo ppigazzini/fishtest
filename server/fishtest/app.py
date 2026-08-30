@@ -160,7 +160,11 @@ def create_app() -> FastAPI:
         _install_sigusr1_thread_dump_handler()
 
         # All instances should use the same user schema.
-        schemas.legacy_usernames = set(rundb.kvstore.get("legacy_usernames", []))
+        schemas.legacy_usernames = set(
+            schemas.legacy_usernames_schema.ensure(
+                rundb.kvstore.get("legacy_usernames", [])
+            )
+        )
 
         await run_in_threadpool(
             gh.init,
