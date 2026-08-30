@@ -831,28 +831,26 @@ sprt_overshoot = Validator(
     }
 )
 
-sprt_schema = Validator(
-    intersection(
-        {
-            "alpha": 0.05,
-            "beta": 0.05,
-            "elo0": float,
-            "elo1": float,
-            "elo_model": "normalized",
-            "state": Literal["", "accepted", "rejected"],
-            "llr": float,
-            "batch_size": suint,
-            # The bounds follow from alpha and beta, which this record pins.
-            "lower_bound": -math.log(19),
-            "upper_bound": math.log(19),
-            "lost_samples?": uint,
-            "illegal_update?": uint,
-            "overshoot?": sprt_overshoot,
-        },
-        # Overshoot accounting and sample loss are the two ways a batch can be
-        # reconciled, and a test uses one of them.
-        one_of("overshoot", "lost_samples"),
-    )
+sprt_schema = intersection(
+    {
+        "alpha": 0.05,
+        "beta": 0.05,
+        "elo0": float,
+        "elo1": float,
+        "elo_model": "normalized",
+        "state": Literal["", "accepted", "rejected"],
+        "llr": float,
+        "batch_size": suint,
+        # The bounds follow from alpha and beta, which this record pins.
+        "lower_bound": -math.log(19),
+        "upper_bound": math.log(19),
+        "lost_samples?": uint,
+        "illegal_update?": uint,
+        "overshoot?": sprt_overshoot,
+    },
+    # Overshoot accounting and sample loss are the two ways a batch can be
+    # reconciled, and a test uses one of them.
+    one_of("overshoot", "lost_samples"),
 )
 
 spsa_param = Validator(
@@ -886,69 +884,65 @@ spsa_schema = Validator(
     }
 )
 
-run_args_schema = Validator(
-    intersection(
-        {
-            "base_tag": str,
-            "new_tag": str,
-            "base_nets": Annotated[list[net_name], at.Predicate(is_unique)],
-            "new_nets": Annotated[list[net_name], at.Predicate(is_unique)],
-            "num_games": game_count,
-            "tc": tc,
-            "new_tc": tc,
-            "book": book,
-            "book_depth": str_int,
-            "threads": suint,
-            "resolved_base": sha,
-            "resolved_new": sha,
-            "msg_base": str,
-            "msg_new": str,
-            "base_options": option_list,
-            "new_options": option_list,
-            "info": str,
-            "base_signature": str_int,
-            "new_signature": str_int,
-            "username": username,
-            "tests_repo": github_repo,
-            "master_repo?": github_repo,  # present only when non-standard (rare)
-            "auto_purge": bool,
-            "throughput": uint,  # a percentage
-            "itp": ufloat,  # throughput after the scheduler's adjustments
-            "priority": int,
-            "adjudication": bool,
-            "arch_filter?": regex_pattern,
-            "compiler?": compiler,
-            "sprt?": sprt_schema,
-            "spsa?": spsa_schema,
-        },
-        # A test is either an SPRT or an SPSA tuning run, never both.
-        at_most_one_of("sprt", "spsa"),
-    )
+run_args_schema = intersection(
+    {
+        "base_tag": str,
+        "new_tag": str,
+        "base_nets": Annotated[list[net_name], at.Predicate(is_unique)],
+        "new_nets": Annotated[list[net_name], at.Predicate(is_unique)],
+        "num_games": game_count,
+        "tc": tc,
+        "new_tc": tc,
+        "book": book,
+        "book_depth": str_int,
+        "threads": suint,
+        "resolved_base": sha,
+        "resolved_new": sha,
+        "msg_base": str,
+        "msg_new": str,
+        "base_options": option_list,
+        "new_options": option_list,
+        "info": str,
+        "base_signature": str_int,
+        "new_signature": str_int,
+        "username": username,
+        "tests_repo": github_repo,
+        "master_repo?": github_repo,  # present only when non-standard (rare)
+        "auto_purge": bool,
+        "throughput": uint,  # a percentage
+        "itp": ufloat,  # throughput after the scheduler's adjustments
+        "priority": int,
+        "adjudication": bool,
+        "arch_filter?": regex_pattern,
+        "compiler?": compiler,
+        "sprt?": sprt_schema,
+        "spsa?": spsa_schema,
+    },
+    # A test is either an SPRT or an SPSA tuning run, never both.
+    at_most_one_of("sprt", "spsa"),
 )
 
-task_schema = Validator(
-    intersection(
-        {
-            "num_games": game_count,
-            "active": bool,
-            "last_updated": datetime_utc,
-            "start": uint,
-            "bad?": True,
-            "stats": results_schema,
-            "spsa_params?": {
-                "iter": uint,
-                "packed_flips": bytes,  # TODO: check length
-            },
-            "worker_info": worker_info_schema_runs,
+task_schema = intersection(
+    {
+        "num_games": game_count,
+        "active": bool,
+        "last_updated": datetime_utc,
+        "start": uint,
+        "bad?": True,
+        "stats": results_schema,
+        "spsa_params?": {
+            "iter": uint,
+            "packed_flips": bytes,  # TODO: check length
         },
-        # A task marked bad has been stopped and its games discounted.
-        implies(
-            has("bad"),
-            open_record({"active": False, "stats": zero_results_schema}),
-        ),
-        # Only a running task holds the SPSA state it is playing with.
-        implies(has("spsa_params"), open_record({"active": True})),
-    )
+        "worker_info": worker_info_schema_runs,
+    },
+    # A task marked bad has been stopped and its games discounted.
+    implies(
+        has("bad"),
+        open_record({"active": False, "stats": zero_results_schema}),
+    ),
+    # Only a running task holds the SPSA state it is playing with.
+    implies(has("spsa_params"), open_record({"active": True})),
 )
 
 bad_task_schema = Validator(
