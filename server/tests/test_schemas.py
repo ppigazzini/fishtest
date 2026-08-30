@@ -7,6 +7,7 @@ can express.
 """
 
 import copy
+import json
 import math
 import unittest
 from datetime import UTC, datetime
@@ -117,6 +118,29 @@ ARGS = {
     "priority": 0,
     "adjudication": True,
     "sprt": SPRT,
+}
+
+SPSA = {
+    "A": 50,
+    "alpha": 0.602,
+    "gamma": 0.101,
+    "raw_params": "p,1,0,2,0.1,0.02",
+    "iter": 0,
+    "num_iter": 100,
+    "params": [
+        {
+            "name": "p",
+            "start": 1.0,
+            "min": 0.0,
+            "max": 2.0,
+            "c_end": 0.1,
+            "r_end": 0.02,
+            "c": 0.1,
+            "a_end": 1.0,
+            "a": 1.0,
+            "theta": 1.0,
+        }
+    ],
 }
 
 TASK = {
@@ -432,28 +456,7 @@ class TestRunsSchema(unittest.TestCase):
 
     def test_sprt_and_spsa_are_exclusive(self):
         run = run_with()
-        run["args"]["spsa"] = {
-            "A": 50,
-            "alpha": 0.602,
-            "gamma": 0.101,
-            "raw_params": "p,1,0,2,0.1,0.02",
-            "iter": 0,
-            "num_iter": 100,
-            "params": [
-                {
-                    "name": "p",
-                    "start": 1.0,
-                    "min": 0.0,
-                    "max": 2.0,
-                    "c_end": 0.1,
-                    "r_end": 0.02,
-                    "c": 0.1,
-                    "a_end": 1.0,
-                    "a": 1.0,
-                    "theta": 1.0,
-                }
-            ],
-        }
+        run["args"]["spsa"] = SPSA
         self.assertFalse(s.runs_schema.is_valid(run))
         del run["args"]["sprt"]
         s.runs_schema.validate(run, fail_fast=True)
@@ -489,6 +492,21 @@ class TestRunsSchema(unittest.TestCase):
         run["tasks"][0]["bad"] = True
         s.runs_schema.validate(run, fail_fast=True)
         run["tasks"][0]["active"] = True
+        self.assertFalse(s.runs_schema.is_valid(run))
+
+    def test_spsa_flips_are_one_bit_per_parameter(self):
+        run = run_with()
+        del run["args"]["sprt"]
+        run["args"]["spsa"] = SPSA
+        run["tasks"][0]["active"] = True
+        run["tasks"][0]["spsa_params"] = {"iter": 0, "packed_flips": b"\x80"}
+        run["finished"] = False
+        run["workers"] = 1
+        run["cores"] = 4
+        run["committed_games"] = 100
+        s.runs_schema.validate(run, fail_fast=True)
+        # one parameter needs one byte, not two
+        run["tasks"][0]["spsa_params"]["packed_flips"] = b"\x80\x00"
         self.assertFalse(s.runs_schema.is_valid(run))
 
     def test_unknown_key_is_rejected(self):
@@ -554,6 +572,32 @@ class TestInternalStructures(unittest.TestCase):
         }
         s.cache_schema.validate(cache, fail_fast=True)
         self.assertFalse(s.cache_schema.is_valid({"not-a-run-id": cache[RUN_ID]}))
+
+    def test_books_are_parsed_and_checked_in_one_pass(self):
+        # books.json arrives as bytes from a third party, so it is validated on
+        # the way in rather than after it is stored.
+        book = {
+            "total": 10,
+            "white": 4,
+            "black": 6,
+            "min_depth": None,
+            "max_depth": 8,
+            "sri": "sha384-" + "A" * 64,
+        }
+        raw = json.dumps({"UHO.epd": book}).encode()
+        self.assertEqual(s.books_schema.load(raw), {"UHO.epd": book})
+        with self.assertRaises(ValidationError):
+            s.books_schema.load(json.dumps({"UHO.epd": {"total": 10}}).encode())
+        with self.assertRaises(ValidationError) as caught:
+            s.books_schema.load(b"not json at all")
+        self.assertEqual(caught.exception.code, "json_invalid")
+
+    def test_legacy_usernames(self):
+        self.assertEqual(s.legacy_usernames_schema.ensure(["a", "b"]), ["a", "b"])
+        with self.assertRaises(ValidationError):
+            s.legacy_usernames_schema.validate(["a", 1])
+        with self.assertRaises(ValidationError):
+            s.legacy_usernames_schema.validate({"a"})
 
     def test_wtt_map(self):
         s.wtt_map_schema.validate({"host-4cores-abcd1234": (RUN_ID, 0)})
