@@ -703,6 +703,16 @@ class TestSchemaAlgebra(unittest.TestCase):
             self.assertTrue(s.github_repo_input.is_valid(repo + "/"))
             self.assertFalse(s.github_repo.is_valid(repo + "/"))
 
+    def test_no_schema_swallowed_a_bare_callable(self):
+        # A callable is a predicate as `Annotated` metadata, but a *schema spec*
+        # on its own is a constant: `intersection(record, my_check)` compiles to
+        # `intersection(record, Literal[<function my_check>])`, which admits
+        # nothing. valgebra does not prove that intersection empty, so the
+        # emptiness check above cannot catch it -- the stable repr can.
+        for name, v in self.module_validators().items():
+            self.assertNotIn("Literal[<function", repr(v), name)
+            self.assertNotIn("Literal[<built-in", repr(v), name)
+
     def test_a_schema_prints_back_as_its_annotation(self):
         self.assertEqual(repr(s.uint), "Annotated[int, Ge(0)]")
         self.assertEqual(repr(s.run_id), 'Annotated[str, Regex("[a-f0-9]{24}")]')
