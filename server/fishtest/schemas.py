@@ -25,7 +25,7 @@ import math
 import re
 from datetime import UTC, datetime
 from itertools import combinations
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 import annotated_types as at
 from bson.objectid import ObjectId
@@ -205,12 +205,12 @@ residual_color = Validator(Literal["green", "yellow", "red"])
 github_repo_input = Validator(
     Annotated[
         str,
-        Regex(r"https:\/\/(www\.)?github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?"),
+        Regex(r"https://(www\.)?github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/?"),
     ]
 )
 github_repo = Validator(
     Annotated[
-        str, Regex(r"https:\/\/(www\.)?github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+")
+        str, Regex(r"https://(www\.)?github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
     ]
 )
 tests_repo = github_repo | Literal[""]
@@ -262,7 +262,9 @@ user_schema = Validator(
 kvstore_schema = Validator(
     {
         "_id": str,
-        "value": anything,
+        # `Any`, not `anything`: the value is whatever the caller stores, and
+        # the entries this module does describe carry their own schema.
+        "value": Any,
     }
 )
 
