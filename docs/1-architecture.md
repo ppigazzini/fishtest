@@ -33,7 +33,7 @@ server/
 |   |-- workerdb.py          -- WorkerDb: worker blocking
 |   |-- kvstore.py           -- KVStore: key-value metadata (legacy usernames, flags)
 |   |-- scheduler.py         -- Periodic task scheduler (primary instance only)
-|   |-- schemas.py           -- vtjson validation schemas
+|   |-- schemas.py           -- valgebra validation schemas
 |   |-- run_cache.py         -- In-memory run cache with dirty-page flush
 |   |-- lru_cache.py         -- Generic LRU cache
 |   |-- spsa_workflow.py     -- Pure classic SPSA lifecycle helpers
@@ -334,21 +334,22 @@ A single `RunDb` instance is created per process at startup and stored on
 
 ## Validation
 
-vtjson is the sole validation layer. The `schemas.py` module defines the
-repository's vtjson schemas for plain Python dict validation. Schemas are used
-in:
+valgebra is the sole validation layer. The `schemas.py` module defines the
+repository's schemas for plain Python dict validation. A schema denotes a set of
+Python values and validation is membership: the checked document is never copied
+or coerced. Schemas are used in:
 
 - API endpoints (request body validation).
 - Domain adapters (run, user, action document validation before MongoDB writes).
 - Form input validation (username format, worker name format).
 
 When raw form input and persisted document data intentionally have different
-contracts, fishtest uses different vtjson schemas for those boundaries.
+contracts, fishtest uses different schemas for those boundaries.
 Raw-input schemas may be broader than the persisted-data schema, while the
 persisted schema describes the canonical stored form validated before MongoDB
 writes.
 
-For contributor-facing vtjson rules and schema-change guidance, see
+For contributor-facing schema rules and schema-change guidance, see
 [7-development.md](7-development.md).
 
 No Pydantic models are used anywhere in the codebase.
