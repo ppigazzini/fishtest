@@ -147,6 +147,24 @@ Core rules:
     proven", never a proof of the negative. Ask `relation_to` when a test needs
     the refutation: `"not_subset"` is a statement about a value, `"undecided"`
     is the conservative answer, and only membership is exact in both directions.
+    `relation_to(nothing)` is the same three answers about emptiness, so
+    `"not_subset"` there is a *proof that a schema admits a value*.
+- Validate a JSON boundary with `load`, which parses and checks in one pass on
+    the Rust path and returns the document. Nothing else may parse the same
+    bytes in Python: a `json.loads` beside a schema reads the document twice.
+- A shape check written as a chain of `isinstance` probes is a second validation
+    layer for the same contract. State it as a schema and check it once. An open
+    record (`open_record`, or `.open()`) is "at least these fields", which is
+    what a reader tolerant of what it does not touch means — and it is what
+    keeps a third-party payload gaining a key from failing.
+- Where a reader is deliberately tolerant, give each read its own schema rather
+    than one schema for the whole payload; a partly corrupt document then still
+    yields the fields that are intact. State the relation between those schemas
+    as a meet when one is the other plus a field, so it stays a proof rather
+    than two shapes kept in step by hand.
+- `value in schema` is the operator form of `schema.is_valid(value)`. Prefer it
+    where the surrounding code reads as set membership, and the method where the
+    validator's name does not read as a set.
 - Keep valgebra as the only server-side data validation layer. Do not introduce
     Pydantic models or a second schema system for the same contracts.
 - Use different schemas when raw input and persisted data intentionally allow

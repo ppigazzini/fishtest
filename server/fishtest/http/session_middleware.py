@@ -16,6 +16,7 @@ import itsdangerous
 from itsdangerous.exc import BadSignature
 from starlette.datastructures import MutableHeaders
 from starlette.requests import HTTPConnection
+from valgebra import ValidationError, Validator
 
 from fishtest.http.cookie_session import (
     DEFAULT_SAMESITE,
@@ -27,6 +28,13 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+# The session is a working dict the views write their own keys into, so its shape
+# is the kind rather than a record: a record would reject a key a view is free to
+# add and log the user out for it. `load` parses the cookie and checks that much
+# in one pass, so the contract is one statement where it was a parse in Python
+# followed by a probe -- and a browser hands this document back on every request.
+_session_document = Validator(dict[str, object])
 
 
 class FishtestSessionMiddleware:
@@ -73,13 +81,10 @@ class FishtestSessionMiddleware:
                     unsigned = signer.unsign(raw)
                 else:
                     unsigned = signer.unsign(raw, max_age=self.max_age)
-                session = json.loads(b64decode(unsigned))
+                session = _session_document.load(b64decode(unsigned))
                 initial_session_was_empty = False
-            except BadSignature, ValueError, TypeError, json.JSONDecodeError:
+            except BadSignature, ValidationError, ValueError, TypeError:
                 session = {}
-
-        if not isinstance(session, dict):
-            session = {}
 
         scope["session"] = session
 
