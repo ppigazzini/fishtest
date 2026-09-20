@@ -17,7 +17,8 @@
 # Every schema here is compiled once, at import, into a Validator; a boundary
 # calls `.validate(document)` on it. A `Predicate` is the one constraint that
 # leaves Rust for Python, so it appears only where no marker denotes the set —
-# a mapping's cross-field arithmetic, an address, a mailbox, a signature.
+# a mapping's cross-field arithmetic, a mapping's key shape, an address, a
+# mailbox, a signature.
 
 import copy
 import ipaddress
@@ -95,6 +96,29 @@ def one_of(*names):
     return intersection(at_least_one_of(*names), at_most_one_of(*names))
 
 
+def keys_in(key_schema, *fields):
+    """A mapping whose every undeclared key belongs to `key_schema`.
+
+    A clause's key names a whole *type*, so a key narrowed by a constraint is
+    refused where it is written. The keys are checked beside the mapping
+    instead: meet this with the mapping's own shape, which stays in the algebra
+    while the key constraint rides a predicate that no relation reads. `fields`
+    names the record's declared keys, which its fields govern and its clauses
+    do not.
+    """
+    declared = frozenset(fields)
+    return Validator(
+        Annotated[
+            dict,
+            at.Predicate(
+                lambda mapping: all(
+                    key in declared or key_schema.is_valid(key) for key in mapping
+                )
+            ),
+        ]
+    )
+
+
 def open_record(fields):
     """A record admitting undeclared keys, its nested records left closed.
 
@@ -157,18 +181,24 @@ ip_address = Validator(Annotated[str, at.Predicate(is_ip_address)])
 email = Validator(Annotated[str, at.Predicate(is_email)])
 regex_pattern = Validator(Annotated[str, at.Predicate(is_regex_pattern)])
 
+# `Regex` matches the whole string, as `re.fullmatch` does, and runs on the
+# Rust engine: `\d`, `\w` and `\s` are Unicode-aware there exactly as in `re`,
+# so a digit class is written `[0-9]` wherever the value is handed to `int()` or
+# `float()` afterwards. Arabic-Indic digits are decimal digits to both engines
+# and to Python's own parsers, which is not what any pattern here means.
+#
 # A Mongo ObjectId renders as 24 lowercase hex digits.
 run_id = Validator(Annotated[str, Regex(r"[a-f0-9]{24}")])
-run_id_pgns = Validator(Annotated[str, Regex(r"[a-f0-9]{24}-(0|[1-9]\d*)")])
+run_id_pgns = Validator(Annotated[str, Regex(r"[a-f0-9]{24}-(0|[1-9][0-9]*)")])
 run_name = Validator(Annotated[str, Regex(r".*-[a-f0-9]{7}"), at.MaxLen(23 + 1 + 7)])
 
 ACTION_MESSAGE_SIZE = 5120
 action_message = Validator(Annotated[str, at.MaxLen(ACTION_MESSAGE_SIZE)])
 worker_message = Validator(Annotated[str, at.MaxLen(500)])
 
-short_worker_name = Validator(Annotated[str, Regex(r".*-[\d]+cores-[a-zA-Z0-9]{2,8}")])
+short_worker_name = Validator(Annotated[str, Regex(r".*-[0-9]+cores-[a-zA-Z0-9]{2,8}")])
 long_worker_name = Validator(
-    Annotated[str, Regex(r".*-[\d]+cores-[a-zA-Z0-9]{2,8}-[a-f0-9]{4}\*?")]
+    Annotated[str, Regex(r".*-[0-9]+cores-[a-zA-Z0-9]{2,8}-[a-f0-9]{4}\*?")]
 )
 worker_arch = Validator(Literal[*supported_arches])
 compiler = Validator(Literal[*supported_compilers])
@@ -185,8 +215,10 @@ username = valid_username | legacy_username
 action_username = username | Literal["fishtest.system"]
 
 net_name = Validator(Annotated[str, Regex(r"nn-[a-f0-9]{12}\.nnue")])
-tc = Validator(Annotated[str, Regex(r"([1-9]\d*/)?\d+(\.\d+)?(\+\d+(\.\d+)?)?")])
-str_int = Validator(Annotated[str, Regex(r"[1-9]\d*")])
+tc = Validator(
+    Annotated[str, Regex(r"([1-9][0-9]*/)?[0-9]+(\.[0-9]+)?(\+[0-9]+(\.[0-9]+)?)?")]
+)
+str_int = Validator(Annotated[str, Regex(r"[1-9][0-9]*")])
 sha = Validator(Annotated[str, Regex(r"[a-f0-9]{40}")])
 sri384 = Validator(Annotated[str, Regex(r"(sha384-)?[0-9A-Za-z+/]{64}")])
 uuid = Validator(
@@ -216,7 +248,7 @@ github_repo = Validator(
 tests_repo = github_repo | Literal[""]
 tests_repo_input = github_repo_input | Literal[""]
 # A UNIX timestamp as a query parameter carries seconds, optionally fractional.
-unix_timestamp_param = Validator(Annotated[str, Regex(r"\d{10}(\.\d+)?")])
+unix_timestamp_param = Validator(Annotated[str, Regex(r"[0-9]{10}(\.[0-9]+)?")])
 # The machines view addresses one worker or the whole list.
 worker_name_or_show = short_worker_name | Literal["show"]
 
@@ -1057,19 +1089,25 @@ cache_entry_schema = Validator(
     }
 )
 
-cache_schema = Validator(dict[run_id, cache_entry_schema])
+cache_schema = intersection(dict[str, cache_entry_schema], keys_in(run_id))
 
-wtt_map_schema = Validator(dict[short_worker_name, tuple[run_id, task_id]])
+wtt_map_schema = intersection(
+    dict[str, tuple[run_id, task_id]], keys_in(short_worker_name)
+)
 
-connections_counter_schema = Validator(dict[ip_address, suint])
+connections_counter_schema = intersection(dict[str, suint], keys_in(ip_address))
 
 unfinished_runs_schema = Validator(set[run_id])
 
 # A record with a typed catch-all: "last_run" names a run, and every other key
 # is itself a run the worker has taken part in.
-worker_runs_entry_schema = Validator({"last_run": run_id, run_id: True})
+worker_runs_entry_schema = intersection(
+    {"last_run": run_id, str: True}, keys_in(run_id, "last_run")
+)
 
-worker_runs_schema = Validator(dict[short_worker_name, worker_runs_entry_schema])
+worker_runs_schema = intersection(
+    dict[str, worker_runs_entry_schema], keys_in(short_worker_name)
+)
 
 
 def total_is_white_plus_black(book_doc):
@@ -1091,4 +1129,4 @@ book_schema = intersection(
     book_totals_add_up,
 )
 
-books_schema = Validator(dict[book, book_schema])
+books_schema = intersection(dict[str, book_schema], keys_in(book))
