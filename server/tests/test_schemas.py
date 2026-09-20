@@ -343,6 +343,21 @@ class TestAlgebraRecipes(unittest.TestCase):
         self.assertTrue(schema.is_valid({"inner": {"x": 1}, "extra": "ok"}))
         self.assertFalse(schema.is_valid({"inner": {"x": 1, "extra": "no"}}))
 
+    def test_keys_in_constrains_the_keys_beside_the_mapping(self):
+        # A clause's key names a whole type, so `dict[run_id, V]` is refused
+        # where it is written; the key shape rides a predicate instead.
+        keyed = intersection(dict[str, int], s.keys_in(s.run_id))
+        self.assertTrue(keyed.is_valid({RUN_ID: 1}))
+        self.assertFalse(keyed.is_valid({"not-a-run-id": 1}))
+        self.assertFalse(keyed.is_valid({RUN_ID: "not an int"}))
+        # A declared field is governed by the field, not by the clause, so it is
+        # exempt from the key shape.
+        record = intersection({"last": str, str: int}, s.keys_in(s.run_id, "last"))
+        self.assertTrue(record.is_valid({"last": "x", RUN_ID: 1}))
+        self.assertFalse(record.is_valid({"last": "x", "other": 1}))
+        with self.assertRaises(NotImplementedError):
+            Validator(dict[s.run_id, int])
+
 
 class TestDocuments(unittest.TestCase):
     def test_user(self):
@@ -644,10 +659,12 @@ class TestInternalStructures(unittest.TestCase):
         self.assertFalse(
             s.wtt_map_schema.is_valid({"host-4cores-abcd1234": [RUN_ID, 0]})
         )
+        self.assertFalse(s.wtt_map_schema.is_valid({"not-a-worker": (RUN_ID, 0)}))
 
     def test_connections_counter(self):
         s.connections_counter_schema.validate({"1.2.3.4": 1})
         self.assertFalse(s.connections_counter_schema.is_valid({"1.2.3.4": 0}))
+        self.assertFalse(s.connections_counter_schema.is_valid({"not-an-ip": 1}))
 
     def test_unfinished_runs(self):
         s.unfinished_runs_schema.validate({RUN_ID})
@@ -675,6 +692,9 @@ class TestInternalStructures(unittest.TestCase):
         }
         s.books_schema.validate({"UHO.epd": book})
         self.assertFalse(s.books_schema.is_valid({"UHO.epd": {**book, "total": 11}}))
+        # A key narrowed by a constraint is refused where it is written, so the
+        # key shape is checked beside the mapping; this is what makes it bite.
+        self.assertFalse(s.books_schema.is_valid({"UHO.txt": book}))
 
 
 class TestSchemaAlgebra(unittest.TestCase):
@@ -682,10 +702,14 @@ class TestSchemaAlgebra(unittest.TestCase):
 
     is_subtype_of, is_equivalent and is_empty are sound in the True direction
     only: a True is always correct, a False is either a genuine non-relation or
-    one valgebra does not prove. So every assertion here is positive. A property
-    that would need a False -- "this is not a subtype", "this is inhabited" --
-    is asserted through membership instead, which is exact in both directions,
-    or sampled with a witness.
+    one valgebra does not prove. So no assertion here reads a False as a proof.
+
+    `relation_to` is what tells those two apart: "subset" is exactly what
+    is_subtype_of answers True for, "not_subset" is a *refutation* -- some value
+    of the subject lies outside the other schema -- and "undecided" is the
+    conservative answer. A negative claim is asserted as "not_subset" where the
+    procedure decides it, and through membership, which is exact in both
+    directions, where it does not.
     """
 
     def module_validators(self):
@@ -721,6 +745,19 @@ class TestSchemaAlgebra(unittest.TestCase):
             (s.pgn_file, s.book),
         ]:
             self.assertTrue(narrow.is_subtype_of(wide), f"{narrow!r} </= {wide!r}")
+
+    def test_sibling_leaves_are_refuted_against_each_other(self):
+        # A "not_subset" is a statement about a value, so these are refutations
+        # rather than unproven relations: each pair names a distinction a field
+        # relies on to say which of the two it stores.
+        for left, right in [
+            (s.uint, s.ufloat),
+            (s.ufloat, s.uint),
+            (s.epd_file, s.pgn_file),
+            (s.run_id, s.run_name),
+            (s.short_worker_name, s.long_worker_name),
+        ]:
+            self.assertEqual(left.relation_to(right), "not_subset", f"{left!r}")
 
     def test_an_int_field_and_a_float_field_share_no_value(self):
         # The two are disjoint sets, which is what lets a field state which one
@@ -797,8 +834,12 @@ class TestSchemaAlgebra(unittest.TestCase):
         self.assertFalse(s.worker_info_schema_api.is_valid(WORKER_INFO_RUNS))
 
     def test_a_raw_input_schema_admits_the_persisted_form(self):
-        # Regex-against-regex inclusion is outside what valgebra decides, so
-        # this is sampled rather than asserted with is_subtype_of.
+        # One regular language inside another is decided, so the containment is
+        # proven rather than sampled: a canonical repo is an accepted input, and
+        # an input with the trailing slash is one the persisted form refuses.
+        self.assertEqual(s.github_repo.relation_to(s.github_repo_input), "subset")
+        self.assertEqual(s.tests_repo.relation_to(s.tests_repo_input), "subset")
+        self.assertEqual(s.github_repo_input.relation_to(s.github_repo), "not_subset")
         repos = [
             "https://github.com/official-stockfish/Stockfish",
             "https://www.github.com/a/b",
@@ -822,7 +863,7 @@ class TestSchemaAlgebra(unittest.TestCase):
 
     def test_a_schema_prints_back_as_its_annotation(self):
         self.assertEqual(repr(s.uint), "Annotated[int, Ge(0)]")
-        self.assertEqual(repr(s.run_id), 'Annotated[str, Regex("[a-f0-9]{24}")]')
+        self.assertEqual(repr(s.run_id), "Annotated[str, Regex('[a-f0-9]{24}')]")
 
 
 class TestErrorModel(unittest.TestCase):

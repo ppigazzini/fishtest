@@ -133,6 +133,20 @@ Core rules:
 - Pass `fail_fast=True` where the structure is unbounded (a run document, the
     caches) so one bad field does not produce a report per element; let the
     small documents aggregate every failure.
+- A mapping clause's key names a whole type, so a key narrowed by a constraint
+    is refused where it is written. Write `dict[str, V]` and check the key shape
+    beside the mapping with the `keys_in` recipe; the mapping stays in the
+    algebra and only the key constraint is opaque to a relation.
+- `Regex` matches the whole string on the Rust engine, whose dialect is close
+    to `re`'s but not equal to it. `\d`, `\w` and `\s` are Unicode-aware, so
+    write `[0-9]` where the value is parsed as a number afterwards, and check a
+    ported pattern against the [refinements
+    page](https://ppigazzini.github.io/valgebra/05-refinements/) rather than
+    against "it compiled".
+- A `False` from `is_subtype_of`, `is_equivalent` or `is_empty` is "no, or not
+    proven", never a proof of the negative. Ask `relation_to` when a test needs
+    the refutation: `"not_subset"` is a statement about a value, `"undecided"`
+    is the conservative answer, and only membership is exact in both directions.
 - Keep valgebra as the only server-side data validation layer. Do not introduce
     Pydantic models or a second schema system for the same contracts.
 - Use different schemas when raw input and persisted data intentionally allow
