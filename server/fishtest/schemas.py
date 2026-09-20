@@ -43,6 +43,7 @@ from valgebra import (
     anything,
     complement,
     intersection,
+    recursive,
     union,
 )
 
@@ -610,6 +611,71 @@ action_schema = intersection(
             implies(at_least_one_of("run_id", "run", "task_id"), has("run_id", "run")),
         ),
     ),
+)
+
+
+# The /api/actions body is the one request this module cannot describe as a
+# document, because it is not one: it is a MongoDB filter a caller writes to
+# search the actions above. So the schema states what a filter may *say*. A key
+# it does not name has no clause admitting it, which is what refuses `$where`,
+# `$expr`, `$function` and `$accumulator` — each of them runs a caller's code on
+# the database server. `$regex` is left out for its own reason: the engine
+# behind it backtracks, so a pattern is a way to spend the server's time.
+#
+# The operators kept are the ones the server's own query builder uses, and the
+# fields are the ones an action document declares. A filter is answered by the
+# database, so the sizes a caller can ask for are capped here.
+ACTION_QUERY_LIST_MAX = 1000
+ACTION_QUERY_CLAUSE_MAX = 16
+
+# A constant an action field is compared against. The values arrive from JSON,
+# so these are the kinds JSON has.
+action_query_constant = union(str, int, float, bool, None)
+action_query_list = Validator(
+    Annotated[list[action_query_constant], at.MaxLen(ACTION_QUERY_LIST_MAX)]
+)
+action_query_comparison = Validator(
+    {
+        "$eq?": action_query_constant,
+        "$ne?": action_query_constant,
+        "$gt?": action_query_constant,
+        "$gte?": action_query_constant,
+        "$lt?": action_query_constant,
+        "$lte?": action_query_constant,
+        "$in?": action_query_list,
+        "$nin?": action_query_list,
+    }
+)
+# A field is matched against a constant, or against a document of comparisons.
+action_query_term = action_query_constant | action_query_comparison
+
+# The boolean operators take filters of the same shape, which is a fixpoint:
+# `recursive` ties it, and the reference sits under a list, so membership stays
+# decidable. A filter nested past the walk's own bound is refused as one.
+action_query_schema = recursive(
+    lambda query: {
+        "action?": action_query_term,
+        "username?": action_query_term,
+        "worker?": action_query_term,
+        "run_id?": action_query_term,
+        "run?": action_query_term,
+        "task_id?": action_query_term,
+        "time?": action_query_term,
+        "message?": action_query_term,
+        "nn?": action_query_term,
+        "user?": action_query_term,
+        # MongoDB refuses an empty clause list, so this does, with a message
+        # that says which field rather than an OperationFailure.
+        "$and?": Annotated[
+            list[query], at.MinLen(1), at.MaxLen(ACTION_QUERY_CLAUSE_MAX)
+        ],
+        "$or?": Annotated[
+            list[query], at.MinLen(1), at.MaxLen(ACTION_QUERY_CLAUSE_MAX)
+        ],
+        "$nor?": Annotated[
+            list[query], at.MinLen(1), at.MaxLen(ACTION_QUERY_CLAUSE_MAX)
+        ],
+    }
 )
 
 
