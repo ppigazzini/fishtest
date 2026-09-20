@@ -6,8 +6,8 @@ wiring for the UI and API layers.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
-from json import JSONDecodeError
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Protocol, cast
 
@@ -51,6 +51,11 @@ class _SessionUser(_SessionFlags, Protocol):
     def session(self) -> CookieSession | dict[str, object]: ...
 
 
+# The body has not been parsed yet, told apart from a document that parsed to
+# `None` -- which `null` is.
+_UNPARSED = object()
+
+
 @dataclass(frozen=True, slots=True)
 class SessionCommitFlags:
     """Container for session persistence flags."""
@@ -67,15 +72,12 @@ class ApiRequestShim:
         self,
         request: Request,
         *,
-        json_body: object | None = None,
-        json_error: bool = False,
         raw_body: bytes = b"",
         matchdict: dict[str, str] | None = None,
     ) -> None:
         """Initialize the request shim with parsed request metadata."""
         self._request = request
-        self._json_body = json_body
-        self._json_error = json_error
+        self._json_body: object = _UNPARSED
         self.raw_body = raw_body
         self.matchdict = matchdict or {}
         self.params = request.query_params
@@ -103,10 +105,20 @@ class ApiRequestShim:
 
     @property
     def json_body(self) -> object | None:
-        """Return the parsed JSON body, raising if the request was invalid."""
-        if self._json_error:
-            message = "request is not json encoded"
-            raise ValueError(message)
+        """Parse the raw body on demand, raising if the request was invalid.
+
+        The raw bytes are what the shim carries, because the endpoints that
+        validate a document do it with a schema -- which parses and checks in
+        one pass -- and parsing here as well would read the body twice. Only a
+        consumer with no schema of its own reaches for this, and it is parsed
+        the once, as the eagerly parsed attribute this replaced was.
+        """
+        if self._json_body is _UNPARSED:
+            try:
+                self._json_body = json.loads(self.raw_body)
+            except json.JSONDecodeError, TypeError, ValueError:
+                message = "request is not json encoded"
+                raise ValueError(message) from None
         return self._json_body
 
 
@@ -122,7 +134,7 @@ async def get_json_body(request: Request) -> JsonBodyResult:
     """Parse JSON body, preserving legacy error behavior."""
     try:
         body = await request.json()
-    except JSONDecodeError, TypeError, ValueError:
+    except json.JSONDecodeError, TypeError, ValueError:
         return JsonBodyResult(body=None, error=True)
     return JsonBodyResult(body=body, error=False)
 
@@ -132,11 +144,8 @@ async def get_request_shim(
     matchdict: dict[str, str] | None = None,
 ) -> ApiRequestShim:
     """Dependency that builds the API request shim."""
-    json_body = await get_json_body(request)
     return ApiRequestShim(
         request,
-        json_body=json_body.body,
-        json_error=json_body.error,
         raw_body=await request.body(),
         matchdict=matchdict,
     )

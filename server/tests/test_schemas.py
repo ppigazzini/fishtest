@@ -13,7 +13,7 @@ import unittest
 from datetime import UTC, datetime
 
 from bson.objectid import ObjectId
-from valgebra import ValidationError, Validator, anything, intersection
+from valgebra import ValidationError, Validator, anything, intersection, nothing
 
 from fishtest import schemas as s
 from fishtest import spsa_workflow
@@ -681,6 +681,56 @@ class TestInternalStructures(unittest.TestCase):
             )
         )
 
+    def test_github_commit_payloads_state_what_a_reader_needs(self):
+        head = {
+            "sha": "a" * 40,
+            "commit": {
+                "message": "Title\nBench 1234567",
+                "committer": {"date": "2026-02-24T12:00:00Z"},
+            },
+        }
+        s.github_commits.validate([head])
+        self.assertFalse(s.github_commits.is_valid([]))
+        self.assertFalse(s.github_commits.is_valid({"message": "rate limit"}))
+        s.github_commit_head.validate(head)
+        s.github_commit_sha.validate(head)
+        # Open records, so a payload that grows a key still validates.
+        s.github_commit_head.validate({**head, "url": "https://example.invalid"})
+        # A sha the caller cannot use is not a sha.
+        self.assertFalse(s.github_commit_sha.is_valid({**head, "sha": ""}))
+        self.assertFalse(s.github_commit_sha.is_valid({"commit": head["commit"]}))
+        # The message reader is the tolerant one: no date needed.
+        s.github_commit_message.validate({"commit": {"message": "m"}})
+        self.assertFalse(s.github_commit_message.is_valid({"commit": {}}))
+        self.assertFalse(
+            s.github_commit_message.is_valid({"commit": {"message": None}})
+        )
+        self.assertFalse(s.github_commit_message.is_valid({}))
+        # The date is the format strptime is given.
+        self.assertFalse(
+            s.github_commit_head.is_valid(
+                {**head, "commit": {**head["commit"], "committer": {"date": "today"}}}
+            )
+        )
+
+    def test_github_api_cache_is_a_version_and_a_list_of_pairs(self):
+        entry = [["normalize_repo", "https://github.com/a/b"], "https://github.com/a/b"]
+        s.github_api_cache_schema.validate({"version": 2, "lru_cache": [entry]})
+        # A BSON round trip returns a tuple as a list, so both spellings pass.
+        s.github_api_cache_schema.validate(
+            {"version": 2, "lru_cache": [(("normalize_repo",), "x")]}
+        )
+        s.github_api_cache_schema.validate({"version": 2, "lru_cache": []})
+        for bad in (
+            {"version": 2},
+            {"version": 2, "lru_cache": "not a list"},
+            {"version": 2, "lru_cache": [["only-one-element"]]},
+            {"version": 2, "lru_cache": [["not-a-key-sequence", "v"]]},
+            {"version": -1, "lru_cache": []},
+            "not a document",
+        ):
+            self.assertFalse(s.github_api_cache_schema.is_valid(bad), repr(bad))
+
     def test_books(self):
         book = {
             "total": 10,
@@ -722,14 +772,74 @@ class TestSchemaAlgebra(unittest.TestCase):
     def test_no_schema_is_provably_uninhabited(self):
         """Catch the uninhabited schemas the decision procedure decides.
 
-        `is_empty()` is sound in the True direction only, so this asserts a
-        negative and cannot prove the rest inhabited: a contradictory
-        refinement is caught, an `intersection(record, bare_callable)` is not
-        -- `test_no_schema_swallowed_a_bare_callable` is what covers that one.
-        The name says what the assertion is worth.
+        Emptiness is `s <= nothing`, and `relation_to(nothing)` is where its
+        third answer lives: "subset" proves the schema holds no value, and is
+        what this rejects. A bare `is_empty()` folds the other two answers
+        together, so it could not say which schemas are merely unproven -- what
+        declines here is opaque by construction (a predicate) or bounded (the
+        work budget), never a claim that a schema is empty.
+
+        The sweep still catches only what the procedure decides: a contradictory
+        refinement is caught, an `intersection(record, bare_callable)` is not --
+        `test_no_schema_swallowed_a_bare_callable` is what covers that one.
         """
-        empty = [name for name, v in self.module_validators().items() if v.is_empty()]
-        self.assertEqual(empty, [])
+        answers = {
+            name: v.relation_to(nothing) for name, v in self.module_validators().items()
+        }
+        self.assertEqual([name for name, a in answers.items() if a == "subset"], [])
+        self.assertEqual(
+            set(answers.values()) - {"not_subset", "undecided"},
+            set(),
+            "an unexpected third answer about emptiness",
+        )
+
+    def test_the_leaves_are_provably_inhabited(self):
+        # "not_subset" against the bottom is a statement about a *value*: some
+        # member of the schema is outside `nothing`, so there is one. That is a
+        # proof, where a False from is_empty() would only mean "not proven
+        # empty". A leaf carrying a predicate is opaque by construction and is
+        # covered by a witness in TestLeaves instead.
+        leaves = [
+            s.uint,
+            s.suint,
+            s.ufloat,
+            s.sfloat,
+            s.game_count,
+            s.run_id,
+            s.run_id_pgns,
+            s.run_name,
+            s.valid_username,
+            s.action_username,
+            s.action_name,
+            s.action_message,
+            s.worker_message,
+            s.short_worker_name,
+            s.long_worker_name,
+            s.worker_name_or_show,
+            s.worker_arch,
+            s.compiler,
+            s.net_name,
+            s.tc,
+            s.str_int,
+            s.sha,
+            s.sri384,
+            s.uuid,
+            s.country_code,
+            s.book,
+            s.residual_color,
+            s.github_repo,
+            s.github_repo_input,
+            s.tests_repo,
+            s.tests_repo_input,
+            s.github_commit_date,
+            s.unix_timestamp_param,
+            s.option_list,
+            s.sprt_overshoot,
+            s.spsa_param,
+            s.spsa_param_sample,
+        ]
+        for leaf in leaves:
+            self.assertEqual(leaf.relation_to(nothing), "not_subset", repr(leaf))
 
     def test_a_refinement_is_a_subtype_of_what_it_refines(self):
         for narrow, wide in [
@@ -806,6 +916,11 @@ class TestSchemaAlgebra(unittest.TestCase):
 
     def test_the_recipes_denote_what_they_claim(self):
         self.assertTrue(s.has("a").is_equivalent(Validator({"a": anything}).open()))
+        # Declaring the names together is the meet of declaring each alone, so
+        # the one-node spelling is the same set.
+        self.assertTrue(
+            s.has("a", "b").is_equivalent(intersection(s.has("a"), s.has("b")))
+        )
         self.assertTrue(
             s.one_of("a", "b").is_equivalent(
                 intersection(s.at_least_one_of("a", "b"), s.at_most_one_of("a", "b"))
@@ -850,6 +965,15 @@ class TestSchemaAlgebra(unittest.TestCase):
             self.assertTrue(s.github_repo_input.is_valid(repo))
             self.assertTrue(s.github_repo_input.is_valid(repo + "/"))
             self.assertFalse(s.github_repo.is_valid(repo + "/"))
+
+    def test_the_head_commit_is_below_the_message_reader(self):
+        # The head schema is the meet of the message reader and a date, so every
+        # payload the head accepts the tolerant loop accepts too. Stating it as
+        # a meet is what makes that a proof rather than two shapes to keep in
+        # step by hand.
+        self.assertEqual(
+            s.github_commit_head.relation_to(s.github_commit_message), "subset"
+        )
 
     def test_no_schema_swallowed_a_bare_callable(self):
         # A callable is a predicate as `Annotated` metadata, but a *schema spec*
