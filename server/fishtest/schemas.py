@@ -19,6 +19,12 @@
 # leaves Rust for Python, so it appears only where no marker denotes the set —
 # a mapping's cross-field arithmetic, a mapping's key shape, an address, a
 # mailbox, a signature.
+#
+# Some of those predicates *raise* rather than return False, which valgebra
+# reports as `predicate_error` instead of an ordinary non-membership. That is
+# deliberate here: the aggregate rules below can say which numbers disagree and
+# by how much, and the event log is the reader. A predicate with nothing to add
+# returns False and lets the schema name the field.
 
 import copy
 import ipaddress
@@ -67,10 +73,12 @@ def implies(condition, then, otherwise=anything):
 def has(*names):
     """A mapping carrying every one of `names`, whatever the values are.
 
-    An open record requiring a key asserts only that the key is there, so a
-    conjunction of them is the presence test.
+    An open record declaring a key requires it there and says nothing about its
+    value, so declaring all of them at once is the presence test — the same set
+    a conjunction of one-key records denotes, in one node instead of a meet of
+    them. `open()` writes the catch-all that frees every undeclared key.
     """
-    return intersection(*(Validator({name: anything}).open() for name in names))
+    return Validator({name: anything for name in names}).open()
 
 
 def at_least_one_of(*names):
@@ -110,9 +118,11 @@ def keys_in(key_schema, *fields):
     return Validator(
         Annotated[
             dict,
+            # `key in key_schema` is the operator form of `is_valid`, so the
+            # check reads as the set test it is.
             at.Predicate(
                 lambda mapping: all(
-                    key in declared or key_schema.is_valid(key) for key in mapping
+                    key in declared or key in key_schema for key in mapping
                 )
             ),
         ]
@@ -252,6 +262,35 @@ unix_timestamp_param = Validator(Annotated[str, Regex(r"[0-9]{10}(\.[0-9]+)?")])
 # The machines view addresses one worker or the whole list.
 worker_name_or_show = short_worker_name | Literal["show"]
 
+# The GitHub commit payloads, as much of each as a reader here depends on. A
+# third party writes them, so the shape a read needs is stated once and the read
+# happens only where it holds. Each is an open record — "at least this" — which
+# is what a reader tolerant of the fields it does not touch means, and what
+# keeps a payload gaining a key from failing.
+github_commits = Validator(Annotated[list, at.MinLen(1)])
+github_commit_sha = Validator(open_record({"sha": Annotated[str, at.MinLen(1)]}))
+github_commit_message = Validator(
+    open_record({"commit": open_record({"message": str})})
+)
+# The format `datetime.strptime` is given, stated rather than discovered by the
+# raise. An out-of-range date still parses as this shape, so the call keeps its
+# own guard.
+github_commit_date = Validator(
+    Annotated[str, Regex(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")]
+)
+# The head commit is one the message reader accepts and carries a date besides,
+# so it is the meet of the two rather than a third shape repeating the first.
+github_commit_head = intersection(
+    github_commit_message,
+    open_record(
+        {
+            "commit": open_record(
+                {"committer": open_record({"date": github_commit_date})}
+            )
+        }
+    ),
+)
+
 # An engine option is `Name=Value`, space separated: printable ASCII with no
 # space and no second `=`.
 OPTION_CHAR = r"[\x21-\x3c\x3e-\x7e]"
@@ -294,10 +333,26 @@ user_schema = Validator(
 kvstore_schema = Validator(
     {
         "_id": str,
-        # `Any`, not `anything`: the value is whatever the caller stores, and
-        # the entries this module does describe carry their own schema.
+        # The top: the value is whatever the caller stores, and the entries this
+        # module does describe carry their own schema. `Any` and `anything` are
+        # the same schema and differ only in what `repr` gives back, so this is
+        # a choice of spelling — the one a reader of the annotation expects.
         "value": Any,
     }
+)
+
+# The GitHub API cache as the kvstore holds it: a version tag and the LRU
+# entries as [key, value] pairs, where a key is the argument tuple the cache was
+# keyed by. A bare `list` and a bare `tuple` each name their kind's whole set,
+# and both spellings of a pair are admitted because a BSON round trip returns a
+# tuple as a list. The version is checked where the constant lives, by meeting
+# this with a record pinning it.
+github_api_cache_key = Validator(list) | tuple
+github_api_cache_entry = union(
+    [github_api_cache_key, anything], tuple[github_api_cache_key, anything]
+)
+github_api_cache_schema = Validator(
+    open_record({"version": uint, "lru_cache": list[github_api_cache_entry]})
 )
 
 worker_schema = Validator(

@@ -265,6 +265,22 @@ class TestHttpApi(unittest.TestCase):
         self.assertIn("request is not json encoded", body["error"])
         self.assertTrue(isinstance(body.get("duration"), (int, float)))
 
+    def test_a_worker_request_is_parsed_once(self):
+        # The worker boundary validates the body with a schema, which parses and
+        # checks in one pass on the Rust path. Nothing may parse it in Python
+        # beside that, or the document is read twice on the busiest route.
+        from unittest import mock
+
+        with mock.patch(
+            "fishtest.http.boundary.json.loads",
+            side_effect=AssertionError("the body was parsed in Python"),
+        ):
+            response = self.client.post(
+                "/api/request_version",
+                json=self._payload(password=self.password),
+            )
+        self.assertEqual(response.status_code, 200)
+
     def test_worker_endpoints_wrong_password(self):
         endpoints = [
             "/api/request_version",

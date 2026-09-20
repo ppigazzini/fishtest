@@ -14,9 +14,16 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import regex
+from valgebra import ValidationError
 
 import fishtest.github_api as gh
 import fishtest.stats.stat_util
+from fishtest.schemas import (
+    github_commit_head,
+    github_commit_message,
+    github_commit_sha,
+    github_commits,
+)
 from fishtest.spsa_workflow import build_spsa_state
 from fishtest.util import (
     format_bounds,
@@ -66,34 +73,34 @@ def get_master_info(  # noqa: C901
         logger.warning("Exception getting commits:\n%s", e)
         return default_info
 
-    if not isinstance(commits, list) or not commits:
-        # GitHub can occasionally return an unexpected JSON shape.
-        logger.warning(
-            "Unexpected GitHub commits payload; expected non-empty list.",
-        )
+    # GitHub can occasionally return an unexpected JSON shape. The schema says
+    # which one is expected, so the log names the field and the value rather
+    # than whichever read happened to raise first.
+    try:
+        github_commits.validate(commits, fail_fast=True)
+    except ValidationError as e:
+        logger.warning("Unexpected GitHub commits payload: %s", e)
         return default_info
 
     bench_search = re.compile(r"(^|\s)[Bb]ench[ :]+([1-9]\d{5,7})(?!\d)")
     latest_bench_match = None
 
+    head = commits[0]
     try:
-        message = commits[0]["commit"]["message"].strip().split("\n")[0].strip()
-        date_str = commits[0]["commit"]["committer"]["date"]
+        github_commit_head.validate(head, fail_fast=True)
+        date_str = head["commit"]["committer"]["date"]
         date = datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
-    except Exception as e:  # noqa: BLE001
+    except (ValidationError, ValueError) as e:
         logger.warning("Unexpected commit payload shape: %s", e)
         return default_info
+    message = head["commit"]["message"].strip().split("\n")[0].strip()
 
     for commit in commits:
-        try:
-            raw_message = commit["commit"]["message"]
-        except KeyError, TypeError:
+        if not github_commit_message.is_valid(commit):
             # Be tolerant to partial payload corruption in later entries.
             continue
-        if not isinstance(raw_message, str):
-            continue
 
-        message_lines = raw_message.strip().split("\n")
+        message_lines = commit["commit"]["message"].strip().split("\n")
         for line in reversed(message_lines):
             bench = bench_search.search(line.strip())
             if bench:
@@ -122,21 +129,17 @@ def get_sha(branch: str, repo_url: str) -> tuple[str, str]:
         msg = f"Unable to access developer repository {repo_url}: {e!s}"
         raise ValueError(msg) from e
 
-    if not isinstance(commit, dict):
-        return "", ""
-
-    sha = commit.get("sha")
-    if not isinstance(sha, str) or sha == "":
+    # Two reads, so two schemas: a payload with no usable sha has nothing to
+    # return, while one whose message is missing or is not text still has the
+    # sha. Each read happens only where its own shape holds.
+    if not github_commit_sha.is_valid(commit):
         return "", ""
 
     message = ""
-    commit_data = commit.get("commit")
-    if isinstance(commit_data, dict):
-        raw_message = commit_data.get("message", "")
-        if isinstance(raw_message, str):
-            message = raw_message.split("\n", 1)[0]
+    if github_commit_message.is_valid(commit):
+        message = commit["commit"]["message"].split("\n", 1)[0]
 
-    return sha, message
+    return commit["sha"], message
 
 
 def get_nets(commit_sha: str, repo_url: str) -> list[str]:  # noqa: C901
