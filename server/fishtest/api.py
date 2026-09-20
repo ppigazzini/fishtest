@@ -16,6 +16,7 @@ import fishtest.github_api as gh
 from fishtest.http.boundary import ApiRequestShim, get_request_shim
 from fishtest.schemas import (
     ACTION_MESSAGE_SIZE,
+    action_query_schema,
     api_access_schema,
     api_schema,
     gzip_data,
@@ -402,8 +403,17 @@ class UserApi(GenericApi):
         return finished
 
     def actions(self):
+        # The body is a MongoDB filter rather than a document, so it is checked
+        # against what a filter may say before the database is handed it: an
+        # operator this does not name would otherwise be one the caller gets to
+        # run. Parsed and checked in one pass, as the worker boundary is.
         try:
-            query = self.request.json_body
+            query = action_query_schema.load(self.request.raw_body)
+        except ValidationError as e:
+            if e.code == "json_invalid":
+                self.handle_error("request is not json encoded")
+            self.handle_error(str(e))
+        try:
             actions = self.request.rundb.db["actions"].find(query).limit(200)
         except Exception:
             actions = []
