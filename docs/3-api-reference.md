@@ -364,7 +364,24 @@ Returns paginated finished runs. Query parameters:
 
 ### POST /api/actions
 
-Returns up to 200 recent actions matching the JSON query body.
+Returns up to 200 recent actions matching the JSON query body. The body is a
+MongoDB filter, validated against `action_query_schema` before the database is
+handed it, and a filter it refuses is a `400` naming the key.
+
+What a filter may say:
+
+| Part | Accepted |
+|------|----------|
+| Fields | `action`, `username`, `worker`, `run_id`, `run`, `task_id`, `time`, `message`, `nn`, `user` |
+| Match | a JSON constant (equality), or a document of comparisons |
+| Comparisons | `$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`, `$in`, `$nin` |
+| Boolean | `$and`, `$or`, `$nor`, over filters of the same shape |
+| Sizes | at most 1000 terms in an `$in`/`$nin`, at most 16 clauses in a boolean |
+
+Anything else is refused, which is the point of listing rather than excluding:
+`$where`, `$expr`, `$function` and `$accumulator` each run a caller's code on
+the database server, and `$regex` backtracks. An empty body `{}` is a filter
+that matches everything, and is how the endpoint returns recent actions.
 
 ### GET /api/get_run/{id}
 
@@ -414,6 +431,8 @@ Returns GitHub API rate limit information.
 Request bodies are validated against the valgebra schemas defined in
 `schemas.py`:
 
+- `action_query_schema` -- validates the MongoDB filter `POST /api/actions`
+  takes, which states what a filter may ask rather than what a document is.
 - `api_access_schema` -- validates the authentication fields (`username`,
   `password`, `worker_info`).
 - `api_schema` -- validates the full request body structure for worker

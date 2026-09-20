@@ -51,11 +51,6 @@ class _SessionUser(_SessionFlags, Protocol):
     def session(self) -> CookieSession | dict[str, object]: ...
 
 
-# The body has not been parsed yet, told apart from a document that parsed to
-# `None` -- which `null` is.
-_UNPARSED = object()
-
-
 @dataclass(frozen=True, slots=True)
 class SessionCommitFlags:
     """Container for session persistence flags."""
@@ -77,7 +72,6 @@ class ApiRequestShim:
     ) -> None:
         """Initialize the request shim with parsed request metadata."""
         self._request = request
-        self._json_body: object = _UNPARSED
         self.raw_body = raw_body
         self.matchdict = matchdict or {}
         self.params = request.query_params
@@ -102,24 +96,6 @@ class ApiRequestShim:
             self.actiondb = get_actiondb(request)
         except DependencyNotInitializedError:
             self.actiondb = None
-
-    @property
-    def json_body(self) -> object | None:
-        """Parse the raw body on demand, raising if the request was invalid.
-
-        The raw bytes are what the shim carries, because the endpoints that
-        validate a document do it with a schema -- which parses and checks in
-        one pass -- and parsing here as well would read the body twice. Only a
-        consumer with no schema of its own reaches for this, and it is parsed
-        the once, as the eagerly parsed attribute this replaced was.
-        """
-        if self._json_body is _UNPARSED:
-            try:
-                self._json_body = json.loads(self.raw_body)
-            except json.JSONDecodeError, TypeError, ValueError:
-                message = "request is not json encoded"
-                raise ValueError(message) from None
-        return self._json_body
 
 
 @dataclass(frozen=True)

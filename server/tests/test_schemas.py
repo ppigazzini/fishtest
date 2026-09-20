@@ -473,6 +473,62 @@ class TestDocuments(unittest.TestCase):
             s.action_message.is_valid(long_message[: s.ACTION_MESSAGE_SIZE])
         )
 
+    def test_action_query_says_what_a_filter_may_ask(self):
+        # The three shapes the notifications client posts.
+        for query in (
+            {
+                "action": {"$in": ["finished_run", "stop_run", "delete_run"]},
+                "run_id": RUN_ID,
+                "time": {"$gte": 1.0},
+            },
+            {
+                "action": {"$in": ["finished_run", "stop_run", "delete_run"]},
+                "run_id": {"$in": [RUN_ID]},
+            },
+            {"action": "new_run", "run_id": RUN_ID},
+        ):
+            s.action_query_schema.validate(query)
+        # An empty filter is the documented "recent actions".
+        s.action_query_schema.validate({})
+        # The operators the server's own query builder uses.
+        s.action_query_schema.validate({"action": {"$nin": ["system_event"]}})
+        s.action_query_schema.validate({"time": {"$lte": 1.0}})
+        # The boolean operators nest, which is what `recursive` ties.
+        s.action_query_schema.validate(
+            {"$or": [{"action": "new_run"}, {"$and": [{"username": "user00"}]}]}
+        )
+
+    def test_action_query_refuses_code_patterns_and_unbounded_work(self):
+        for query in (
+            # Each of these runs the caller's own code on the database server.
+            {"$where": "function () { return true; }"},
+            {"$expr": {"$gt": ["$time", 0]}},
+            {"action": {"$function": {"body": "function () {}", "args": []}}},
+            {"action": {"$accumulator": {"init": "function () {}"}}},
+            # A pattern is a way to spend the server's time.
+            {"run_id": {"$regex": "(a+)+$"}},
+            {"$text": {"$search": "anything"}},
+            # And so is an unbounded list of terms.
+            {"action": {"$in": ["new_run"] * (s.ACTION_QUERY_LIST_MAX + 1)}},
+            {"$or": [{"action": "new_run"}] * (s.ACTION_QUERY_CLAUSE_MAX + 1)},
+            # MongoDB refuses an empty clause list; so does this, by name.
+            {"$or": []},
+            # A field an action does not carry, and a value no comparison takes.
+            {"not_an_action_field": 1},
+            {"action": {"$gt": {"nested": "document"}}},
+            {"action": {"$in": "not a list"}},
+            # A filter is a document.
+            [],
+            "a string",
+            None,
+        ):
+            self.assertFalse(s.action_query_schema.is_valid(query), repr(query))
+
+    def test_action_query_names_the_key_it_refused(self):
+        with self.assertRaises(ValidationError) as caught:
+            s.action_query_schema.validate({"$where": "x"}, fail_fast=True)
+        self.assertEqual(caught.exception.path, ("$where",))
+
     def test_results_must_agree_with_the_pentanomial(self):
         s.results_schema.validate(ZERO_RESULTS)
         self.assertFalse(s.results_schema.is_valid({**ZERO_RESULTS, "wins": 1}))
