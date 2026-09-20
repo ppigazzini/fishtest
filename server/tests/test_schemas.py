@@ -488,10 +488,12 @@ class TestInternalStructures(unittest.TestCase):
         self.assertFalse(
             s.wtt_map_schema.is_valid({"host-4cores-abcd1234": [RUN_ID, 0]})
         )
+        self.assertFalse(s.wtt_map_schema.is_valid({"not-a-worker": (RUN_ID, 0)}))
 
     def test_connections_counter(self):
         s.connections_counter_schema.validate({"1.2.3.4": 1})
         self.assertFalse(s.connections_counter_schema.is_valid({"1.2.3.4": 0}))
+        self.assertFalse(s.connections_counter_schema.is_valid({"not-an-ip": 1}))
 
     def test_unfinished_runs(self):
         s.unfinished_runs_schema.validate({RUN_ID})
@@ -519,6 +521,9 @@ class TestInternalStructures(unittest.TestCase):
         }
         s.books_schema.validate({"UHO.epd": book})
         self.assertFalse(s.books_schema.is_valid({"UHO.epd": {**book, "total": 11}}))
+        # A key narrowed by a constraint is refused where it is written, so the
+        # key shape is checked beside the mapping; this is what makes it bite.
+        self.assertFalse(s.books_schema.is_valid({"UHO.txt": book}))
 
 
 class TestErrorModel(unittest.TestCase):

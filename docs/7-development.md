@@ -126,6 +126,10 @@ Core rules:
 - Pass `fail_fast=True` where the structure is unbounded (a run document, the
     caches) so one bad field does not produce a report per element; let the
     small documents aggregate every failure.
+- A mapping clause's key names a whole type, so a key narrowed by a constraint
+    is refused where it is written. Write `dict[str, V]` and check the key shape
+    beside the mapping with the `keys_in` recipe; the mapping stays in the
+    algebra and only the key constraint is opaque to a relation.
 - Keep valgebra as the only server-side data validation layer. Do not introduce
     Pydantic models or a second schema system for the same contracts.
 - Use different schemas when raw input and persisted data intentionally allow

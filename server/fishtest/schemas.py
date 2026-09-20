@@ -115,6 +115,25 @@ def one_of(*names):
     return intersection(at_least_one_of(*names), at_most_one_of(*names))
 
 
+def keys_in(key_schema, *fields):
+    """A mapping whose every undeclared key belongs to `key_schema`.
+
+    A clause's key names a whole *type*, so a key narrowed by a constraint is
+    refused where it is written: a narrowed key names part of a type, and two
+    such clauses can overlap without either containing the other. The keys are
+    checked beside the mapping instead — meet this with the mapping's own shape,
+    which stays in the algebra while only the key constraint rides a predicate.
+    `fields` names a record's declared keys, which its fields govern and its
+    clauses do not.
+    """
+    declared = frozenset(fields)
+    # `key in key_schema` is the operator form of `is_valid`, so the check reads
+    # as the set test it is.
+    return satisfies(
+        lambda mapping: all(key in declared or key in key_schema for key in mapping)
+    )
+
+
 def open_record(fields):
     """A record admitting undeclared keys, its nested records left closed.
 
@@ -1011,33 +1030,39 @@ runs_schema = intersection(
 
 # The cache holds whole run documents; each one is validated where it is written
 # and read back, so the cache is checked for its own shape only.
-cache_schema = Validator(
+cache_entry_schema = Validator(
     {
-        run_id: {
-            "run": dict,
-            "is_changed": bool,  # Indicates if the run has changed since last_sync_time.
-            "last_sync_time": timestamp,  # Last sync time (reading from or writing to db). If never synced then creation time.
-            "last_access_time": timestamp,  # Last time the cache entry was touched (via buffer() or get_run()).
-            "priority": int,  # Entries with higher priority are synced first.
-        }
+        "run": dict,
+        "is_changed": bool,  # Indicates if the run has changed since last_sync_time.
+        "last_sync_time": timestamp,  # Last sync time (reading from or writing to db). If never synced then creation time.
+        "last_access_time": timestamp,  # Last time the cache entry was touched (via buffer() or get_run()).
+        "priority": int,  # Entries with higher priority are synced first.
     }
 )
 
-wtt_map_schema = Validator(dict[short_worker_name, tuple[run_id, task_id]])
+cache_schema = intersection(dict[str, cache_entry_schema], keys_in(run_id))
 
-connections_counter_schema = Validator(dict[ip_address, suint])
+wtt_map_schema = intersection(
+    dict[str, tuple[run_id, task_id]], keys_in(short_worker_name)
+)
+
+connections_counter_schema = intersection(dict[str, suint], keys_in(ip_address))
 
 unfinished_runs_schema = Validator(set[run_id])
 
 # A record with a typed catch-all: "last_run" names a run, every other key is
-# itself a run id.
-worker_runs_schema = Validator(
+# itself a run id. The catch-all's key type is `str`, and `keys_in` narrows it to
+# the run ids beside the record, exempting the one declared field.
+worker_runs_entry_schema = intersection(
     {
-        short_worker_name: {
-            "last_run": run_id,
-            run_id: True,
-        }
-    }
+        "last_run": run_id,
+        str: True,
+    },
+    keys_in(run_id, "last_run"),
+)
+
+worker_runs_schema = intersection(
+    dict[str, worker_runs_entry_schema], keys_in(short_worker_name)
 )
 
 
@@ -1045,9 +1070,9 @@ def total_is_white_plus_black(book_doc):
     return book_doc["total"] == book_doc["white"] + book_doc["black"]
 
 
-books_schema = Validator(
+books_schema = intersection(
     dict[
-        book,
+        str,
         satisfies(
             total_is_white_plus_black,
             base={
@@ -1059,5 +1084,6 @@ books_schema = Validator(
                 "sri": sri384,
             },
         ),
-    ]
+    ],
+    keys_in(book),
 )
