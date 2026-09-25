@@ -1064,12 +1064,39 @@ class TestErrorModel(unittest.TestCase):
         )
 
     def test_a_raising_cross_field_check_keeps_its_message(self):
+        # The record admits a running run on any core count, so the count is
+        # the rule's to refuse, and its message names both numbers.
+        running = run_with(finished=False, workers=1, cores=7, committed_games=100)
+        running["tasks"][0]["active"] = True
         with self.assertRaises(ValidationError) as caught:
-            s.runs_schema.validate(run_with(cores=7), fail_fast=False)
+            s.runs_schema.validate(running, fail_fast=False)
         self.assertIn(
-            "Cores from tasks: 0. Cores from run: 7",
+            "Cores from tasks: 4. Cores from run: 7",
             str(caught.exception),
         )
+
+    def test_a_cross_field_rule_reads_only_a_record_it_refines(self):
+        # The rule runs on the record's members, so a document missing a field
+        # the rule reads reports the field, and nothing from the rule.
+        stats = {k: v for k, v in ZERO_RESULTS.items() if k != "pentanomial"}
+        request = {
+            "password": "secret",
+            "worker_info": WORKER_INFO_API,
+            "run_id": RUN_ID,
+            "task_id": 0,
+            "stats": stats,
+        }
+        with self.assertRaises(ValidationError) as caught:
+            s.api_schema.validate(request)
+        self.assertEqual(
+            [(e["code"], e["path"]) for e in caught.exception.errors],
+            [("missing_key", ("stats", "pentanomial"))],
+        )
+        run = run_with()
+        del run["tasks"]
+        with self.assertRaises(ValidationError) as caught:
+            s.runs_schema.validate(run)
+        self.assertEqual({e["code"] for e in caught.exception.errors}, {"missing_key"})
 
 
 if __name__ == "__main__":
