@@ -17,8 +17,17 @@
 # Every schema here is compiled once, at import, into a Validator; a boundary
 # calls `.validate(document)` on it. A `Predicate` is the one constraint that
 # leaves Rust for Python, so it appears only where no marker denotes the set —
-# a mapping's cross-field arithmetic, a mapping's key shape, an address, a
+# a record's cross-field arithmetic, a mapping's key shape, an address, a
 # mailbox, a signature.
+#
+# A predicate refines the base it reads: `Annotated[base, at.Predicate(rule)]`
+# checks the base first and runs the rule only on its members. So a rule over a
+# record's fields refines that record, and reads them without guarding them: a
+# malformed document reports its fields, not a rule that could not read them. A
+# rule the algebra can state -- `implies`, `has`, `one_of` -- stays a conjunct,
+# where a relation can still read it. A record under `Annotated` is written
+# `Validator({...})`, because Ruff reads the first argument of `Annotated` as a
+# type expression and a bare record's keys as forward references.
 #
 # Some of those predicates *raise* rather than return False, which valgebra
 # reports as `predicate_error` instead of an ordinary non-membership. That is
@@ -303,17 +312,19 @@ def size_is_length(pgn_doc):
     return pgn_doc["size"] == len(pgn_doc["pgn_zip"])
 
 
-# The stored size is the length of the blob it describes.
-size_matches_blob = Validator(Annotated[dict, at.Predicate(size_is_length)])
-
-pgns_schema = intersection(
-    {
-        "_id?": ObjectId,
-        "run_id": run_id_pgns,
-        "pgn_zip": gzip_data,
-        "size": uint,
-    },
-    size_matches_blob,
+pgns_schema = Validator(
+    Annotated[
+        Validator(
+            {
+                "_id?": ObjectId,
+                "run_id": run_id_pgns,
+                "pgn_zip": gzip_data,
+                "size": uint,
+            }
+        ),
+        # The stored size is the length of the blob it describes.
+        at.Predicate(size_is_length),
+    ]
 )
 
 user_schema = Validator(
@@ -368,6 +379,10 @@ worker_schema = Validator(
 
 
 def first_test_before_last(net_doc):
+    # A net carries both ends of the interval or neither, and a net with
+    # neither has nothing to order.
+    if "first_test" not in net_doc:
+        return True
     first = net_doc["first_test"]["date"]
     last = net_doc["last_test"]["date"]
     if first <= last:
@@ -380,27 +395,28 @@ def first_test_before_last(net_doc):
 
 net_test = Validator({"date": datetime_utc, "id": run_id})
 
-# A net's first test cannot postdate its last.
-tests_in_order = Validator(Annotated[dict, at.Predicate(first_test_before_last)])
-
-nn_schema = intersection(
-    {
-        "_id?": ObjectId,
-        "downloads": uint,
-        "first_test?": net_test,
-        "is_master?": True,
-        "last_test?": net_test,
-        "name": net_name,
-        "user": username,
-    },
-    # A net that has been tested at all carries both ends of the interval.
-    implies(
-        at_least_one_of("is_master", "first_test", "last_test"),
+nn_schema = Validator(
+    Annotated[
         intersection(
-            has("first_test", "last_test"),
-            tests_in_order,
+            {
+                "_id?": ObjectId,
+                "downloads": uint,
+                "first_test?": net_test,
+                "is_master?": True,
+                "last_test?": net_test,
+                "name": net_name,
+                "user": username,
+            },
+            # A net that has been tested at all carries both ends of the
+            # interval.
+            implies(
+                at_least_one_of("is_master", "first_test", "last_test"),
+                has("first_test", "last_test"),
+            ),
         ),
-    ),
+        # A net's first test cannot postdate its last.
+        at.Predicate(first_test_before_last),
+    ]
 )
 
 # not yet used, not tested
@@ -721,19 +737,22 @@ def valid_results(stats):
     )
 
 
-# The game counts and the pentanomial frequencies describe the same games.
-results_add_up = Validator(Annotated[dict, at.Predicate(valid_results)])
-
-results_schema = intersection(
-    {
-        "wins": uint,
-        "losses": uint,
-        "draws": uint,
-        "crashes": uint,
-        "time_losses": uint,
-        "pentanomial": [uint, uint, uint, uint, uint],
-    },
-    results_add_up,
+results_schema = Validator(
+    Annotated[
+        Validator(
+            {
+                "wins": uint,
+                "losses": uint,
+                "draws": uint,
+                "crashes": uint,
+                "time_losses": uint,
+                "pentanomial": [uint, uint, uint, uint, uint],
+            }
+        ),
+        # The game counts and the pentanomial frequencies describe the same
+        # games.
+        at.Predicate(valid_results),
+    ]
 )
 
 
@@ -741,18 +760,20 @@ def valid_spsa_results(stats):
     return stats["wins"] + stats["losses"] + stats["draws"] == stats["num_games"]
 
 
-# An SPSA batch reports every game it was given.
-spsa_results_add_up = Validator(Annotated[dict, at.Predicate(valid_spsa_results)])
-
-spsa_results_schema = intersection(
-    {
-        "wins": uint,
-        "losses": uint,
-        "draws": uint,
-        "num_games": game_count,
-        "sig": uint,
-    },
-    spsa_results_add_up,
+spsa_results_schema = Validator(
+    Annotated[
+        Validator(
+            {
+                "wins": uint,
+                "losses": uint,
+                "draws": uint,
+                "num_games": game_count,
+                "sig": uint,
+            }
+        ),
+        # An SPSA batch reports every game it was given.
+        at.Predicate(valid_spsa_results),
+    ]
 )
 
 
@@ -971,19 +992,9 @@ def is_undecided(run):
     return True
 
 
-# The run document repeats what its tasks say; each of these decides one of
-# those repetitions against the tasks themselves.
-run_is_undecided = Validator(Annotated[dict, at.Predicate(is_undecided)])
+def unfinished_run_is_undecided(run):
+    return run["finished"] or is_undecided(run)
 
-valid_aggregated_data = intersection(
-    Annotated[dict, at.Predicate(final_results_must_match)],
-    Annotated[dict, at.Predicate(packed_flips_length_must_match)],
-    Annotated[dict, at.Predicate(cores_must_match)],
-    Annotated[dict, at.Predicate(workers_must_match)],
-    Annotated[dict, at.Predicate(committed_games_must_match)],
-    Annotated[dict, at.Predicate(total_games_must_match)],
-    Annotated[dict, at.Predicate(flags_must_match)],
-)
 
 # The following schema only matches new runs. The old runs
 # are not compatible with it. For documentation purposes
@@ -1141,61 +1152,76 @@ bad_task_schema = Validator(
     }
 )
 
-runs_schema = intersection(
-    {
-        "_id": ObjectId,
-        "version": uint,
-        "start_time": datetime_utc,
-        "last_updated": datetime_utc,
-        "tc_base": ufloat,
-        "rescheduled_from?": run_id,
-        "approved": bool,
-        "approver": username | Literal[""],
-        "finished": bool,
-        "deleted": bool,
-        "failed": bool,
-        "failures": uint,
-        "is_green": bool,
-        "is_yellow": bool,
-        "workers": uint,
-        "cores": uint,
-        "committed_games": uint,
-        "total_games": uint,
-        "results": results_schema,
-        "nps": ufloat,
-        "games_per_minute": ufloat,
-        "args": run_args_schema,
-        "tasks": list[task_schema],
-        "bad_tasks": list[bad_task_schema],
-    },
-    # The conjuncts below constrain a few fields each, so each one is opened:
-    # a field a conjunct does not name is the other conjuncts' business.
-    implies({"failed": True}, {"failures": suint}).open(),
-    implies({"approved": True}, {"approver": username}, {"approver": ""}).open(),
-    implies({"is_green": True}, {"is_yellow": False}).open(),
-    implies({"is_yellow": True}, {"is_green": False}).open(),
-    implies(
-        {"finished": True},
-        # A finished run holds no worker and burns no cores.
-        {
-            "workers": 0,
-            "cores": 0,
-            "nps": 0.0,
-            "games_per_minute": 0.0,
-            "tasks": [{"active": False}, ...],
-        },
-        # An unfinished run has not reached a verdict.
+runs_schema = Validator(
+    Annotated[
         intersection(
             {
-                "is_green": False,
-                "is_yellow": False,
-                "failed": False,
-                "deleted": False,
+                "_id": ObjectId,
+                "version": uint,
+                "start_time": datetime_utc,
+                "last_updated": datetime_utc,
+                "tc_base": ufloat,
+                "rescheduled_from?": run_id,
+                "approved": bool,
+                "approver": username | Literal[""],
+                "finished": bool,
+                "deleted": bool,
+                "failed": bool,
+                "failures": uint,
+                "is_green": bool,
+                "is_yellow": bool,
+                "workers": uint,
+                "cores": uint,
+                "committed_games": uint,
+                "total_games": uint,
+                "results": results_schema,
+                "nps": ufloat,
+                "games_per_minute": ufloat,
+                "args": run_args_schema,
+                "tasks": list[task_schema],
+                "bad_tasks": list[bad_task_schema],
             },
-            run_is_undecided,
+            # The conjuncts below constrain a few fields each, so each one is
+            # opened: a field a conjunct does not name is the other conjuncts'
+            # business.
+            implies({"failed": True}, {"failures": suint}).open(),
+            implies(
+                {"approved": True}, {"approver": username}, {"approver": ""}
+            ).open(),
+            implies({"is_green": True}, {"is_yellow": False}).open(),
+            implies({"is_yellow": True}, {"is_green": False}).open(),
+            implies(
+                {"finished": True},
+                # A finished run holds no worker and burns no cores.
+                {
+                    "workers": 0,
+                    "cores": 0,
+                    "nps": 0.0,
+                    "games_per_minute": 0.0,
+                    "tasks": [{"active": False}, ...],
+                },
+                # An unfinished run has not reached a verdict.
+                {
+                    "is_green": False,
+                    "is_yellow": False,
+                    "failed": False,
+                    "deleted": False,
+                },
+            ).open(),
         ),
-    ).open(),
-    valid_aggregated_data,
+        # The run document repeats what its tasks say; each of these decides
+        # one of those repetitions against the tasks themselves.
+        at.Predicate(final_results_must_match),
+        at.Predicate(packed_flips_length_must_match),
+        at.Predicate(cores_must_match),
+        at.Predicate(workers_must_match),
+        at.Predicate(committed_games_must_match),
+        at.Predicate(total_games_must_match),
+        at.Predicate(flags_must_match),
+        # An unfinished run has neither played out its games nor closed its
+        # SPRT.
+        at.Predicate(unfinished_run_is_undecided),
+    ]
 )
 
 cache_entry_schema = Validator(
@@ -1235,19 +1261,21 @@ def total_is_white_plus_black(book_doc):
     return book_doc["total"] == book_doc["white"] + book_doc["black"]
 
 
-# Every position in the book opens with one side or the other.
-book_totals_add_up = Validator(Annotated[dict, at.Predicate(total_is_white_plus_black)])
-
-book_schema = intersection(
-    {
-        "total": uint,
-        "white": uint,
-        "black": uint,
-        "min_depth": uint | None,
-        "max_depth": uint | None,
-        "sri": sri384,
-    },
-    book_totals_add_up,
+book_schema = Validator(
+    Annotated[
+        Validator(
+            {
+                "total": uint,
+                "white": uint,
+                "black": uint,
+                "min_depth": uint | None,
+                "max_depth": uint | None,
+                "sri": sri384,
+            }
+        ),
+        # Every position in the book opens with one side or the other.
+        at.Predicate(total_is_white_plus_black),
+    ]
 )
 
 books_schema = intersection(dict[str, book_schema], keys_in(book))

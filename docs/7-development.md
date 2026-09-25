@@ -127,9 +127,15 @@ Core rules:
     and a literal is a typed singleton, so a field declared `float` rejects
     `0` and a field declared `0.0` rejects `0`. Where a writer disagrees with
     the schema, fix the writer: the schema is the statement of intent.
-- Name a cross-field rule and intersect it with the record, rather than burying
-    the check inside the record. A document then belongs to the record and to
-    every rule, which is what the algebra says and what the error report shows.
+- Name a rule the algebra can state (`implies`, `has`, `one_of`) and intersect
+    it with the record. A document then belongs to the record and to every
+    rule, and a relation between schemas reads each rule.
+- Give a predicate the base it reads. `Annotated[base, at.Predicate(rule)]`
+    checks the base first and runs the rule only on its members, so a
+    cross-field rule refines the record whose fields it reads: a malformed
+    document reports its fields, never a `predicate_error` from a rule that
+    could not read them. A rule over a mapping's keys reads any `dict`, so
+    `keys_in` stands beside the mapping.
 - Pass `fail_fast=True` where the structure is unbounded (a run document, the
     caches) so one bad field does not produce a report per element; let the
     small documents aggregate every failure.
