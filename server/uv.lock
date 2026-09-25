@@ -224,7 +224,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.34.2" },
     { name = "scipy", specifier = ">=1.18.1" },
     { name = "uvicorn", specifier = ">=0.54.0" },
-    { name = "valgebra", specifier = ">=0.0.12,<0.1.0" },
+    { name = "valgebra", specifier = ">=0.0.13,<0.1.0" },
     { name = "zxcvbn", specifier = ">=4.5.0" },
 ]
 
@@ -698,14 +698,21 @@ wheels = [
 
 [[package]]
 name = "valgebra"
-version = "0.0.12"
+version = "0.0.13"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/cd/51/b8d2958129df8543c0af99f7184f58ec73abcfc1cbc86fa9e44d10247b23/valgebra-0.0.12.tar.gz", hash = "sha256:e54c9a2ea1fc7373069b061917a45ad433fd236cfafbfcdf8406466acf6e0aaf", size = 648489, upload-time = "2026-09-19T20:08:32.195Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ef/29/102f7be29c7a43da3b104802a967386b55fd8c1b07167b2940b9f92fed74/valgebra-0.0.13.tar.gz", hash = "sha256:24e154790ea46a5e6587e2f65f36cc9364a9d8b7d11a3de58df6351b83789a40", size = 694847, upload-time = "2026-09-25T08:28:27.178Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/05/f3/90499c1b28e4db2b60e281b07ccb6deb643ebaabfb40c99d070d306281da/valgebra-0.0.12-cp315-cp315-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:ed044e691152105f522ab29a6c281e4c7192d62f1b9535c67e0baf15cf27a26d", size = 1497001, upload-time = "2026-09-19T20:08:19.64Z" },
-    { url = "https://files.pythonhosted.org/packages/cb/18/829406a211499fdc8dc499d190325882e49f7401cfda38393e7dbab61206/valgebra-0.0.12-cp315-cp315-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d7f517c8eab8a73beaf41e2ec195f6a2b3e94c0d71324c288d5097db00ac4dae", size = 1595316, upload-time = "2026-09-19T20:08:21.298Z" },
-    { url = "https://files.pythonhosted.org/packages/33/42/045fd3cbfb8cec27c090c6e82aab823942f28d4fd74ff26e73893eca4388/valgebra-0.0.12-cp315-cp315t-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:8ba7dbd323af6b4893760b1cb455dddeed9cf0c2203f0398980dde6c0191707b", size = 1491838, upload-time = "2026-09-19T20:08:23.114Z" },
-    { url = "https://files.pythonhosted.org/packages/b6/f0/9971219db7d3a008f696e5a08546301255ae5e5e94502e77f03203d4ea5b/valgebra-0.0.12-cp315-cp315t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d88d4df77133e0295c3d124534a2dd8a7156c413e814c227373df67c1f92e734", size = 1589356, upload-time = "2026-09-19T20:08:24.491Z" },
+    { url = "https://files.pythonhosted.org/packages/81/c9/40ac77adf3a32499b9276809f159b55e6943d1c632afcb3387feef0e7462/valgebra-0.0.13-cp315-cp315-macosx_10_12_x86_64.whl", hash = "sha256:196734a6d595be69090eb195a2ccab054fd6d91a66c7318fe25b00a07285cac4", size = 1553278, upload-time = "2026-09-25T08:28:01.488Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/c1/6ca5976d3ffc642a627432adf3d3de9b4f41e05e21fb19234c516b5e8f4a/valgebra-0.0.13-cp315-cp315-macosx_11_0_arm64.whl", hash = "sha256:57fa5bf1f69dd7d660f022150592dd52aa001b3b058966e5e331f94b30096bd0", size = 1469579, upload-time = "2026-09-25T08:28:03.363Z" },
+    { url = "https://files.pythonhosted.org/packages/92/77/d80e04802dabd9fc858958152adcc5897c28048b19d41c4c20e8cdb6a967/valgebra-0.0.13-cp315-cp315-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:71d9439bcbfdec12ed9c6ceb5eecc2a515d6db5862ccf478f23537b59bcfd084", size = 1523009, upload-time = "2026-09-25T08:28:05.134Z" },
+    { url = "https://files.pythonhosted.org/packages/24/4f/47731d27526a289165ab34903ae0fe4271ed55a14f44d434abf35af9bbea/valgebra-0.0.13-cp315-cp315-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:1cbf05ad745235f2af5e2f54f7d5c48a528f1601db86df7fc32dd3e0db672f22", size = 1602228, upload-time = "2026-09-25T08:28:06.823Z" },
+    { url = "https://files.pythonhosted.org/packages/bb/c0/a9868c468c0446a137f56af15984f0e26c0f6cf35153d2562a99a5708d45/valgebra-0.0.13-cp315-cp315-win_amd64.whl", hash = "sha256:f5c756240a74a5446562d408dd84e239c7d63d40d7f1594fd772e10de7b47325", size = 1583583, upload-time = "2026-09-25T08:28:08.433Z" },
+    { url = "https://files.pythonhosted.org/packages/ee/af/2a382d526e5e2ae3e0407b24f8c8194fdacf3cc16a9424d155078dee2935/valgebra-0.0.13-cp315-cp315-win_arm64.whl", hash = "sha256:cfc73b79972f1c69ef3e90ac74d5274bb3e774f2837b1eb2740348e1cfd7af92", size = 1293162, upload-time = "2026-09-25T08:28:10.139Z" },
+    { url = "https://files.pythonhosted.org/packages/ff/c3/1ba7c415f5e761d1827fada1ede7461831861bdec93f4f7487918334d2eb/valgebra-0.0.13-cp315-cp315t-macosx_10_12_x86_64.whl", hash = "sha256:245a072f756f222007452040cdd9b2dcdf142e4c20ef893349d0b12a104ddc8f", size = 1548100, upload-time = "2026-09-25T08:28:11.776Z" },
+    { url = "https://files.pythonhosted.org/packages/3d/93/9a87dc529d4b77124b64ef61eee18d0a1d5a4b122a984c9b3bb78d9267c1/valgebra-0.0.13-cp315-cp315t-macosx_11_0_arm64.whl", hash = "sha256:800f914cb06fa3a3491ed63f9ac8e5967921554532da8d60d0c57ca89d89c52e", size = 1446886, upload-time = "2026-09-25T08:28:13.357Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/a2/c59a41d3483718b602b0d1ab750248a6f4e36aaaaa44de88cddc11525dd8/valgebra-0.0.13-cp315-cp315t-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:e18c731842202fc19a5190840555ce443cc9ad4471a9da3bdbbd7f2a31bfc0d4", size = 1498187, upload-time = "2026-09-25T08:28:15.065Z" },
+    { url = "https://files.pythonhosted.org/packages/35/41/ef756e49bd3cca0278cc27b09d187cee83ef15a479a65175267d1736b0f4/valgebra-0.0.13-cp315-cp315t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:75c30892b9261774844e027a3d9f40a73fe2cd224353c7736530905bb36b54e5", size = 1595423, upload-time = "2026-09-25T08:28:16.857Z" },
+    { url = "https://files.pythonhosted.org/packages/16/f0/f728d4931e98e8cb930102429819ba21c05d0e700d5f9443159404af5156/valgebra-0.0.13-cp315-cp315t-win_amd64.whl", hash = "sha256:8f601a0497d40aa402089c3f08aa4b5a6fbb37249a1e238822600b7549e1ba27", size = 1569885, upload-time = "2026-09-25T08:28:18.555Z" },
 ]
 
 [[package]]
