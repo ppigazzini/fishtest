@@ -13,7 +13,7 @@ import unittest
 from datetime import UTC, datetime
 
 from bson.objectid import ObjectId
-from valgebra import ValidationError, Validator, anything, intersection, nothing
+from valgebra import ValidationError, Validator, anything, intersection, nothing, union
 
 from fishtest import schemas as s
 from fishtest import spsa_workflow, util
@@ -1024,13 +1024,24 @@ class TestSchemaAlgebra(unittest.TestCase):
             )
         )
 
-    def test_open_record_opens_one_level_where_open_opens_all(self):
+    def test_open_record_opens_one_level_where_open_opens_nested_records(self):
         flat = {"active": False, "n": int}
         self.assertTrue(s.open_record(flat).is_equivalent(Validator(flat).open()))
         nested = {"active": False, "stats": {"wins": int}}
         extra_inside = {"active": False, "stats": {"wins": 1, "x": 2}}
         self.assertFalse(s.open_record(nested).is_valid(extra_inside))
         self.assertTrue(Validator(nested).open().is_valid(extra_inside))
+
+    def test_open_leaves_the_records_under_a_mappings_values_closed(self):
+        # `.open()` reaches a record under a list element and a union member,
+        # and not one under a mapping's values, which is why the books.json
+        # reader opens its book records itself.
+        record = {"wins": int}
+        extra = {"wins": 1, "x": 2}
+        self.assertIn([extra], Validator([record]).open())
+        self.assertIn(extra, union(int, record).open())
+        self.assertNotIn({"k": extra}, Validator({str: record}).open())
+        self.assertIn({"k": extra}, Validator({str: s.open_record(record)}))
 
     def test_the_stored_worker_info_extends_the_received_one(self):
         # Closed-record width is inside what valgebra decides, so this relation
