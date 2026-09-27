@@ -1,16 +1,20 @@
 """Test RunDb persistence and run lifecycle behavior."""
 
+import json
 import random
 import sys
 import unittest
 from datetime import UTC, datetime, timedelta
+from unittest import mock
 
 import test_support
 from bson.objectid import ObjectId
 from pymongo import DESCENDING
 
+import fishtest.github_api as gh
 from fishtest.api import WORKER_VERSION
 from fishtest.run_cache import Prio
+from fishtest.schemas import books_schema
 from fishtest.spsa_handler import _pack_flips, _unpack_flips
 
 
@@ -803,6 +807,49 @@ class CreateRunDBTest(unittest.TestCase):
             self.assertTrue(isinstance(b, bytes))
             c = _unpack_flips(b, length=L)
             self.assertEqual(a, c)
+
+
+class UpdateBooksTest(unittest.TestCase):
+    BOOK = {
+        "total": 10,
+        "white": 4,
+        "black": 6,
+        "min_depth": None,
+        "max_depth": 8,
+        "sri": "sha384-" + "A" * 64,
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rundb = test_support.get_rundb()
+
+    def setUp(self):
+        stored = self.rundb.kvstore.get("books")
+        loaded = self.rundb.books
+        self.addCleanup(setattr, self.rundb, "books", loaded)
+        if stored is None:
+            self.addCleanup(self.rundb.kvstore.pop, "books", None)
+        else:
+            self.addCleanup(self.rundb.kvstore.__setitem__, "books", stored)
+
+    def _update_books_from(self, books):
+        download = mock.patch.object(
+            gh, "download_from_github", return_value=json.dumps(books).encode()
+        )
+        with download:
+            self.rundb.update_books()
+
+    def test_a_book_gaining_a_field_is_stored_with_the_declared_fields(self):
+        self._update_books_from({"UHO.epd": {**self.BOOK, "description": "x"}})
+        self.assertEqual(self.rundb.books, {"UHO.epd": self.BOOK})
+        self.assertEqual(self.rundb.kvstore["books"], {"UHO.epd": self.BOOK})
+        self.assertIn(self.rundb.books, books_schema)
+
+    def test_a_book_missing_a_field_keeps_the_stored_books(self):
+        self._update_books_from({"UHO.epd": self.BOOK})
+        self._update_books_from({"UHO2.epd": {"total": 10}})
+        self.assertEqual(self.rundb.books, {"UHO.epd": self.BOOK})
+        self.assertEqual(self.rundb.kvstore["books"], {"UHO.epd": self.BOOK})
 
 
 if __name__ == "__main__":
