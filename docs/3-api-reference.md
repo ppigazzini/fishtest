@@ -364,11 +364,11 @@ Returns paginated finished runs. Query parameters:
 
 ### POST /api/actions
 
-Returns up to 200 recent actions matching the JSON query body. The body is a
-MongoDB filter, validated against `action_query_schema` before the database is
-handed it. A body over the size limit is a `413`. A body that is not JSON, or a
-filter outside the table below, is a `400` with a fixed error that does not name
-the part that failed.
+Returns up to 200 actions matching the JSON query body, newest first. The body
+is a MongoDB filter, validated against `action_query_schema` before the
+database is handed it. A body over the size limit is a `413`. A body that is
+not JSON, or a filter outside the table below, is a `400` with a fixed error
+that does not name the part that failed.
 
 What a filter may say:
 
@@ -382,8 +382,8 @@ What a filter may say:
 
 Anything else is refused, which is the point of listing rather than excluding:
 `$where`, `$expr`, `$function` and `$accumulator` each run a caller's code on
-the database server, and `$regex` backtracks. An empty body `{}` is a filter
-that matches everything, and is how the endpoint returns recent actions.
+the database server, and `$regex` backtracks. An empty body `{}` matches every
+action, so it returns the 200 most recent.
 
 ### GET /api/get_run/{id}
 

@@ -945,6 +945,23 @@ class TestHttpApi(unittest.TestCase):
         found = response.json()
         self.assertIn(marker, [action["message"] for action in found])
 
+    def test_actions_returns_the_newest_first(self):
+        stamp = datetime.now(UTC).isoformat()
+        for order in ("older", "newer"):
+            self.rundb.actiondb.log_message(
+                username=self.username, message=f"actions order probe {stamp} {order}"
+            )
+        response = self.client.post(
+            "/api/actions",
+            json={"action": "log_message", "username": self.username},
+        )
+        self.assertEqual(response.status_code, 200)
+        found = response.json()
+        times = [action["time"] for action in found]
+        self.assertEqual(times, sorted(times, reverse=True))
+        probes = [action["message"] for action in found if stamp in action["message"]]
+        self.assertEqual(probes[0], f"actions order probe {stamp} newer")
+
     def test_actions_refuses_a_query_that_runs_code_or_scans(self):
         # Every one of these is handed straight to MongoDB by an endpoint with
         # no schema: the first four run the caller's own code or pattern on the
