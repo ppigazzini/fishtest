@@ -153,6 +153,45 @@ class TestHttpMiddleware(unittest.TestCase):
         set_cookie = response.headers.get("set-cookie", "")
         self.assertIn(f"{SESSION_COOKIE_NAME}=", set_cookie)
 
+    def test_a_signed_cookie_that_is_not_a_json_object_starts_an_empty_session(
+        self,
+    ):
+        # The signature says who wrote the cookie, not what it holds. A payload
+        # that is not a JSON object is dropped and the request runs without a
+        # session; a signed object is loaded, which shows the signing is right.
+        import json
+        from base64 import b64encode
+
+        from fastapi import Request
+        from itsdangerous import TimestampSigner
+
+        from fishtest.http.cookie_session import SESSION_COOKIE_NAME
+        from fishtest.http.session_middleware import FishtestSessionMiddleware
+
+        app = self.FastAPI()
+        app.add_middleware(FishtestSessionMiddleware, secret_key="test-secret")
+
+        @app.get("/session")
+        async def _session(request: Request):
+            return request.session
+
+        client = self.TestClient(app)
+        signer = TimestampSigner("test-secret")
+        for payload, session in (
+            ({"user": "someone"}, {"user": "someone"}),
+            (["user", "someone"], {}),
+            ("someone", {}),
+            (7, {}),
+            (None, {}),
+        ):
+            with self.subTest(payload=payload):
+                data = b64encode(json.dumps(payload).encode("utf-8"))
+                client.cookies.clear()
+                client.cookies.set(SESSION_COOKIE_NAME, signer.sign(data).decode())
+                response = client.get("/session")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json(), session)
+
     def test_head_method_returns_200_with_empty_body(self):
         from fishtest.http.middleware import HeadMethodMiddleware
 
