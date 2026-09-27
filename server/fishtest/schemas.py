@@ -7,9 +7,14 @@
 # annotations are the notation — `Literal`, `list[T]`, `dict[K, V]`, `X | Y` —
 # and `Annotated[T, ...]` narrows a base with the annotated-types markers. The
 # native list and record literals carry the two shapes typing has no syntax for:
-# a fixed-length list, and a record whose optional keys end in `?`. `union`,
-# `intersection` and `complement` compose all of it into a Boolean lattice, and
-# the recipes below are the standard compositions over that lattice.
+# a fixed-length list, and a record whose optional keys end in `?`. Where an
+# element is a compiled validator they also spell the homogeneous shapes, `[v]`
+# for `list[v]` and `{str: v}` for `dict[str, v]`, because a type checker
+# refuses a variable inside a typing subscript; a constant set held in a
+# sequence is `union(*values)` for the same reason. `set[v]` and a `tuple` of
+# validators have no such spelling. `union`, `intersection` and `complement`
+# compose all of it into a Boolean lattice, and the recipes below are the
+# standard compositions over that lattice.
 #
 # See https://ppigazzini.github.io/valgebra/ for the schema language, the
 # algebra, and the error model.
@@ -220,8 +225,8 @@ short_worker_name = Validator(Annotated[str, Regex(r".*-[0-9]+cores-[a-zA-Z0-9]{
 long_worker_name = Validator(
     Annotated[str, Regex(r".*-[0-9]+cores-[a-zA-Z0-9]{2,8}-[a-f0-9]{4}\*?")]
 )
-worker_arch = Validator(Literal[*supported_arches])
-compiler = Validator(Literal[*supported_compilers])
+worker_arch = union(*supported_arches)
+compiler = union(*supported_compilers)
 
 valid_username = Validator(Annotated[str, Regex(VALID_USERNAME_PATTERN)])
 legacy_usernames = set()  # will be updated when the application starts up
@@ -364,7 +369,7 @@ github_api_cache_entry = union(
     [github_api_cache_key, anything], tuple[github_api_cache_key, anything]
 )
 github_api_cache_schema = Validator(
-    open_record({"version": uint, "lru_cache": list[github_api_cache_entry]})
+    open_record({"version": uint, "lru_cache": [github_api_cache_entry]})
 )
 
 worker_schema = Validator(
@@ -1069,8 +1074,8 @@ spsa_schema = Validator(
         "raw_params": str,
         "iter": uint,
         "num_iter": uint,
-        "params": list[spsa_param],
-        "param_history?": list[list[spsa_param_sample]],
+        "params": [spsa_param],
+        "param_history?": [[spsa_param_sample]],
     }
 )
 
@@ -1178,8 +1183,8 @@ runs_schema = Validator(
                 "nps": ufloat,
                 "games_per_minute": ufloat,
                 "args": run_args_schema,
-                "tasks": list[task_schema],
-                "bad_tasks": list[bad_task_schema],
+                "tasks": [task_schema],
+                "bad_tasks": [bad_task_schema],
             },
             # The conjuncts below constrain a few fields each, so each one is
             # opened: a field a conjunct does not name is the other conjuncts'
@@ -1236,13 +1241,11 @@ cache_entry_schema = Validator(
     }
 )
 
-cache_schema = intersection(dict[str, cache_entry_schema], keys_in(run_id))
+cache_schema = intersection({str: cache_entry_schema}, keys_in(run_id))
 
-wtt_map_schema = intersection(
-    dict[str, tuple[run_id, task_id]], keys_in(short_worker_name)
-)
+wtt_map_schema = intersection({str: tuple[run_id, task_id]}, keys_in(short_worker_name))
 
-connections_counter_schema = intersection(dict[str, suint], keys_in(ip_address))
+connections_counter_schema = intersection({str: suint}, keys_in(ip_address))
 
 unfinished_runs_schema = Validator(set[run_id])
 
@@ -1253,7 +1256,7 @@ worker_runs_entry_schema = intersection(
 )
 
 worker_runs_schema = intersection(
-    dict[str, worker_runs_entry_schema], keys_in(short_worker_name)
+    {str: worker_runs_entry_schema}, keys_in(short_worker_name)
 )
 
 
@@ -1278,4 +1281,4 @@ book_schema = Validator(
     ]
 )
 
-books_schema = intersection(dict[str, book_schema], keys_in(book))
+books_schema = intersection({str: book_schema}, keys_in(book))
