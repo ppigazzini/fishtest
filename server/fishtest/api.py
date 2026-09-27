@@ -424,16 +424,13 @@ class UserApi(GenericApi):
                 self.handle_error("request is not json encoded")
             self.handle_error("request is not a filter this endpoint accepts")
         query = action_query_schema.load(raw_body)
-        try:
-            # Newest first, the order the `actions_time_id` index keeps.
-            actions = (
-                self.request.rundb.db["actions"]
-                .find(query)
-                .sort([("time", DESCENDING), ("_id", DESCENDING)])
-                .limit(200)
-            )
-        except Exception:
-            actions = []
+        # Newest first, the order the `actions_time_id` index keeps.
+        actions = (
+            self.request.rundb.db["actions"]
+            .find(query)
+            .sort([("time", DESCENDING), ("_id", DESCENDING)])
+            .limit(200)
+        )
         ret = []
         for action in actions:
             action["_id"] = str(action["_id"])
