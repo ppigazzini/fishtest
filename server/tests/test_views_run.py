@@ -383,6 +383,38 @@ class ValidateFormTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Invalid arch filter"):
                 validate_form(request)
 
+    def test_validate_form_names_the_time_control_that_fails(self):
+        # The form shows the base and test time controls as "TC" and "Test TC";
+        # the error names the one that failed. The odds box off makes the test
+        # time control a copy of the base one.
+        for field, label, odds in (("tc", "TC", "off"), ("new_tc", "Test TC", "on")):
+            post_data = _valid_post_data()
+            post_data["odds"] = odds
+            post_data[field] = "10+0.1x"
+            request = _RequestStub(post_data=post_data)
+
+            with (
+                self.subTest(field=field),
+                mock.patch(
+                    "fishtest.views_run.gh.normalize_repo",
+                    side_effect=lambda repo: repo,
+                ),
+                mock.patch(
+                    "fishtest.views_run.gh.parse_repo",
+                    return_value=("official-stockfish", "Stockfish"),
+                ),
+                mock.patch(
+                    "fishtest.views_run.gh.get_master_repo", return_value=BASE_REPO
+                ),
+                mock.patch(
+                    "fishtest.views_run.get_sha",
+                    side_effect=[(BASE_SHA, "base"), (NEW_SHA, "new")],
+                ),
+                mock.patch("fishtest.views_run.get_nets", return_value=[]),
+                self.assertRaisesRegex(ValueError, rf"^Invalid {label}: '10\+0\.1x'"),
+            ):
+                validate_form(request)
+
 
 class TemplateConstraintContractTests(unittest.TestCase):
     def test_tests_run_template_uses_shared_create_num_games_constraints(self):

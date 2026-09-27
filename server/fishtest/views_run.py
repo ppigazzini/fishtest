@@ -408,8 +408,15 @@ def validate_form(request: Any) -> dict[str, Any]:  # noqa: ANN401, C901, PLR091
 
     from fishtest.schemas import tc as tc_schema  # noqa: PLC0415
 
-    tc_schema.validate(data["tc"])
-    tc_schema.validate(data["new_tc"])
+    # Named by the form's labels: the schema's report cannot say which field
+    # it read.
+    for field, label in (("tc", "TC"), ("new_tc", "Test TC")):
+        if data[field] not in tc_schema:
+            msg = (
+                f"Invalid {label}: {data[field]!r}, expected a time control"
+                " such as 10+0.1"
+            )
+            raise ValueError(msg)
 
     if request.POST.get("rescheduled_from"):
         data["rescheduled_from"] = request.POST["rescheduled_from"]
