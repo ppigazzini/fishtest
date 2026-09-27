@@ -16,7 +16,7 @@ from bson.objectid import ObjectId
 from valgebra import ValidationError, Validator, anything, intersection, nothing
 
 from fishtest import schemas as s
-from fishtest import spsa_workflow
+from fishtest import spsa_workflow, util
 from fishtest.stats import stat_util
 
 OID = ObjectId("64e74776a170cb1f26fa3930")
@@ -626,7 +626,25 @@ class TestRunsSchema(unittest.TestCase):
 
 class TestWritersAgreeWithTheSchemas(unittest.TestCase):
     """A field says which type it stores, so the code that fills it must store
-    that type. These pin the two places that build a document from scratch."""
+    that type. These pin the SPRT and SPSA constructors, and the chi-square
+    residual a bad task stores."""
+
+    def test_chi2_residuals(self):
+        # A worker whose results sit exactly on the average has a residual
+        # below zero, which the cap raises to zero: a bad task stores it as the
+        # float the field states.
+        tasks = [
+            {"worker_info": {"unique_key": key}, "stats": {"pentanomial": penta}}
+            for key, penta in (
+                ("average", [0, 20, 20, 20, 0]),
+                ("draws", [0, 20, 30, 10, 0]),
+                ("wins", [0, 20, 10, 30, 0]),
+            )
+        ]
+        residuals = util.get_chi2(tasks)["residual"]
+        self.assertEqual(residuals["average"], 0.0)
+        for residual in residuals.values():
+            self.assertIn(residual, Validator(float))
 
     def test_sprt_constructor(self):
         sprt = stat_util.SPRT(
