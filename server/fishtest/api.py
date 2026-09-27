@@ -93,9 +93,8 @@ class WorkerApi(GenericApi):
     def __init__(self, request):
         super().__init__(request)
         # Parse the document and check the shape every worker request shares in
-        # a single pass on the Rust path, rather than building it in Python and
-        # walking it again. Every endpoint below validates before reading the
-        # body, so the shape failure surfaces here rather than one call later.
+        # one pass on the Rust path. Every endpoint below validates before it
+        # reads the body, so a malformed request fails here.
         try:
             self.request_body = api_access_schema.load(request.raw_body)
         except ValidationError as e:
