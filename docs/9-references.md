@@ -579,7 +579,7 @@ User-facing UI route modules also reuse `ui_user_test_case.py` for shared
 client setup, login helpers, run creation, and DB cleanup.
 
 Worker-related fixtures must match the `short_worker_name` pattern
-(`.*-[\d]+cores-[a-zA-Z0-9]{2,8}`) or `WorkerDb.update_worker()` schema
+(`.*-[0-9]+cores-[a-zA-Z0-9]{2,8}`) or `WorkerDb.update_worker()` schema
 validation fails.
 
 ### Key test modules
