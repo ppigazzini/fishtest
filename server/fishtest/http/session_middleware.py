@@ -32,8 +32,7 @@ if TYPE_CHECKING:
 # The session is a working dict the views write their own keys into, so its shape
 # is the kind rather than a record: a record would reject a key a view is free to
 # add and log the user out for it. `load` parses the cookie and checks that much
-# in one pass, so the contract is one statement where it was a parse in Python
-# followed by a probe -- and a browser hands this document back on every request.
+# in one pass, on a document a browser hands back on every request.
 _session_document = Validator(dict[str, object])
 
 

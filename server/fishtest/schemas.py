@@ -147,10 +147,11 @@ def keys_in(key_schema, *fields):
 def open_record(fields):
     """A record admitting undeclared keys, its nested records left closed.
 
-    `Validator.open()` opens every record in a schema, nested ones included.
-    Where only this record may take extra keys, a catch-all clause over every
-    key frees exactly its own undeclared ones, and the declared fields keep
-    precedence over it.
+    `Validator.open()` opens the records nested in a schema too, under fields,
+    elements and union members alike, and leaves only the records under a
+    mapping's values closed. Where only this record may take extra keys, a
+    catch-all clause over every key frees exactly its own undeclared ones, and
+    the declared fields keep precedence over it.
     """
     return Validator({**fields, anything: anything})
 
