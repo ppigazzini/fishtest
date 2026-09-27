@@ -6,7 +6,6 @@ import copy
 import gzip
 import io
 import sys
-import time
 import unittest
 from datetime import UTC, datetime
 
@@ -1035,19 +1034,27 @@ class TestHttpApi(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
 
     def test_actions_refuses_a_filter_without_explaining_it(self):
-        # A refused filter under a union is explained by walking every branch
-        # whole, which is linear in the body. An anonymous caller gets a fixed
-        # answer instead, whose cost the size limit bounds.
+        # An anonymous caller gets a fixed answer rather than a report: a
+        # refused filter is tested for membership once and never loaded, since
+        # loading it is what builds the report.
+        from unittest import mock
+
+        import fishtest.api as api_module
+
         query = {"username": {"$in": [{"x": 1}] * 6000}}
-        started = time.perf_counter()
-        response = self.client.post("/api/actions", json=query)
-        elapsed = time.perf_counter() - started
+        with mock.patch.object(
+            api_module,
+            "action_query_schema",
+            wraps=api_module.action_query_schema,
+        ) as schema:
+            response = self.client.post("/api/actions", json=query)
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
             response.json()["error"],
             "/api/actions: request is not a filter this endpoint accepts",
         )
-        self.assertLess(elapsed, 0.05)
+        schema.is_valid_json.assert_called_once()
+        schema.load.assert_not_called()
 
     def test_actions_options_is_not_allowed(self):
         response = self.client.options(
