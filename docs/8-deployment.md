@@ -802,3 +802,26 @@ What a failure costs depends on where the server validates the document:
 
 A failing user, worker or net must be corrected before the deploy. A failing
 run is only logged, and stops being checked when it finishes.
+
+## Run float conversion (experimental)
+
+`server/utils/convert_run_floats.py` is experimental and optional. An
+unfinished run created before the float fields were written as floats can
+store an int zero where the schema states a float. The server only logs such
+a run, and the value becomes a float as the run updates, or leaves the check
+when the run finishes. The script converts those values at once: each field
+the schema reports as `float_type` whose stored value is an int, and not a
+bool, becomes the same number as a double. It reads no finished run and
+writes nothing else.
+
+Stop every fishtest instance first: the primary holds unfinished runs in its
+cache and writes them back whole, which undoes the conversion. Without
+`--apply` the script lists the runs and fields it would convert:
+
+```bash
+cd server
+uv run python utils/convert_run_floats.py
+uv run python utils/convert_run_floats.py --apply
+```
+
+Run the stored document audit before and after to compare the failing runs.
