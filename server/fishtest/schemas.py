@@ -425,23 +425,6 @@ nn_schema = Validator(
     ]
 )
 
-# not yet used, not tested
-contributors_schema = Validator(
-    {
-        "_id": ObjectId,
-        "cpu_hours": ufloat,
-        "diff": ufloat,
-        "games": uint,
-        "games_per_hour": ufloat,
-        "last_updated": datetime_utc,
-        "str_last_updated": str,
-        "tests": uint,
-        "tests_repo": tests_repo,
-        "username": username,
-    }
-)
-
-
 action_name = Validator(
     Literal[
         "failed_task",
