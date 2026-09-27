@@ -696,12 +696,35 @@ class TestInternalStructures(unittest.TestCase):
             "sri": "sha384-" + "A" * 64,
         }
         raw = json.dumps({"UHO.epd": book}).encode()
-        self.assertEqual(s.books_schema.load(raw), {"UHO.epd": book})
+        self.assertEqual(s.books_download_schema.load(raw), {"UHO.epd": book})
         with self.assertRaises(ValidationError):
-            s.books_schema.load(json.dumps({"UHO.epd": {"total": 10}}).encode())
+            s.books_download_schema.load(
+                json.dumps({"UHO.epd": {"total": 10}}).encode()
+            )
         with self.assertRaises(ValidationError) as caught:
-            s.books_schema.load(b"not json at all")
+            s.books_download_schema.load(b"not json at all")
         self.assertEqual(caught.exception.code, "json_invalid")
+
+    def test_a_downloaded_book_may_carry_fields_the_stored_one_does_not(self):
+        # The books repository may describe a book with more than this server
+        # reads. The download admits the extra field; the stored copy, which is
+        # the download projected onto the declared fields, does not carry it.
+        book = {
+            "total": 10,
+            "white": 4,
+            "black": 6,
+            "min_depth": None,
+            "max_depth": 8,
+            "sri": "sha384-" + "A" * 64,
+        }
+        downloaded = {"UHO.epd": {**book, "description": "Unbalanced openings"}}
+        self.assertIn(downloaded, s.books_download_schema)
+        self.assertNotIn(downloaded, s.books_schema)
+        self.assertTrue(s.books_schema.is_subtype_of(s.books_download_schema))
+        self.assertNotIn(
+            {"UHO.epd": {**downloaded["UHO.epd"], "total": 11}},
+            s.books_download_schema,
+        )
 
     def test_legacy_usernames(self):
         self.assertEqual(s.legacy_usernames_schema.ensure(["a", "b"]), ["a", "b"])

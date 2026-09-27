@@ -1264,21 +1264,35 @@ def total_is_white_plus_black(book_doc):
     return book_doc["total"] == book_doc["white"] + book_doc["black"]
 
 
+# The fields this server reads from a book's metadata.
+book_fields = {
+    "total": uint,
+    "white": uint,
+    "black": uint,
+    "min_depth": uint | None,
+    "max_depth": uint | None,
+    "sri": sri384,
+}
+# One predicate for both mappings below, so a relation between them reads the
+# key rule as one set rather than two opaque ones.
+keyed_by_book = keys_in(book)
+
 book_schema = Validator(
     Annotated[
-        Validator(
-            {
-                "total": uint,
-                "white": uint,
-                "black": uint,
-                "min_depth": uint | None,
-                "max_depth": uint | None,
-                "sri": sri384,
-            }
-        ),
+        Validator(book_fields),
         # Every position in the book opens with one side or the other.
         at.Predicate(total_is_white_plus_black),
     ]
 )
 
-books_schema = intersection({str: book_schema}, keys_in(book))
+books_schema = intersection({str: book_schema}, keyed_by_book)
+
+# books.json as the books repository serves it. A book there may describe more
+# than this server reads, so each is an open record, and the stored copy is the
+# download projected onto `book_fields`. `.open()` would not do: it leaves the
+# records under a mapping's values closed.
+book_download_schema = Validator(
+    Annotated[open_record(book_fields), at.Predicate(total_is_white_plus_black)]
+)
+
+books_download_schema = intersection({str: book_download_schema}, keyed_by_book)
