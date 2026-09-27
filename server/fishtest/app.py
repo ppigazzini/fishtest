@@ -25,6 +25,7 @@ from anyio.to_thread import current_default_thread_limiter
 from fastapi import FastAPI
 from starlette.concurrency import run_in_threadpool
 from starlette.staticfiles import StaticFiles
+from valgebra import ValidationError
 
 import fishtest.github_api as gh
 from fishtest import schemas
@@ -55,6 +56,8 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from starlette.types import ASGIApp
+
+    from fishtest.kvstore import KeyValueStore
 
 
 logger = logging.getLogger(__name__)
@@ -106,6 +109,24 @@ async def _shutdown_rundb(rundb: RunDb) -> None:
         await run_in_threadpool(rundb.conn.close)
     except Exception:
         logger.exception("Shutdown: error closing MongoDB connection")
+
+
+def _load_legacy_usernames(kvstore: KeyValueStore) -> set[str]:
+    """Read the legacy usernames from the kvstore.
+
+    One malformed document must not stop every instance at startup: an entry
+    that is not a name is dropped, and a stored value that is not a list yields
+    no names. The schema's report names each rejected entry by its path.
+    """
+    stored = kvstore.get("legacy_usernames", [])
+    try:
+        return set(schemas.legacy_usernames_schema.ensure(stored))
+    except ValidationError as e:
+        logger.warning("Dropping the stored legacy usernames that fail: %s", e)
+        rejected = {error["path"] for error in e.errors}
+        if () in rejected:
+            return set()
+        return {name for index, name in enumerate(stored) if (index,) not in rejected}
 
 
 def _require_single_worker_on_primary(settings: AppSettings) -> None:
@@ -160,11 +181,7 @@ def create_app() -> FastAPI:
         _install_sigusr1_thread_dump_handler()
 
         # All instances should use the same user schema.
-        schemas.legacy_usernames = set(
-            schemas.legacy_usernames_schema.ensure(
-                rundb.kvstore.get("legacy_usernames", [])
-            )
-        )
+        schemas.legacy_usernames = _load_legacy_usernames(rundb.kvstore)
 
         await run_in_threadpool(
             gh.init,
