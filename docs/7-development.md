@@ -121,6 +121,10 @@ Core rules:
     `Annotated[T, ...]` with the annotated-types markers for a refinement. Reach
     for `union`, `intersection` and `complement` when the set is a combination,
     and for a predicate only when no marker expresses the check.
+- Where an element is a compiled validator, write the native form: `[v]` for
+    `list[v]` and `{str: v}` for `dict[str, v]`. A type checker refuses a
+    variable inside a typing subscript. A constant set held in a sequence is
+    `union(*values)`, not `Literal[*values]`.
 - Compile each schema once, at import, into a module-level `Validator`; call
     `.validate(document)` at the boundary.
 - State the type a field actually stores. `int` and `float` are disjoint sets
