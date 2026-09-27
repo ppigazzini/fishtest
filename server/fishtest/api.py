@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException
+from pymongo import DESCENDING
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, StreamingResponse
@@ -425,7 +426,13 @@ class UserApi(GenericApi):
             self.handle_error("request is not a filter this endpoint accepts")
         query = action_query_schema.load(raw_body)
         try:
-            actions = self.request.rundb.db["actions"].find(query).limit(200)
+            # Newest first, the order the `actions_time_id` index keeps.
+            actions = (
+                self.request.rundb.db["actions"]
+                .find(query)
+                .sort([("time", DESCENDING), ("_id", DESCENDING)])
+                .limit(200)
+            )
         except Exception:
             actions = []
         ret = []
