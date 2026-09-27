@@ -439,9 +439,14 @@ Request bodies are validated against the valgebra schemas defined in
   `password`, `worker_info`).
 - `api_schema` -- validates the full request body structure for worker
   endpoints.
-- `gzip_data` -- validates that uploaded PGN data is valid gzip.
+- `gzip_data` -- checks that uploaded PGN data starts with the gzip signature.
 
 Schema validation failures produce HTTP 400 responses.
+
+A request body is standard JSON (RFC 8259) in UTF-8. `NaN`, `Infinity` and
+`-Infinity`, an unpaired surrogate escape, a leading byte order mark, and
+nesting past the parser's depth limit are not, and a body with any of them is
+a `400` with the error `request is not json encoded`.
 
 ## Error shape
 
