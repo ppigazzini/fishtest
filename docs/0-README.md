@@ -127,6 +127,6 @@ Install with: `uv run pre-commit install`
 | Workflow | File | Trigger | What it does |
 |----------|------|---------|-------------|
 | Lint | `lint.yaml` | push, PR | ruff check + format |
-| Server | `server.yaml` | push, PR | Server test suite (MongoDB required) |
+| Server | `server.yaml` | push, PR | Server test suite on Python 3.14 and 3.15 (MongoDB required) |
 | Worker POSIX | `worker_posix.yaml` | push, PR | Worker tests on Linux/macOS |
 | Worker MSYS2 | `worker_msys2.yaml` | push, PR | Worker tests on Windows (MSYS2) |
