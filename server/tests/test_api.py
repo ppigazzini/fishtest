@@ -275,7 +275,7 @@ class TestHttpApi(unittest.TestCase):
         from unittest import mock
 
         with mock.patch(
-            "fishtest.http.boundary.json.loads",
+            "json.loads",
             side_effect=AssertionError("the body was parsed in Python"),
         ):
             response = self.client.post(

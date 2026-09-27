@@ -6,7 +6,6 @@ wiring for the UI and API layers.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Protocol, cast
@@ -96,23 +95,6 @@ class ApiRequestShim:
             self.actiondb = get_actiondb(request)
         except DependencyNotInitializedError:
             self.actiondb = None
-
-
-@dataclass(frozen=True)
-class JsonBodyResult:
-    """Result of JSON parsing with error flag."""
-
-    body: object | None
-    error: bool
-
-
-async def get_json_body(request: Request) -> JsonBodyResult:
-    """Parse JSON body, preserving legacy error behavior."""
-    try:
-        body = await request.json()
-    except json.JSONDecodeError, TypeError, ValueError:
-        return JsonBodyResult(body=None, error=True)
-    return JsonBodyResult(body=body, error=False)
 
 
 async def get_request_shim(
@@ -305,14 +287,12 @@ def build_template_context(
 
 __all__ = [
     "ApiRequestShim",
-    "JsonBodyResult",
     "SessionCommitFlags",
     "build_template_context",
     "commit_session_flags",
     "commit_session_response",
     "csrf_or_403",
     "forget",
-    "get_json_body",
     "get_request_shim",
     "remember",
 ]
