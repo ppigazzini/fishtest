@@ -6,6 +6,7 @@ import copy
 import gzip
 import io
 import sys
+import time
 import unittest
 from datetime import UTC, datetime
 
@@ -14,12 +15,14 @@ import test_support
 from fishtest.run_cache import Prio
 
 try:
-    from fishtest.api import WORKER_VERSION
-    from fishtest.schemas import ACTION_MESSAGE_SIZE
+    from fishtest.api import ACTIONS_BODY_MAX, WORKER_VERSION
+    from fishtest.schemas import ACTION_MESSAGE_SIZE, ACTION_QUERY_LIST_MAX
     from fishtest.util import worker_name
 except ModuleNotFoundError:  # pragma: no cover
+    ACTIONS_BODY_MAX = None  # type: ignore[assignment]
     WORKER_VERSION = None  # type: ignore[assignment]
     ACTION_MESSAGE_SIZE = None  # type: ignore[assignment]
+    ACTION_QUERY_LIST_MAX = None  # type: ignore[assignment]
     worker_name = None  # type: ignore[assignment]
 
 
@@ -971,6 +974,38 @@ class TestHttpApi(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("request is not json encoded", response.json()["error"])
+
+    def test_actions_refuses_a_body_past_the_size_limit(self):
+        query = {"run_id": {"$in": ["0" * 24] * ACTION_QUERY_LIST_MAX}}
+        padding = {"message": "x" * ACTIONS_BODY_MAX}
+        response = self.client.post("/api/actions", json=query | padding)
+        self.assertEqual(response.status_code, 413)
+        self.assertIn("error", response.json())
+
+    def test_actions_answers_the_largest_client_query(self):
+        # The widest filter static/js/notifications.js builds: every run id the
+        # client's LRU holds, which the list cap bounds.
+        query = {
+            "action": {"$in": ["finished_run", "stop_run", "delete_run"]},
+            "run_id": {"$in": ["0" * 24] * ACTION_QUERY_LIST_MAX},
+        }
+        response = self.client.post("/api/actions", json=query)
+        self.assertEqual(response.status_code, 200)
+
+    def test_actions_refuses_a_filter_without_explaining_it(self):
+        # A refused filter under a union is explained by walking every branch
+        # whole, which is linear in the body. An anonymous caller gets a fixed
+        # answer instead, whose cost the size limit bounds.
+        query = {"username": {"$in": [{"x": 1}] * 6000}}
+        started = time.perf_counter()
+        response = self.client.post("/api/actions", json=query)
+        elapsed = time.perf_counter() - started
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()["error"],
+            "/api/actions: request is not a filter this endpoint accepts",
+        )
+        self.assertLess(elapsed, 0.05)
 
     def test_actions_options_is_not_allowed(self):
         response = self.client.options(

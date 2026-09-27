@@ -366,7 +366,9 @@ Returns paginated finished runs. Query parameters:
 
 Returns up to 200 recent actions matching the JSON query body. The body is a
 MongoDB filter, validated against `action_query_schema` before the database is
-handed it, and a filter it refuses is a `400` naming the key.
+handed it. A body over the size limit is a `413`. A body that is not JSON, or a
+filter outside the table below, is a `400` with a fixed error that does not name
+the part that failed.
 
 What a filter may say:
 
@@ -376,7 +378,7 @@ What a filter may say:
 | Match | a JSON constant (equality), or a document of comparisons |
 | Comparisons | `$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`, `$in`, `$nin` |
 | Boolean | `$and`, `$or`, `$nor`, over filters of the same shape |
-| Sizes | at most 1000 terms in an `$in`/`$nin`, at most 16 clauses in a boolean |
+| Sizes | a body of at most 64 KiB, at most 1000 terms in an `$in`/`$nin`, at most 16 clauses in a boolean |
 
 Anything else is refused, which is the point of listing rather than excluding:
 `$where`, `$expr`, `$function` and `$accumulator` each run a caller's code on
