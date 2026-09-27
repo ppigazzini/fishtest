@@ -28,6 +28,8 @@ from fishtest.run_cache import Prio
 from fishtest.scheduler import Scheduler
 from fishtest.schemas import (
     RUN_VERSION,
+    book_fields,
+    books_download_schema,
     books_schema,
     compute_committed_games,
     compute_cores,
@@ -193,13 +195,19 @@ class RunDb:
         books = None
         try:
             # books.json is third-party input, so it is parsed and checked in
-            # one pass before it reaches the database. Keeping the previous
-            # metadata beats storing a document nothing here can read.
-            books = books_schema.load(
+            # one pass before it reaches the database. A book may carry fields
+            # this server does not read, and the stored copy keeps the declared
+            # ones. Keeping the previous metadata beats storing a document
+            # nothing here can read.
+            downloaded = books_download_schema.load(
                 gh.download_from_github(
                     "books.json", repo="books", ignore_rate_limit=True
                 )
             )
+            books = {
+                name: {field: book[field] for field in book_fields}
+                for name, book in downloaded.items()
+            }
         except ValidationError as e:
             print(f"The book metadata from GitHub does not validate: {e!s}", flush=True)
         except Exception as e:
