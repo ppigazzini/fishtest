@@ -268,6 +268,31 @@ class TestHttpApi(unittest.TestCase):
         self.assertIn("request is not json encoded", body["error"])
         self.assertTrue(isinstance(body.get("duration"), (int, float)))
 
+    def test_a_body_that_is_not_standard_json_is_refused(self):
+        # The tokens the API reference lists as not JSON, at the worker boundary
+        # and at the anonymous one.
+        bodies = {
+            "NaN": b'{"n": NaN}',
+            "Infinity": b'{"n": Infinity}',
+            "-Infinity": b'{"n": -Infinity}',
+            "unpaired surrogate escape": b'{"s": "\\ud800"}',
+            "byte order mark": b"\xef\xbb\xbf{}",
+            "nesting past the depth limit": b"[" * 250 + b"]" * 250,
+        }
+        for path in ("/api/request_version", "/api/actions"):
+            for name, body in bodies.items():
+                with self.subTest(path=path, body=name):
+                    response = self.client.post(
+                        path,
+                        content=body,
+                        headers={"content-type": "application/json"},
+                    )
+                    self.assertEqual(response.status_code, 400)
+                    self.assertEqual(
+                        response.json()["error"],
+                        f"{path}: request is not json encoded",
+                    )
+
     def test_a_worker_request_is_parsed_once(self):
         # The worker boundary validates the body with a schema, which parses and
         # checks in one pass on the Rust path. Nothing may parse it in Python
