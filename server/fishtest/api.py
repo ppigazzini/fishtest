@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, StreamingResponse
-from valgebra import ValidationError
+from valgebra import ValidationError, anything
 
 import fishtest.github_api as gh
 from fishtest.http.boundary import ApiRequestShim, get_request_shim
@@ -26,6 +26,10 @@ from fishtest.stats.stat_util import SPRT_elo, get_elo
 from fishtest.util import strip_run, worker_name
 
 WORKER_VERSION = 329
+
+# The largest filter the notifications client sends, an `$in` over the run ids
+# its LRU holds, is about 30 KB at the schema's list cap.
+ACTIONS_BODY_MAX = 64 * 1024
 
 WORKER_API_PATHS = {
     "/api/request_version",
@@ -406,13 +410,20 @@ class UserApi(GenericApi):
         # The body is a MongoDB filter rather than a document, so it is checked
         # against what a filter may say before the database is handed it: an
         # operator this does not name would otherwise be one the caller gets to
-        # run. Parsed and checked in one pass, as the worker boundary is.
-        try:
-            query = action_query_schema.load(self.request.raw_body)
-        except ValidationError as e:
-            if e.code == "json_invalid":
+        # run. The caller is anonymous, so a refused filter gets a fixed answer
+        # rather than a report: explaining a value a union refuses walks every
+        # branch whole, at a cost linear in the body. A membership test reads
+        # the body once, and the size limit bounds that.
+        raw_body = self.request.raw_body
+        if len(raw_body) > ACTIONS_BODY_MAX:
+            self.handle_error(
+                f"request body exceeds {ACTIONS_BODY_MAX} bytes", status_code=413
+            )
+        if not action_query_schema.is_valid_json(raw_body):
+            if not anything.is_valid_json(raw_body):
                 self.handle_error("request is not json encoded")
-            self.handle_error(str(e))
+            self.handle_error("request is not a filter this endpoint accepts")
+        query = action_query_schema.load(raw_body)
         try:
             actions = self.request.rundb.db["actions"].find(query).limit(200)
         except Exception:
