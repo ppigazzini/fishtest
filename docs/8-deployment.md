@@ -765,3 +765,40 @@ fi
 
 echo "----------------------------------------------------"
 ```
+
+## Stored document audit
+
+`server/utils/validate_documents.py` checks the stored documents against the
+schemas and counts the failures. It only reads. Run it on the production host
+before deploying a change to `schemas.py` or a valgebra upgrade, from the
+checkout of the release to deploy: it checks against that checkout's schemas.
+
+```bash
+cd server
+uv run python utils/validate_documents.py
+```
+
+It checks every unfinished run, user, worker and net, and the `books`,
+`legacy_usernames` and `github_api_cache` kvstore entries. `--db` names the
+database (default `fishtest_new`), and `--limit` caps the documents read from
+each collection.
+
+The report gives the documents checked and failing per group, then each failure
+by group, path and code, with the `_id` of the first document that has it. A
+list index prints as `[*]`, so one field failing across many tasks counts under
+one path. Runs are grouped by their `version`.
+
+What a failure costs depends on where the server validates the document:
+
+| Group | Validated when | A failing document |
+|---|---|---|
+| `users` | a user is created, or saved by a profile edit, an approval, a block, or a test submitted with a new tests repository | the operation fails |
+| `workers` | a worker is blocked, unblocked or given a message, and when a blocked worker asks for a task | the operation fails |
+| `nns` | a net is uploaded, a test using it is submitted, or a download is counted | the operation fails; a download returns `500` |
+| `runs vN` | one random unfinished run every 3 minutes, and a run when it stops or is deleted | logged: to stdout for a run older than the current run version, to the event log as well otherwise |
+| `kvstore books` | every 15 minutes, with the other internal structures | logged to the event log |
+| `kvstore legacy_usernames` | at startup | the entries that fail are dropped and logged |
+| `kvstore github_api_cache` | at startup | the server starts with an empty cache and logs it |
+
+A failing user, worker or net must be corrected before the deploy. A failing
+run is only logged, and stops being checked when it finishes.
