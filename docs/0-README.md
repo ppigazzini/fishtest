@@ -19,7 +19,7 @@ viewing results, and administering users and workers.
 | 5 | [5-templates.md](5-templates.md) | UI contributors | Jinja2 environment, template catalog (page + fragment), context contracts |
 | 6 | [6-worker.md](6-worker.md) | Worker contributors | Worker architecture, task lifecycle, API usage |
 | 7 | [7-development.md](7-development.md) | All developers | Dev setup, validation workflows, valgebra rules, OpenAPI |
-| 8 | [8-deployment.md](8-deployment.md) | Operators | systemd, nginx, kernel tuning, capacity audit |
+| 8 | [8-deployment.md](8-deployment.md) | Operators | systemd, nginx, kernel tuning, capacity audit, stored document audit |
 | 9 | [9-references.md](9-references.md) | All developers | FastAPI, Starlette, Jinja2, htmx, Python, MongoDB, and tooling references |
 
 ## Quick start
