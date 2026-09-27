@@ -160,7 +160,7 @@ def get_chi2(tasks, exclude_workers=set()):
         # We cap the standard normal "residuals" at zero since negative values
         # do not look very nice and moreover they do not convey any
         # information.
-        users[key] = max(0, res_z[idx])
+        users[key] = max(0.0, res_z[idx])
 
     # We compute 95% and 99% thresholds using the Bonferroni correction.
     # Under the null hypothesis, yellow and red residuals should appear
