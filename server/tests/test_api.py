@@ -1034,9 +1034,9 @@ class TestHttpApi(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
 
     def test_actions_refuses_a_filter_without_explaining_it(self):
-        # An anonymous caller gets a fixed answer rather than a report: a
-        # refused filter is tested for membership once and never loaded, since
-        # loading it is what builds the report.
+        # An anonymous caller gets a fixed answer rather than a report, and the
+        # check stops at the first failure: a report that reads every failure
+        # costs time linear in the body.
         from unittest import mock
 
         import fishtest.api as api_module
@@ -1053,8 +1053,22 @@ class TestHttpApi(unittest.TestCase):
             response.json()["error"],
             "/api/actions: request is not a filter this endpoint accepts",
         )
-        schema.is_valid_json.assert_called_once()
-        schema.load.assert_not_called()
+        schema.load.assert_called_once_with(mock.ANY, fail_fast=True)
+
+    def test_actions_reads_a_filter_once(self):
+        from unittest import mock
+
+        import fishtest.api as api_module
+
+        with mock.patch.object(
+            api_module,
+            "action_query_schema",
+            wraps=api_module.action_query_schema,
+        ) as schema:
+            response = self.client.post("/api/actions", json={"action": "new_run"})
+        self.assertEqual(response.status_code, 200)
+        schema.load.assert_called_once()
+        schema.is_valid_json.assert_not_called()
 
     def test_actions_options_is_not_allowed(self):
         response = self.client.options(
