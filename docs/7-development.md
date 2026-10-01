@@ -123,7 +123,9 @@ Core rules:
     and for a predicate only when no marker expresses the check.
 - Where an element is a compiled validator, write the native form: `[v]` for
     `list[v]` and `{str: v}` for `dict[str, v]`. A type checker refuses a
-    variable inside a typing subscript. A constant set held in a sequence is
+    variable inside a typing subscript. Where no native form exists (a set, a
+    tuple, a list under `Annotated`), write the element as
+    `Annotated[object, v]`, which is `v`. A constant set held in a sequence is
     `union(*values)`, not `Literal[*values]`.
 - Compile each schema once, at import, into a module-level `Validator`; call
     `.validate(document)` at the boundary.
