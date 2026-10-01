@@ -11,10 +11,11 @@
 # element is a compiled validator they also spell the homogeneous shapes, `[v]`
 # for `list[v]` and `{str: v}` for `dict[str, v]`, because a type checker
 # refuses a variable inside a typing subscript; a constant set held in a
-# sequence is `union(*values)` for the same reason. `set[v]` and a `tuple` of
-# validators have no such spelling. `union`, `intersection` and `complement`
-# compose all of it into a Boolean lattice, and the recipes below are the
-# standard compositions over that lattice.
+# sequence is `union(*values)` for the same reason. Where no native form exists
+# -- a set, a tuple, a list under `Annotated` -- the element is written
+# `Annotated[object, v]`, which is `v` itself. `union`, `intersection` and
+# `complement` compose all of it into a Boolean lattice, and the recipes below
+# are the standard compositions over that lattice.
 #
 # See https://ppigazzini.github.io/valgebra/ for the schema language, the
 # algebra, and the error model.
@@ -32,7 +33,9 @@
 # rule the algebra can state -- `implies`, `has`, `one_of` -- stays a conjunct,
 # where a relation can still read it. A record under `Annotated` is written
 # `Validator({...})`, because Ruff reads the first argument of `Annotated` as a
-# type expression and a bare record's keys as forward references.
+# type expression and a bare record's keys as forward references. It stays the
+# base: a validator in the metadata meets the base beside the rule, so the rule
+# would run on a record that failed.
 #
 # Some of those predicates *raise* rather than return False, which valgebra
 # reports as `predicate_error` instead of an ordinary non-membership. That is
@@ -367,7 +370,8 @@ kvstore_schema = Validator(
 # this with a record pinning it.
 github_api_cache_key = Validator(list) | tuple
 github_api_cache_entry = union(
-    [github_api_cache_key, anything], tuple[github_api_cache_key, anything]
+    [github_api_cache_key, anything],
+    tuple[Annotated[object, github_api_cache_key], object],
 )
 github_api_cache_schema = Validator(
     open_record({"version": uint, "lru_cache": [github_api_cache_entry]})
@@ -637,7 +641,10 @@ ACTION_QUERY_CLAUSE_MAX = 16
 # so these are the kinds JSON has.
 action_query_constant = union(str, int, float, bool, None)
 action_query_list = Validator(
-    Annotated[list[action_query_constant], at.MaxLen(ACTION_QUERY_LIST_MAX)]
+    Annotated[
+        list[Annotated[object, action_query_constant]],
+        at.MaxLen(ACTION_QUERY_LIST_MAX),
+    ]
 )
 action_query_comparison = Validator(
     {
@@ -672,13 +679,19 @@ action_query_schema = recursive(
         # MongoDB refuses an empty clause list, so this does, with a message
         # that says which field rather than an OperationFailure.
         "$and?": Annotated[
-            list[query], at.MinLen(1), at.MaxLen(ACTION_QUERY_CLAUSE_MAX)
+            list[Annotated[object, query]],
+            at.MinLen(1),
+            at.MaxLen(ACTION_QUERY_CLAUSE_MAX),
         ],
         "$or?": Annotated[
-            list[query], at.MinLen(1), at.MaxLen(ACTION_QUERY_CLAUSE_MAX)
+            list[Annotated[object, query]],
+            at.MinLen(1),
+            at.MaxLen(ACTION_QUERY_CLAUSE_MAX),
         ],
         "$nor?": Annotated[
-            list[query], at.MinLen(1), at.MaxLen(ACTION_QUERY_CLAUSE_MAX)
+            list[Annotated[object, query]],
+            at.MinLen(1),
+            at.MaxLen(ACTION_QUERY_CLAUSE_MAX),
         ],
     }
 )
@@ -1067,8 +1080,12 @@ run_args_schema = intersection(
     {
         "base_tag": str,
         "new_tag": str,
-        "base_nets": Annotated[list[net_name], at.Predicate(is_unique)],
-        "new_nets": Annotated[list[net_name], at.Predicate(is_unique)],
+        "base_nets": Annotated[
+            list[Annotated[object, net_name]], at.Predicate(is_unique)
+        ],
+        "new_nets": Annotated[
+            list[Annotated[object, net_name]], at.Predicate(is_unique)
+        ],
         "num_games": game_count,
         "tc": tc,
         "new_tc": tc,
@@ -1227,11 +1244,14 @@ cache_entry_schema = Validator(
 
 cache_schema = intersection({str: cache_entry_schema}, keys_in(run_id))
 
-wtt_map_schema = intersection({str: tuple[run_id, task_id]}, keys_in(short_worker_name))
+wtt_map_schema = intersection(
+    {str: tuple[Annotated[object, run_id], Annotated[object, task_id]]},
+    keys_in(short_worker_name),
+)
 
 connections_counter_schema = intersection({str: suint}, keys_in(ip_address))
 
-unfinished_runs_schema = Validator(set[run_id])
+unfinished_runs_schema = Validator(set[Annotated[object, run_id]])
 
 # A record with a typed catch-all: "last_run" names a run, and every other key
 # is itself a run the worker has taken part in.
