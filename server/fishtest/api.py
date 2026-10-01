@@ -11,7 +11,7 @@ from pymongo import DESCENDING
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, StreamingResponse
-from valgebra import ValidationError, anything
+from valgebra import ValidationError
 
 import fishtest.github_api as gh
 from fishtest.http.boundary import ApiRequestShim, get_request_shim
@@ -411,19 +411,20 @@ class UserApi(GenericApi):
         # against what a filter may say before the database is handed it: an
         # operator this does not name would otherwise be one the caller gets to
         # run. The caller is anonymous, so a refused filter gets a fixed answer
-        # rather than a report: explaining a value a union refuses walks every
-        # branch whole, at a cost linear in the body. A membership test reads
-        # the body once, and the size limit bounds that.
+        # rather than a report, and the check stops at the first failure: a
+        # report that reads every failure costs time linear in the body. The
+        # size limit bounds the parse.
         raw_body = self.request.raw_body
         if len(raw_body) > ACTIONS_BODY_MAX:
             self.handle_error(
                 f"request body exceeds {ACTIONS_BODY_MAX} bytes", status_code=413
             )
-        if not action_query_schema.is_valid_json(raw_body):
-            if not anything.is_valid_json(raw_body):
+        try:
+            query = action_query_schema.load(raw_body, fail_fast=True)
+        except ValidationError as e:
+            if e.code == "json_invalid":
                 self.handle_error("request is not json encoded")
             self.handle_error("request is not a filter this endpoint accepts")
-        query = action_query_schema.load(raw_body)
         # Newest first, the order the `actions_time_id` index keeps.
         actions = (
             self.request.rundb.db["actions"]
