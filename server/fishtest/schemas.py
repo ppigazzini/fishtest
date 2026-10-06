@@ -150,11 +150,10 @@ def keys_in(key_schema, *fields):
 def open_record(fields):
     """A record admitting undeclared keys, its nested records left closed.
 
-    `Validator.open()` opens the records nested in a schema too, under fields,
-    elements and union members alike, and leaves only the records under a
-    mapping's values closed. Where only this record may take extra keys, a
-    catch-all clause over every key frees exactly its own undeclared ones, and
-    the declared fields keep precedence over it.
+    `Validator.open()` opens every record nested in a schema too, under fields,
+    elements, union members and a mapping's values alike. Where only this
+    record may take extra keys, a catch-all clause over every key frees exactly
+    its own undeclared ones, and the declared fields keep precedence over it.
     """
     return Validator({**fields, anything: anything})
 
@@ -1277,9 +1276,6 @@ book_fields = {
     "max_depth": uint | None,
     "sri": sri384,
 }
-# One predicate for both mappings below, so a relation between them reads the
-# key rule as one set rather than two opaque ones.
-keyed_by_book = keys_in(book)
 
 book_schema = Validator(
     Annotated[
@@ -1289,14 +1285,10 @@ book_schema = Validator(
     ]
 )
 
-books_schema = intersection({str: book_schema}, keyed_by_book)
+books_schema = intersection({str: book_schema}, keys_in(book))
 
 # books.json as the books repository serves it. A book there may describe more
-# than this server reads, so each is an open record, and the stored copy is the
-# download projected onto `book_fields`. `.open()` would not do: it leaves the
-# records under a mapping's values closed.
-book_download_schema = Validator(
-    Annotated[open_record(book_fields), at.Predicate(total_is_white_plus_black)]
-)
-
-books_download_schema = intersection({str: book_download_schema}, keyed_by_book)
+# than this server reads, so the download is the stored shape opened, and the
+# stored copy is the download projected onto `book_fields`. Opening the mapping
+# also frees the keys beside `str`, which the key rule refuses.
+books_download_schema = books_schema.open()

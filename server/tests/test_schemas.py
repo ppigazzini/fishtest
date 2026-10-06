@@ -743,6 +743,9 @@ class TestInternalStructures(unittest.TestCase):
             {"UHO.epd": {**downloaded["UHO.epd"], "total": 11}},
             s.books_download_schema,
         )
+        # Opening the mapping frees the keys beside `str`, and the key rule
+        # refuses them.
+        self.assertNotIn({1: book}, s.books_download_schema)
 
     def test_legacy_usernames(self):
         self.assertEqual(s.legacy_usernames_schema.ensure(["a", "b"]), ["a", "b"])
@@ -1032,16 +1035,16 @@ class TestSchemaAlgebra(unittest.TestCase):
         self.assertFalse(s.open_record(nested).is_valid(extra_inside))
         self.assertTrue(Validator(nested).open().is_valid(extra_inside))
 
-    def test_open_leaves_the_records_under_a_mappings_values_closed(self):
-        # `.open()` reaches a record under a list element and a union member,
-        # and not one under a mapping's values, which is why the books.json
-        # reader opens its book records itself.
+    def test_open_reaches_the_records_under_a_mappings_values(self):
+        # `.open()` reaches a record under a list element, a union member and a
+        # mapping's values, which is what lets the books.json reader be the
+        # stored books schema opened.
         record = {"wins": int}
         extra = {"wins": 1, "x": 2}
         self.assertIn([extra], Validator([record]).open())
         self.assertIn(extra, union(int, record).open())
-        self.assertNotIn({"k": extra}, Validator({str: record}).open())
-        self.assertIn({"k": extra}, Validator({str: s.open_record(record)}))
+        self.assertIn({"k": extra}, Validator({str: record}).open())
+        self.assertNotIn({"k": extra}, Validator({str: record}))
 
     def test_the_stored_worker_info_extends_the_received_one(self):
         # Closed-record width is inside what valgebra decides, so this relation
