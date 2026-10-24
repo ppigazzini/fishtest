@@ -307,9 +307,9 @@ class TestLeaves(unittest.TestCase):
     def test_residual_color(self):
         self.assert_members(s.residual_color, ["green", "red"], ["blue", None])
 
-    def test_literals_are_typed_singletons(self):
-        # A literal is a typed singleton: same type and equal, so 0 is not 0.0
-        # and 1 is not True.
+    def test_a_literal_admits_only_its_constants_type(self):
+        # A literal admits the values equal to its constant and of its type, so
+        # 0 is not 0.0 and 1 is not True.
         self.assertTrue(s.action_name.is_valid("new_run"))
         self.assertFalse(s.action_name.is_valid("no_such_action"))
         finished = Validator({"nps": 0.0})
@@ -879,9 +879,10 @@ class TestSchemaAlgebra(unittest.TestCase):
         declines here is opaque by construction (a predicate) or bounded (the
         work budget), never a claim that a schema is empty.
 
-        The sweep still catches only what the procedure decides: a contradictory
-        refinement is caught, an `intersection(record, bare_callable)` is not --
-        `test_no_schema_swallowed_a_bare_callable` is what covers that one.
+        The sweep catches only what the procedure decides: a contradictory
+        refinement is caught. An `intersection(record, bare_callable)`, which it
+        would not decide, never builds --
+        `test_a_bare_callable_is_refused_where_a_schema_goes` pins the refusal.
         """
         answers = {
             name: v.relation_to(nothing) for name, v in self.module_validators().items()
@@ -1086,15 +1087,14 @@ class TestSchemaAlgebra(unittest.TestCase):
             s.github_commit_head.relation_to(s.github_commit_message), "subset"
         )
 
-    def test_no_schema_swallowed_a_bare_callable(self):
-        # A callable is a predicate as `Annotated` metadata, but a *schema spec*
-        # on its own is a constant: `intersection(record, my_check)` compiles to
-        # `intersection(record, Literal[<function my_check>])`, which admits
-        # nothing. valgebra does not prove that intersection empty, so the
-        # emptiness check above cannot catch it -- the stable repr can.
-        for name, v in self.module_validators().items():
-            self.assertNotIn("Literal[<function", repr(v), name)
-            self.assertNotIn("Literal[<built-in", repr(v), name)
+    def test_a_bare_callable_is_refused_where_a_schema_goes(self):
+        # A callable is a predicate as `Annotated` metadata only. A rule met
+        # with its record instead of refining it would be the set holding the
+        # one function object, which admits nothing and which no relation
+        # proves empty; valgebra refuses it at build, so the module cannot
+        # import with one.
+        with self.assertRaises(NotImplementedError):
+            intersection(s.book_fields, s.total_is_white_plus_black)
 
     def test_a_schema_prints_back_as_its_annotation(self):
         self.assertEqual(repr(s.uint), "Annotated[int, Ge(0)]")
