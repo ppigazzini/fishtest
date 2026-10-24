@@ -130,8 +130,8 @@ Core rules:
 - Compile each schema once, at import, into a module-level `Validator`; call
     `.validate(document)` at the boundary.
 - State the type a field actually stores. `int` and `float` are disjoint sets
-    and a literal is a typed singleton, so a field declared `float` rejects
-    `0` and a field declared `0.0` rejects `0`. Where a writer disagrees with
+    and a literal admits only values of its constant's type, so a field
+    declared `float` rejects `0` and a field declared `0.0` rejects `0`. Where a writer disagrees with
     the schema, fix the writer: the schema is the statement of intent.
 - Name a rule the algebra can state (`implies`, `has`, `one_of`) and intersect
     it with the record. A document then belongs to the record and to every
