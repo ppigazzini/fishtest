@@ -3,6 +3,8 @@
 import threading
 import time
 import unittest
+from concurrent.futures import Future
+from unittest.mock import patch
 
 from fishtest.lru_cache import LRUCache, lru_cache
 
@@ -472,3 +474,131 @@ class CreateLRUCacheTest(unittest.TestCase):
         self.assertIn("good", worker2.cache)
         worker2("bad")
         self.assertNotIn("bad", worker2.cache)
+
+
+class SingleFlightTest(unittest.TestCase):
+    def setUp(self):
+        self.calls = []
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.waiting = threading.Semaphore(0)
+        self.addCleanup(self.release.set)
+
+        waiting = self.waiting
+
+        class _CountingFuture(Future):
+            def result(self, timeout=None):
+                waiting.release()
+                return super().result(timeout)
+
+        patcher = patch("fishtest.lru_cache.Future", _CountingFuture)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _call_in_threads(self, function, count):
+        """Run function in threads, with all but the first waiting for it."""
+        outcomes = []
+
+        def call():
+            try:
+                outcomes.append(function())
+            except Exception as e:  # noqa: BLE001
+                outcomes.append(e)
+
+        threads = [threading.Thread(target=call) for _ in range(count)]
+        threads[0].start()
+        self.assertTrue(self.entered.wait(5))
+        for thread in threads[1:]:
+            thread.start()
+        for _ in threads[1:]:
+            self.assertTrue(self.waiting.acquire(timeout=5))
+        self.release.set()
+        for thread in threads:
+            thread.join(5)
+        return outcomes
+
+    def test_concurrent_misses_on_a_key_run_once(self):
+        @lru_cache(single_flight=True)
+        def read():
+            self.calls.append(1)
+            self.entered.set()
+            self.release.wait(5)
+            return object()
+
+        outcomes = self._call_in_threads(read, 8)
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(len(outcomes), 8)
+        self.assertEqual(len({id(outcome) for outcome in outcomes}), 1)
+        self.assertIs(read(), outcomes[0])
+
+    def test_waiting_callers_share_the_exception_and_a_later_call_retries(self):
+        @lru_cache(single_flight=True)
+        def read():
+            self.calls.append(1)
+            self.entered.set()
+            self.release.wait(5)
+            if len(self.calls) == 1:
+                raise ValueError("no database")
+            return "value"
+
+        outcomes = self._call_in_threads(read, 8)
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(len(outcomes), 8)
+        self.assertTrue(all(isinstance(outcome, ValueError) for outcome in outcomes))
+        self.assertEqual(read(), "value")
+        self.assertEqual(len(self.calls), 2)
+
+    def test_different_keys_do_not_wait_for_each_other(self):
+        b_returned = threading.Event()
+        a_saw_b = []
+
+        @lru_cache(single_flight=True)
+        def read(key):
+            if key == "a":
+                self.entered.set()
+                a_saw_b.append(b_returned.wait(5))
+            return key
+
+        thread = threading.Thread(target=read, args=("a",))
+        thread.start()
+        self.assertTrue(self.entered.wait(5))
+        self.assertEqual(read("b"), "b")
+        b_returned.set()
+        thread.join(5)
+        self.assertEqual(a_saw_b, [True])
+
+    def test_expired_entry_runs_once_more(self):
+        @lru_cache(expiration=0.05, refresh=False, single_flight=True)
+        def read():
+            self.calls.append(1)
+            return len(self.calls)
+
+        self.assertEqual(read(), 1)
+        self.assertEqual(read(), 1)
+        time.sleep(0.1)
+        self.assertEqual(read(), 2)
+
+    def test_filtered_result_is_not_stored(self):
+        @lru_cache(single_flight=True, filter=lambda f, args, kw, val: False)
+        def read():
+            self.calls.append(1)
+            return len(self.calls)
+
+        self.assertEqual(read(), 1)
+        self.assertEqual(read(), 2)
+
+    def test_without_the_option_every_concurrent_miss_runs(self):
+        all_entered = threading.Barrier(4)
+
+        @lru_cache()
+        def read():
+            self.calls.append(1)
+            all_entered.wait(5)
+            return "value"
+
+        threads = [threading.Thread(target=read) for _ in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(5)
+        self.assertEqual(len(self.calls), 4)

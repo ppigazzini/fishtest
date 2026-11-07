@@ -580,6 +580,8 @@ Most test files import `test_support`, which provides:
   user without the login form, creating the user if needed.
 - `set_session(client, session)`: gives a test client a signed session with exactly
   this content.
+- `clear_anonymous_lists()`: forgets the anonymous list snapshots, as their expiry
+  does. `make_test_client` calls it when it includes the views router.
 
 User-facing UI route modules also reuse `ui_user_test_case.py` for shared
 client setup, login helpers, run creation, and DB cleanup.
@@ -602,6 +604,7 @@ validation fails.
 | `test_views_detail.py` | `/tests/view/{id}` detail polling, `/tests/tasks/{id}`, and task UI assets |
 | `test_views_finished.py` | Finished-runs search and pagination |
 | `test_views_login_gate.py` | What an anonymous client gets from pages, fragments, polls, and read APIs |
+| `test_views_anonymous_lists.py` | Snapshots behind the default list pages for anonymous requests |
 | `test_api_tokens.py` | API token storage, the `Authorization` header contract, and the `/user` form |
 | `test_session_password.py` | A session ends when the password of its user changes |
 | `test_views_helpers.py` | Shared pagination, parameter, and merge helpers |

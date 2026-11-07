@@ -3,6 +3,7 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import MutableMapping
+from concurrent.futures import Future
 
 
 class LRUCache(MutableMapping):
@@ -213,7 +214,9 @@ class LRUCache(MutableMapping):
 # to use a previously defined LRUCache object as cache. The "key" parameter
 # allows customizing how cache keys are constructed from (f, args, kw), and the
 # "filter" parameter controls, based on (f, args, kw, val), whether a computed
-# result should be stored in the cache.
+# result should be stored in the cache. With "single_flight", concurrent misses
+# on one key run f once and share its result or its exception. Without it, each
+# of them runs f.
 class lru_cache:
     def __init__(
         self,
@@ -223,6 +226,7 @@ class lru_cache:
         cache=None,
         key=lambda f, args, kw: (f, frozenset(kw.items())) + args,
         filter=lambda f, args, kw, val: True,
+        single_flight=False,
     ):
         if cache is not None:
             if any((x is not None for x in (maxsize, expiration, refresh))):
@@ -239,15 +243,10 @@ class lru_cache:
             )
         self.__key = key
         self.__filter = filter
+        self.__single_flight = single_flight
 
     def __call__(self, f):
-        @functools.wraps(f)
-        def wrapper(*args, **kw):
-            key = self.__key(f, args, kw)
-            try:
-                return self.__cache[key]
-            except KeyError:
-                pass
+        def compute(key, args, kw):
             ret = f(*args, **kw)
             with self.__cache.lock:
                 try:
@@ -257,6 +256,43 @@ class lru_cache:
                 if self.__filter(f, args, kw, ret):
                     self.__cache[key] = ret
                 return ret
+
+        # The computations in progress, protected by the lock of the cache.
+        flights = {}
+
+        def share_computation(key, args, kw):
+            with self.__cache.lock:
+                try:
+                    return self.__cache[key]
+                except KeyError:
+                    pass
+                flight = flights.get(key)
+                if flight is None:
+                    flights[key] = own_flight = Future()
+            if flight is not None:
+                return flight.result()
+            try:
+                ret = compute(key, args, kw)
+            except BaseException as e:
+                own_flight.set_exception(e)
+                raise
+            else:
+                own_flight.set_result(ret)
+                return ret
+            finally:
+                with self.__cache.lock:
+                    del flights[key]
+
+        miss = share_computation if self.__single_flight else compute
+
+        @functools.wraps(f)
+        def wrapper(*args, **kw):
+            key = self.__key(f, args, kw)
+            try:
+                return self.__cache[key]
+            except KeyError:
+                pass
+            return miss(key, args, kw)
 
         wrapper.lock = self.__cache.lock
         wrapper.cache = self.__cache

@@ -11,6 +11,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import urlencode
 
+from fishtest.http.settings import ANONYMOUS_LIST_TTL_S
+from fishtest.lru_cache import lru_cache
 from fishtest.util import parse_page_number
 
 if TYPE_CHECKING:
@@ -54,6 +56,45 @@ _QUOTATION_MARKS_TRANSLATION = str.maketrans(
 def sanitize_quotation_marks(text: str) -> str:
     """Replace typographic quotation marks with ASCII double quotes."""
     return text.translate(_QUOTATION_MARKS_TRANSLATION)
+
+
+def _login_beyond_first_page(request: Any) -> bool:  # noqa: ANN401
+    """Report whether a list request asks for more than its default first page.
+
+    A live run-tables poll asks for no list: /tests and /tests/user/{username}
+    answer it, and the other routes ignore the parameter.
+    """
+    return any(
+        not (
+            (key == "page" and value in {"", "1"})
+            or (key == "live" and value == "run_tables")
+        )
+        for key, value in request.query_params.multi_items()
+    )
+
+
+def _serves_anonymous_snapshot(request: Any) -> bool:  # noqa: ANN401
+    """Report whether a shared snapshot can answer a list request.
+
+    An anonymous request for a default first page sends no filter, so its list
+    is the same for every client. A logged-in user reads fresh data.
+    """
+    return not request.authenticated_userid and not _login_beyond_first_page(request)
+
+
+def _anonymous_list_snapshot(*, maxsize: int = 1) -> lru_cache:
+    """Cache a read that every anonymous request for a default list page shares.
+
+    The cached value is shared between threads, so callers must not modify it.
+    Per-visitor state stays out of it: the CSRF token, flash messages, and the
+    theme, toggle, and filter cookies apply to each request after the read.
+    """
+    return lru_cache(
+        maxsize=maxsize,
+        expiration=ANONYMOUS_LIST_TTL_S,
+        refresh=False,
+        single_flight=True,
+    )
 
 
 def _is_truthy_param(value: Any) -> bool:  # noqa: ANN401

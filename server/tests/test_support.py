@@ -141,6 +141,21 @@ def build_test_app(*, rundb: Any, include_api: bool, include_views: bool):
     return app
 
 
+def clear_anonymous_lists() -> None:
+    """Forget the anonymous list snapshots, as their expiry does."""
+    from fishtest.views import (
+        _anonymous_contributors_list,
+        _anonymous_nns_list,
+        _anonymous_unfinished_runs,
+    )
+    from fishtest.views_finished import _anonymous_finished_runs
+
+    _anonymous_contributors_list.cache_clear()
+    _anonymous_finished_runs.cache_clear()
+    _anonymous_nns_list.cache_clear()
+    _anonymous_unfinished_runs.cache_clear()
+
+
 def make_test_client(*, rundb: Any, include_api: bool, include_views: bool):
     """Create a starlette TestClient for the HTTP routers."""
     _FastAPI, TestClient = require_fastapi()
@@ -149,6 +164,8 @@ def make_test_client(*, rundb: Any, include_api: bool, include_views: bool):
         include_api=include_api,
         include_views=include_views,
     )
+    if include_views:
+        clear_anonymous_lists()
     return TestClient(app)
 
 

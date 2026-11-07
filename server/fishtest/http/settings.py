@@ -46,6 +46,10 @@ UI_STATE_COOKIE_MAX_AGE_SECONDS: int = 60 * 60 * 24 * 400
 # Details: docs/4-ui-reference.md (section: "Anonymous access").
 ANONYMOUS_RUN_MAX_AGE_DAYS: int = 30
 
+# Anonymous requests for a default list page share one read for this long.
+# Details: docs/4-ui-reference.md (section: "Anonymous access").
+ANONYMOUS_LIST_TTL_S: int = 5
+
 # A token stops working this long after it was created.
 # Details: docs/3-api-reference.md (section: "API tokens").
 API_TOKEN_MAX_AGE_DAYS: int = 365

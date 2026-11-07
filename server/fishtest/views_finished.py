@@ -7,6 +7,7 @@ Prepare canonical query strings, pagination state, username matching, and the
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any
 from urllib.parse import urlencode
 
@@ -22,6 +23,7 @@ from fishtest.views_helpers import (
     _DEFAULT_SORT_ORDER,
     _DEFAULT_TIME_SORT_FIELD,
     _MONGO_INT64_MAX,
+    _anonymous_list_snapshot,
     _build_query_string,
     _effective_result_limit,
     _host_url,
@@ -29,6 +31,7 @@ from fishtest.views_helpers import (
     _path_url,
     _positive_int_param,
     _ranked_multi_username_merge,
+    _serves_anonymous_snapshot,
     _sort_matched_usernames,
     _username_priority_map,
     pagination,
@@ -37,6 +40,11 @@ from fishtest.views_helpers import (
 
 _FINISHED_MAX_COUNT_QUERY_PARAM = "max_count"
 _FINISHED_SEARCH_MODE = "search"
+
+
+@_anonymous_list_snapshot()
+def _anonymous_finished_runs(rundb: Any, **query: Any) -> Any:  # noqa: ANN401
+    return rundb.get_finished_runs(**query)
 
 
 def _matching_finished_usernames(
@@ -393,7 +401,12 @@ def get_paginated_finished_runs(  # noqa: C901, PLR0912, PLR0915
         else:
             finished_runs, num_finished_runs = ranked_finished_runs
     else:
-        finished_runs, num_finished_runs = request.rundb.get_finished_runs(
+        read_finished_runs = (
+            partial(_anonymous_finished_runs, request.rundb)
+            if not username and _serves_anonymous_snapshot(request)
+            else request.rundb.get_finished_runs
+        )
+        finished_runs, num_finished_runs = read_finished_runs(
             username=username,
             usernames=matched_usernames,
             text=text,

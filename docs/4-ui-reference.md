@@ -512,6 +512,25 @@ Anonymous pages render neither the login-only panels nor their pollers:
 - `/tests`, `/tests/user/{username}`, and every sidebar omit the run-tables and
   `Users` pollers, and the sidebar omits the pending-user count.
 
+An anonymous request for a default first page of these lists reads a snapshot
+that it shares with every other such request:
+
+| Page | Snapshot |
+|------|----------|
+| `/tests` | Unfinished runs with their totals, and the first page of finished runs with their count |
+| `/tests/finished` | The first page of finished runs with their count |
+| `/nns` | The first page and the summary, one snapshot per `master_only` value |
+| `/contributors`, `/contributors/monthly` | The first page and the summary |
+
+Each process reads a snapshot at most once per `ANONYMOUS_LIST_TTL_S` seconds, so
+an anonymous client can see a list that old. Requests that arrive during the read
+wait for it. A logged-in user reads fresh data on every request, and so does every
+request for `/tests/user/{username}` and `/actions`.
+
+A snapshot holds no per-visitor state. The CSRF token, flash messages, and the
+theme, toggle, and filter cookies apply to each response, and the `Cache-Control`
+of these pages does not depend on the snapshot.
+
 A tab that outlives its session keeps polling. The run-tables and `Users` polls
 get a `204`, so the tab stops updating. Every other poller meets the login gate
 when its route needs a login: `/tests/machines`, `/tests/tasks/{id}`, and

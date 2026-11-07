@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from fastapi.responses import RedirectResponse
+from starlette.datastructures import QueryParams
 
 from fishtest.http.settings import (
     FINISHED_FILTER_MAX_COUNT_ANON,
@@ -105,7 +106,7 @@ class _FinishedRunsRequestStub:
         self.rundb = rundb
         self.userdb = userdb
         self.params = params or {}
-        self.query_params = self.params
+        self.query_params = QueryParams(self.params)
         self.matchdict = matchdict or {}
         self._authenticated_userid = authenticated_userid
         self.host_url = host_url

@@ -6,8 +6,10 @@ detection, username matching, and heap-based merge behavior.
 
 import unittest
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import test_support
+from starlette.datastructures import QueryParams
 
 from fishtest.util import tests_repo
 from fishtest.views_helpers import (
@@ -23,6 +25,7 @@ from fishtest.views_helpers import (
     _page_index_from_params,
     _positive_int_param,
     _ranked_multi_username_merge,
+    _serves_anonymous_snapshot,
     _sort_matched_usernames,
     _username_match_sort_key,
     _username_priority_map,
@@ -330,6 +333,30 @@ class IsHxRequestTests(unittest.TestCase):
             }
         )
         self.assertTrue(_is_hx_request(request))
+
+
+class ServesAnonymousSnapshotTests(unittest.TestCase):
+    @staticmethod
+    def _serves(query="", user=None):
+        return _serves_anonymous_snapshot(
+            SimpleNamespace(
+                authenticated_userid=user,
+                query_params=QueryParams(query),
+            ),
+        )
+
+    def test_anonymous_default_first_page(self):
+        for query in ("", "page=", "page=1", "live=run_tables"):
+            with self.subTest(query=query):
+                self.assertTrue(self._serves(query))
+
+    def test_anything_beyond_the_default_first_page(self):
+        for query in ("page=2", "page=1&page=2", "sort=name", "view=all", "x=1"):
+            with self.subTest(query=query):
+                self.assertFalse(self._serves(query))
+
+    def test_logged_in_user_reads_fresh_data(self):
+        self.assertFalse(self._serves("", user="SomeUser"))
 
 
 class TestsRepoHelperTests(unittest.TestCase):

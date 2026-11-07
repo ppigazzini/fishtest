@@ -142,6 +142,7 @@ from fishtest.views_finished import get_paginated_finished_runs
 from fishtest.views_helpers import (
     _SORT_ORDER_VALUES,
     FRAGMENT_REQUEST_HEADERS,
+    _anonymous_list_snapshot,
     _append_no_store_headers,
     _append_vary_header,
     _apply_response_headers,
@@ -151,10 +152,12 @@ from fishtest.views_helpers import (
     _host_url,
     _is_hx_request,
     _is_truthy_param,
+    _login_beyond_first_page,
     _normalize_sort_order,
     _normalize_view_mode,
     _page_index_from_params,
     _path_qs,
+    _serves_anonymous_snapshot,
     pagination,
 )
 from fishtest.views_machines import (
@@ -695,21 +698,6 @@ def _login_for_old_run(request: _ViewContext) -> bool:
 
 def _login_for_old_run_or_task_link(request: _ViewContext) -> bool:
     return "show_task" in request.params or _login_for_old_run(request)
-
-
-def _login_beyond_first_page(request: _ViewContext) -> bool:
-    """Report whether a list request asks for more than its default first page.
-
-    A live run-tables poll asks for no list: /tests and /tests/user/{username}
-    answer it, and the other routes ignore the parameter.
-    """
-    return any(
-        not (
-            (key == "page" and value in {"", "1"})
-            or (key == "live" and value == "run_tables")
-        )
-        for key, value in request.query_params.multi_items()
-    )
 
 
 def _login_remember_me_checked(request: _ViewContext) -> bool:
@@ -1392,53 +1380,29 @@ def upload(request: _ViewContext) -> dict[str, Any] | RedirectResponse:  # noqa:
     return RedirectResponse(url="/nns", status_code=302)
 
 
-def nns(request: _ViewContext) -> dict[str, Any] | Response:  # noqa: C901, PLR0912, PLR0915
-    user = request.params.get("user", "")
-    network_name = request.params.get("network_name", "")
-    sort_param = request.params.get("sort", "time")
-    if sort_param not in {
-        "time",
-        "name",
-        "user",
-        "first_test",
-        "last_test",
-        "downloads",
-    }:
-        sort_param = "time"
-    order_param = request.params.get("order", "desc")
-    if order_param not in {"asc", "desc"}:
-        order_param = "desc"
-    view_param = request.params.get("view", "paged")
-    if view_param not in {"paged", "all"}:
-        view_param = "paged"
+class _NnsList(TypedDict):
+    nns: list[dict[str, Any]]
+    nns_summary: dict[str, int]
+    num_nns: int
+    is_truncated: bool
 
+
+def _read_nns_list(  # noqa: PLR0913
+    rundb: Any,  # noqa: ANN401
+    *,
+    master_only: bool,
+    user: str = "",
+    network_name: str = "",
+    sort_param: str = "time",
+    order_param: str = "desc",
+    view_param: str = "paged",
+    page_idx: int = 0,
+) -> _NnsList:
+    """Read the catalog, then summarize, sort, page, and format it."""
     page_size = NNS_PAGE_SIZE
     max_all = NNS_MAX_ALL
 
-    def _truthy(value: Any) -> bool:  # noqa: ANN401
-        if isinstance(value, bool):
-            return value
-        return str(value).strip().lower() in {"1", "true", "on", "yes"}
-
-    master_only_values: list[Any] = []
-    getlist = getattr(request.params, "getlist", None)
-    if callable(getlist):
-        master_only_values = getlist("master_only")
-    else:
-        master_only_param = request.params.get("master_only")
-        if master_only_param is not None:
-            master_only_values = [master_only_param]
-
-    if master_only_values:
-        master_only = any(_truthy(value) for value in master_only_values)
-    else:
-        master_only = read_cookie_bool(request, MASTER_ONLY_COOKIE_NAME)
-
-    page_idx = 0
-    if view_param == "paged":
-        page_idx = _page_index_from_params(request.params)
-
-    nns, num_nns = request.rundb.get_nns(
+    nns, num_nns = rundb.get_nns(
         user=user,
         network_name=network_name,
         master_only=master_only,
@@ -1520,6 +1484,82 @@ def nns(request: _ViewContext) -> dict[str, Any] | Response:  # noqa: C901, PLR0
             },
         )
 
+    return {
+        "nns": formatted_nns,
+        "nns_summary": nns_summary,
+        "num_nns": num_nns,
+        "is_truncated": is_truncated,
+    }
+
+
+@_anonymous_list_snapshot(maxsize=2)
+def _anonymous_nns_list(
+    rundb: Any,  # noqa: ANN401
+    *,
+    master_only: bool,
+) -> _NnsList:
+    return _read_nns_list(rundb, master_only=master_only)
+
+
+def nns(request: _ViewContext) -> dict[str, Any] | Response:  # noqa: C901, PLR0912
+    user = request.params.get("user", "")
+    network_name = request.params.get("network_name", "")
+    sort_param = request.params.get("sort", "time")
+    if sort_param not in {
+        "time",
+        "name",
+        "user",
+        "first_test",
+        "last_test",
+        "downloads",
+    }:
+        sort_param = "time"
+    order_param = request.params.get("order", "desc")
+    if order_param not in {"asc", "desc"}:
+        order_param = "desc"
+    view_param = request.params.get("view", "paged")
+    if view_param not in {"paged", "all"}:
+        view_param = "paged"
+
+    def _truthy(value: Any) -> bool:  # noqa: ANN401
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in {"1", "true", "on", "yes"}
+
+    master_only_values: list[Any] = []
+    getlist = getattr(request.params, "getlist", None)
+    if callable(getlist):
+        master_only_values = getlist("master_only")
+    else:
+        master_only_param = request.params.get("master_only")
+        if master_only_param is not None:
+            master_only_values = [master_only_param]
+
+    if master_only_values:
+        master_only = any(_truthy(value) for value in master_only_values)
+    else:
+        master_only = read_cookie_bool(request, MASTER_ONLY_COOKIE_NAME)
+
+    page_idx = 0
+    if view_param == "paged":
+        page_idx = _page_index_from_params(request.params)
+
+    nns_list = (
+        _anonymous_nns_list(request.rundb, master_only=master_only)
+        if _serves_anonymous_snapshot(request)
+        else _read_nns_list(
+            request.rundb,
+            master_only=master_only,
+            user=user,
+            network_name=network_name,
+            sort_param=sort_param,
+            order_param=order_param,
+            view_param=view_param,
+            page_idx=page_idx,
+        )
+    )
+    num_nns = nns_list["num_nns"]
+
     query_dict = {
         "view": view_param,
         "sort": sort_param,
@@ -1536,19 +1576,19 @@ def nns(request: _ViewContext) -> dict[str, Any] | Response:  # noqa: C901, PLR0
 
     pages = []
     if view_param == "paged":
-        pages = pagination(page_idx, num_nns, page_size, query_params)
+        pages = pagination(page_idx, num_nns, NNS_PAGE_SIZE, query_params)
 
     context = {
-        "nns": formatted_nns,
-        "nns_summary": nns_summary,
+        "nns": nns_list["nns"],
+        "nns_summary": nns_list["nns_summary"],
         "pages": pages,
         "master_only": master_only,
         "view": view_param,
         "sort": sort_param,
         "order": order_param,
         "num_nns": num_nns,
-        "max_all": max_all,
-        "is_truncated": is_truncated,
+        "max_all": NNS_MAX_ALL,
+        "is_truncated": nns_list["is_truncated"],
         "filters": {
             "network_name": network_name,
             "user": user,
@@ -2008,6 +2048,42 @@ def _contributors_sort_value(user: dict[str, Any], sort_key: str) -> Any:  # noq
         return 0
 
 
+def _read_contributors_list(
+    collection: Any,  # noqa: ANN401
+    *,
+    sort_key: str,
+    reverse: bool,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Return every user, sorted and ranked, and the summary of all of them."""
+    users_list = list(collection.find())
+
+    # Stable two-pass sort: enforce username asc tie-breaker, then primary key.
+    users_list.sort(key=lambda u: str(u.get("username", "")).lower())
+    users_list.sort(
+        key=lambda u: _contributors_sort_value(u, sort_key),
+        reverse=reverse,
+    )
+
+    for idx, user in enumerate(users_list, start=1):
+        user["_rank"] = idx
+
+    return users_list, build_contributors_summary(users_list)
+
+
+@_anonymous_list_snapshot(maxsize=2)
+def _anonymous_contributors_list(
+    collection: Any,  # noqa: ANN401
+) -> tuple[list[dict[str, Any]], dict[str, Any], int]:
+    """Return the default first page, the summary, and the number of users."""
+    sort_key, reverse = _CONTRIBUTORS_SORT_MAP[_CONTRIBUTORS_DEFAULT_SORT]
+    users_list, summary = _read_contributors_list(
+        collection,
+        sort_key=sort_key,
+        reverse=reverse,
+    )
+    return users_list[:_CONTRIBUTORS_PAGE_SIZE], summary, len(users_list)
+
+
 def _contributors_common(  # noqa: C901, PLR0912, PLR0915
     request: _ViewContext,
     *,
@@ -2033,17 +2109,15 @@ def _contributors_common(  # noqa: C901, PLR0912, PLR0915
 
     view_param = _normalize_view_mode(view_param)
 
-    all_users_unfiltered = list(collection.find())
-    users_list = list(all_users_unfiltered)
-
-    # Stable two-pass sort: enforce username asc tie-breaker, then primary key.
-    users_list.sort(key=lambda u: str(u.get("username", "")).lower())
-    users_list.sort(
-        key=lambda u: _contributors_sort_value(u, sort_key),
-        reverse=reverse,
-    )
-
-    num_users = len(users_list)
+    if _serves_anonymous_snapshot(request):
+        users_list, summary, num_users = _anonymous_contributors_list(collection)
+    else:
+        users_list, summary = _read_contributors_list(
+            collection,
+            sort_key=sort_key,
+            reverse=reverse,
+        )
+        num_users = len(users_list)
 
     findme = request.params.get("findme", "").strip()
     username = request.authenticated_userid
@@ -2109,9 +2183,6 @@ def _contributors_common(  # noqa: C901, PLR0912, PLR0915
                     status_code=302,
                 )
 
-    for idx, user in enumerate(users_list, start=1):
-        user["_rank"] = idx
-
     if highlight and not any(
         str(user.get("username", "")).lower() == highlight.lower()
         for user in users_list
@@ -2154,7 +2225,7 @@ def _contributors_common(  # noqa: C901, PLR0912, PLR0915
     context = {
         "is_monthly": is_monthly,
         "monthly_suffix": " - Top Month" if is_monthly else "",
-        "summary": build_contributors_summary(all_users_unfiltered),
+        "summary": summary,
         "users": rows,
         "pages": pages,
         "is_approver": is_approver,
@@ -2437,6 +2508,11 @@ def tests_user(request: _ViewContext) -> dict[str, Any] | Response:
     )
 
 
+@_anonymous_list_snapshot()
+def _anonymous_unfinished_runs(rundb: Any) -> Any:  # noqa: ANN401
+    return rundb.aggregate_unfinished_runs()
+
+
 def homepage_results(request: _ViewContext) -> dict[str, Any] | RedirectResponse:
     # Get updated results for unfinished runs + finished runs
 
@@ -2447,7 +2523,11 @@ def homepage_results(request: _ViewContext) -> dict[str, Any] | RedirectResponse
         nps,
         games_per_minute,
         machines_count,
-    ) = request.rundb.aggregate_unfinished_runs()
+    ) = (
+        _anonymous_unfinished_runs(request.rundb)
+        if _serves_anonymous_snapshot(request)
+        else request.rundb.aggregate_unfinished_runs()
+    )
     finished_context = get_paginated_finished_runs(request)
     if isinstance(finished_context, RedirectResponse):
         return finished_context
