@@ -28,7 +28,7 @@ server/
 |   |-- views_machines.py    -- Machines-page helpers (normalization, filter state)
 |   |-- views_run.py         -- Run creation/modification helpers (validation, lifecycle)
 |   |-- rundb.py             -- RunDb: run lifecycle, task distribution, caching
-|   |-- userdb.py            -- UserDb: authentication, groups, registration
+|   |-- userdb.py            -- UserDb: authentication, groups, registration, API tokens
 |   |-- actiondb.py          -- ActionDb: audit log
 |   |-- workerdb.py          -- WorkerDb: worker blocking
 |   |-- kvstore.py           -- KVStore: key-value metadata (legacy usernames, flags)
@@ -321,6 +321,8 @@ lifecycle is expressed in the response body:
 
 - **200** -- swap the response content and keep polling.
 - **204** -- no content; htmx skips the swap and keeps polling.
+- **204 with `HX-Redirect`** -- the login gate refused the poll; htmx navigates
+  the tab to the login page before any swap decision.
 - **200 with a driver-removing element** -- terminal state. The response
   includes `poll_stop_fragment.html.j2`, which renders
   `<div id="{poller_id}" hx-swap-oob="delete"></div>` and removes the driver.

@@ -27,8 +27,9 @@ Config keys:
 | `require_csrf` | bool | Enforce CSRF validation on POST |
 | `require_primary` | bool | Reject POST on non-primary instance (503) |
 | `request_method` | string or tuple | Allowed HTTP methods (default: GET) |
-| `http_cache` | int | `Cache-Control: max-age=` seconds |
+| `http_cache` | int | `Cache-Control: private, max-age=` seconds |
 | `direct` | bool | Bypass `_dispatch_view` (for pure redirects) |
+| `login_required` | callable | Predicate over an anonymous request; when it holds, `_dispatch_view` answers without calling the handler (see "Anonymous access") |
 
 At module load time, `_register_view_routes()` iterates over `_VIEW_ROUTES`,
 wraps each handler with `_dispatch_view()` (unless `direct=True`), and
@@ -48,7 +49,7 @@ but generic `OPTIONS` is not part of the UI route contract and returns `405`.
 | `/login` | GET, POST | `login` | `login.html.j2` | CSRF |
 | `/logout` | POST | `logout` | -- | CSRF |
 | `/signup` | GET, POST | `signup` | `signup.html.j2` | CSRF |
-| `/tests` | GET | `tests` | `tests.html.j2` | Main dashboard; page 1 live run tables poll the same route via `?live=run_tables` |
+| `/tests` | GET | `tests` | `tests.html.j2` | Main dashboard; for a logged-in user, page 1 live run tables poll the same route via `?live=run_tables` |
 | `/tests/run` | GET, POST | `tests_run` | `tests_run.html.j2` | CSRF, primary |
 | `/tests/modify` | POST | `tests_modify` | -- | CSRF, primary |
 | `/tests/stop` | POST | `tests_stop` | -- | CSRF, primary |
@@ -63,14 +64,14 @@ but generic `OPTIONS` is not part of the UI route contract and returns `405`.
 | `/tests/machines` | GET | `tests_machines` | `machines_fragment.html.j2` | Fragment-only, login-only, 10s private cache |
 | `/tests/live_elo_update/{id}` | GET | `live_elo_update` | `live_elo_fragment.html.j2` | Fragment-only (OOB) |
 | `/tests/finished` | GET | `tests_finished` | `tests_finished.html.j2` | HX: `tests_finished_content_fragment` |
-| `/tests/user/{username}` | GET | `tests_user` | `tests_user.html.j2` | HX: `tests_user_content_fragment`; page 1 live run tables poll the same route via `?live=run_tables` |
+| `/tests/user/{username}` | GET | `tests_user` | `tests_user.html.j2` | HX: `tests_user_content_fragment`; for a logged-in user, page 1 live run tables poll the same route via `?live=run_tables` |
 | `/actions` | GET | `actions` | `actions.html.j2` | Full page plus htmx content fragment; full-page responses render route-specific Open Graph metadata that preserves the current query string in `og:url` and summarizes the first visible action row |
 | `/contributors` | GET | `contributors` | `contributors.html.j2` | HX: `contributors_content_fragment`; paginated (100/page) |
 | `/contributors/monthly` | GET | `contributors_monthly` | `contributors.html.j2` | HX: `contributors_content_fragment`; paginated (100/page) |
-| `/user/{username}` | GET, POST | `user` | `user.html.j2` | CSRF |
+| `/user/{username}` | GET, POST | `user` | `user.html.j2` | CSRF; manages the API token when `{username}` is the logged-in user |
 | `/user` | GET, POST | `user` | `user.html.j2` | CSRF; manages the API token |
 | `/user_management` | GET | `user_management` | `user_management.html.j2` | HX: `user_management_content_fragment` |
-| `/user_management/pending_count` | GET | `user_management_pending_count` | `pending_users_nav_fragment.html.j2` | Sidebar status fragment; the stable wrapper and poll triggers live in `base.html.j2`, and this route returns only the `Users` anchor HTML |
+| `/user_management/pending_count` | GET | `user_management_pending_count` | `pending_users_nav_fragment.html.j2` | Sidebar status fragment; the stable wrapper and, for a logged-in user, the poll triggers live in `base.html.j2`. This route returns only the `Users` anchor HTML, and `204` for an anonymous request |
 | `/workers/{worker_name}` | GET, POST | `workers` | `workers.html.j2` | CSRF; HX: `workers_content_fragment` |
 | `/upload` | GET, POST | `upload` | `nn_upload.html.j2` | CSRF |
 | `/nns` | GET | `nns` | `nns.html.j2` | HX: `nns_content_fragment` |
@@ -83,8 +84,8 @@ but generic `OPTIONS` is not part of the UI route contract and returns `405`.
 The sidebar contains two visibility-aware status links:
 
 - `Users` is rendered inside the stable `#pending-users-nav` wrapper in
-   `base.html.j2`. Full pages include the current count server-side, and for a
-   logged-in user that same wrapper mounts the visibility-aware htmx poll to
+   `base.html.j2`. For a logged-in user, full pages include the current count
+   server-side, and that same wrapper mounts the visibility-aware htmx poll to
    `/user_management/pending_count`; the fragment route itself returns only the
    anchor HTML.
 - `GitHub Rate Limits` uses separate cadences: `POLL_RATE_LIMITS_GITHUB_S` for
@@ -462,7 +463,7 @@ handler runs, from the URL alone, so a refused request reads no run.
 
 | Route | Anonymous client |
 |-------|------------------|
-| `/tests`, `/tests/finished`, `/tests/user/{username}`, `/actions`, `/nns`, `/contributors`, `/contributors/monthly` | Served with no query string, or with `page=1`; any other query string needs a login |
+| `/tests`, `/tests/finished`, `/tests/user/{username}`, `/actions`, `/nns`, `/contributors`, `/contributors/monthly` | Served with no query string, with `page=1`, or with `live=run_tables`; any other query string needs a login |
 | `/tests/view/{id}` | Served for a recent run; an old run or a `show_task` link needs a login |
 | `/tests/view/{id}/detail`, `/tests/live_elo/{id}`, `/tests/live_elo_update/{id}` | Served for a recent run; an old run needs a login |
 | `/tests/tasks/{id}`, `/tests/stats/{id}`, `/tests/machines` | Needs a login |
@@ -486,8 +487,17 @@ Anonymous pages render neither the login-only panels nor their pollers:
 - `/tests/view/{id}` shows the task totals and a login link, builds no task rows,
   and omits the document size.
 - `/tests`, `/tests/user/{username}`, and every sidebar omit the run-tables and
-  `Users` pollers. A tab that outlives its session gets a `204` from these two
-  polls and stops updating.
+  `Users` pollers, and the sidebar omits the pending-user count.
+
+A tab that outlives its session keeps polling. The run-tables and `Users` polls
+get a `204`, so the tab stops updating. Every other poller meets the login gate
+when its route needs a login: `/tests/machines`, `/tests/tasks/{id}`, and
+`/tests/stats/{id}` always, and the detail and live Elo polls on an old run. The
+tab then navigates to the login page.
+
+A social preview client is an anonymous client: an old run and an `/actions` URL
+with a query string answer `302` to `/login`, and the preview shows the login
+page metadata.
 
 ## Authentication
 
@@ -542,7 +552,8 @@ revokes a token.
 
 - The sidebar `Users` link shows `Users (N)` when `N` users are pending
    approval.
-- With JavaScript enabled, that link refreshes its pending-user count
+- For a logged-in user with JavaScript enabled, that link refreshes its
+   pending-user count
    periodically while the tab is visible and refreshes again when the tab
    becomes visible via `visibilitychange`.
 - The sidebar `GitHub Rate Limits` link keeps its text fixed and reflects the
@@ -574,6 +585,9 @@ revokes a token.
 3. Create the Jinja2 template in `templates/`.
 
 4. Add a contract test in `tests/test_actions_view.py` or a new test file.
+
+5. If anonymous clients must not reach all of the route, add a `login_required`
+   predicate and list the route under "Anonymous access".
 
 ## Homepage workers (`/tests/machines`) query parameters
 
@@ -765,6 +779,8 @@ URL-driven state for server sorting, search, paging, full view, and rank jump.
 
 Behavior notes:
 
+- Search, sorting, `view`, `findme`, and later pages need a login. See "Anonymous
+   access".
 - Sorting is server-authoritative and stable with username asc tie-breaks.
 - Rank is global for the filtered+sorted dataset (not page-local loop index).
 - `findme=1` redirects authenticated users to the page containing their row and
@@ -797,6 +813,8 @@ search and paging.
 
 Behavior notes:
 
+- Filters, sorting, `view`, and later pages need a login. See "Anonymous access".
+   A `master_only` cookie still applies to an anonymous first page.
 - The page renders four summary cards above the table for the current filtered
    result set: Nets, Master nets, Contributors, and Downloads.
 - The explanatory CC0 and default-net copy is rendered under the summary cards
@@ -834,7 +852,7 @@ and sort state on the canonical `/actions` route.
 | `text` | Mongo text-search query | empty |
 | `run_id` | run id | empty |
 | `page` | integer `>= 1` | `1` |
-| `max_count` | positive integer, capped by auth state | route policy |
+| `max_count` | positive integer; an explicit value needs a login | route policy |
 | `sort` | `time`, `event`, `source`, `target`, `comment` | `time` |
 | `order` | `asc`, `desc` | `desc` for `time`, otherwise column default |
 | `before` | action timestamp cursor for time-link deep links | absent |
@@ -895,7 +913,7 @@ pagination, and htmx fragment refresh on the canonical `/tests/finished` route.
 | `order` | `desc` | `desc` |
 | `user` | case-insensitive username substring | empty |
 | `text` | MongoDB text-search query for run info | empty |
-| `max_count` | positive integer, capped by auth state | route policy |
+| `max_count` | positive integer, search mode only | authenticated finished-run default |
 | `page` | integer `>= 1` | `1` |
 
 Behavior notes:
@@ -926,9 +944,9 @@ Behavior notes:
    run info text on finished runs only.
 - `/actions`, `/tests/finished`, and `/tests/user/{username}` share the
    same `max_count` query parameter for result caps.
-- Search needs a login. See "Anonymous access". Search requests use the
-   authenticated finished-run default, and explicit `max_count` values are
-   preserved in the URL and hidden form state.
+- Filter tabs, search, and later pages need a login. See "Anonymous access".
+   Search requests use the authenticated finished-run default, and explicit
+   `max_count` values are preserved in the URL and hidden form state.
 - Navigation mode (no filters active) is uncapped — `max_count` is not used.
 - Stale `max_count` values in navigation-mode URLs are stripped via redirect.
 - The summary line reports both the visible row count on the current page and

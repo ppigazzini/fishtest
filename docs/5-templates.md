@@ -138,8 +138,9 @@ page owns the Open Graph tags, while the htmx fragment updates only
 ### Shared sidebar status links
 
 - `base.html.j2` includes `pending_users_nav_fragment.html.j2` inside a stable
-   htmx poll wrapper. The wrapper owns the `load` and `every` triggers, while
-   the fragment owns only the rendered anchor HTML and current count markup.
+   wrapper. For a logged-in user the wrapper is an htmx poller that owns the
+   `load` and `every` triggers. The fragment owns only the rendered anchor HTML
+   and current count markup.
 - `base.html.j2` renders the sidebar `GitHub Rate Limits` anchor directly.
    `static/js/application.js` updates that link, not a server fragment
    endpoint, because the browser-side GitHub token lives in local storage and
@@ -159,7 +160,8 @@ Current examples:
 - `tests.html.j2` -> `static/js/tests_homepage.js`
 - `user.html.j2` (profile mode) -> `static/js/user_profile.js`
 
-`tests_homepage.js` owns the homepage Workers panel cookie state and triggers
+For a logged-in user, `tests_homepage.js` owns the homepage Workers panel cookie
+state and triggers
 an immediate `machines:load` refresh whenever Bootstrap reports that the panel
 has been opened.
 
@@ -213,7 +215,7 @@ determine their filter form and state-persistence behavior:
 | Pattern | Pages | Filters | Cookie persistence | Polling |
 |---------|-------|---------|-------------------|---------|
 | **A** (standalone) | contributors, actions, workers, user_management, nns | `form-control` (full-size) | 0-1 client-side cookies | none |
-| **B** (embedded panel) | machines, tasks | `form-control-sm` | 4-6 server-side cookies | 60 s |
+| **B** (embedded panel, logged-in only) | machines, tasks | `form-control-sm` | 4-6 server-side cookies | 60 s |
 
 Design rules:
 
@@ -527,6 +529,8 @@ Shared base context only.
 | `num_finished_runs` | int |
 | `finished_runs_pages` | list |
 
+`#run-tables-poller` renders on page 1 for a logged-in user.
+
 ### `signup.html.j2`
 
 | Key | Type |
@@ -599,7 +603,8 @@ the `tasks` list. No standalone context requirements beyond `tasks`,
 | `nps_m` | string |
 | `games_per_minute` | string |
 | `pending_hours` | string |
-| `machines_shown` | bool |
+| `machines_shown` | bool, absent for an anonymous client |
+| `has_authenticated_user` | bool; false omits the Workers button, panel, and `tests_homepage.js` |
 | `machines_count` | int |
 | `run_tables_ctx` | dict (for `run_tables.html.j2`) |
 
@@ -728,8 +733,9 @@ Rendered structure:
 | `chi2` | value |
 | `run_status_label` | string |
 | `tasks_totals` | string (active workers summary) |
-| `tasks_shown` | bool |
-| `show_task` | int |
+| `tasks_shown` | bool, false for an anonymous client |
+| `show_task` | int, `-1` for an anonymous client |
+| `tasks_login_url` | string, for an anonymous client only |
 | `follow` | int |
 | `has_pgns` | bool (run has stored task PGNs) |
 | `can_modify_run` | bool |
@@ -741,6 +747,10 @@ Rendered structure:
 | `warnings` | list of strings |
 | `use_3dot_diff` | bool |
 | `allow_github_api_calls` | bool |
+
+An anonymous page renders `#tasks-totals` and a login link in place of the tasks
+panel, and the `tasks_*` table keys are absent. `document_size` is `None` for an
+anonymous client, which omits its row, on this page and on the detail fragment.
 
 Detail-page merged live polling contract:
 

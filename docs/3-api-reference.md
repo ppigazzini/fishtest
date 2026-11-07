@@ -1,4 +1,4 @@
-# Worker API Reference
+# API Reference
 
 ## Protocol invariants
 
@@ -365,8 +365,8 @@ answer that needed a login also carries `Cache-Control: no-store`.
 | `GET /api/rate_limit` | Served |
 
 A run is recent when its ID was created within the last
-`ANONYMOUS_RUN_MAX_AGE_DAYS` days. The age comes from the ObjectId, whether or
-not the run has finished.
+`ANONYMOUS_RUN_MAX_AGE_DAYS` days (`http/settings.py`). The age comes from the
+ObjectId, whether or not the run has finished.
 
 ### API tokens
 
@@ -374,7 +374,7 @@ A script identifies its user with an API token in the `Authorization` header:
 
 ```bash
 curl -H "Authorization: Bearer $FISHTEST_TOKEN" \
-  https://tests.stockfishchess.org/api/get_task/<run_id>/0
+  "https://tests.stockfishchess.org/api/get_task/$RUN_ID/0"
 ```
 
 - A user creates, replaces, and revokes their token on the `/user` page. Each
@@ -503,7 +503,8 @@ Schema validation failures produce HTTP 400 responses, except that a
 
 ## Error shape
 
-All error responses from worker API endpoints follow this shape:
+Errors raised through `GenericApi.handle_error()`, on worker and read-only
+endpoints, follow this shape:
 
 ```json
 {
@@ -529,3 +530,6 @@ disambiguation.
 6. Add a contract test in `tests/test_api.py`.
 7. If the endpoint requires worker authentication, add its path to
    `WORKER_API_PATHS` in `api.py`.
+8. If a scraper can make a read endpoint costly, call `UserApi.require_login()`
+   or `require_login_for_old_run()` before reading any run, and add the endpoint
+   to the table under "Read-only endpoints".

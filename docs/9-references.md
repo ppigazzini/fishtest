@@ -439,6 +439,8 @@ the response body:
 
 - **200** -- swap the response content, continue polling.
 - **204** -- no content change; htmx skips the swap, continues polling.
+- **204 with `HX-Redirect`** -- the login gate refused the poll; htmx navigates
+  the tab to the login page before any swap decision.
 - **200 with a driver-removing element** -- terminal state:
 
 ```jinja
@@ -574,6 +576,8 @@ Most test files import `test_support`, which provides:
 - `cleanup_test_rundb(...)`: drops test collections after a test class runs.
 - `find_run(...)`: retrieves a run from the database by field match.
 - `extract_csrf_token(html)`: parses a CSRF token from rendered HTML.
+- `authenticate_client(client, username=...)`: gives a test client a signed
+  session without the login form.
 
 User-facing UI route modules also reuse `ui_user_test_case.py` for shared
 client setup, login helpers, run creation, and DB cleanup.

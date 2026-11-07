@@ -14,7 +14,7 @@ viewing results, and administering users and workers.
 |---|---|---|---|
 | 1 | [1-architecture.md](1-architecture.md) | All contributors | Server structure, module map, request flow, startup/shutdown |
 | 2 | [2-threading-model.md](2-threading-model.md) | Backend contributors | Async/sync boundaries, threadpool usage, rules for new code |
-| 3 | [3-api-reference.md](3-api-reference.md) | Worker and integration developers | Worker API endpoints, protocol invariants, error shapes |
+| 3 | [3-api-reference.md](3-api-reference.md) | Worker and integration developers | Worker API endpoints, read-only API access, API tokens, protocol invariants, error shapes |
 | 4 | [4-ui-reference.md](4-ui-reference.md) | UI contributors | UI routes, view dispatch pipeline, htmx fragment dispatch, session/CSRF/auth |
 | 5 | [5-templates.md](5-templates.md) | UI contributors | Jinja2 environment, template catalog (page + fragment), context contracts |
 | 6 | [6-worker.md](6-worker.md) | Worker contributors | Worker architecture, task lifecycle, API usage |

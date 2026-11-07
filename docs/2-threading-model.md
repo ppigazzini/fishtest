@@ -104,7 +104,7 @@ Async generators that yield chunks, with each chunk read in the threadpool.
 
 | Component | Domain | Notes |
 |-----------|--------|-------|
-| `_dispatch_view()` | `[LOOP]` | Form parsing, CSRF check, then `run_in_threadpool` |
+| `_dispatch_view()` | `[LOOP]` | Form parsing, CSRF check, login gate, then `run_in_threadpool` |
 | All UI view handler bodies (every route except direct `home`) | `[THREAD]` | Via `_dispatch_view` |
 | Template rendering | `[THREAD]` | Inside handler body, `render_template_to_response` |
 
