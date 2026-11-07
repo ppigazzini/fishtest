@@ -76,7 +76,7 @@ Every template receives these keys from `build_template_context()`:
 | `open_graph` | dict | Server-owned Open Graph fields rendered by `base.html.j2` |
 | `theme` | string | `"dark"`, `"light"`, or empty (from cookie) |
 | `theme_color` | string or `None` | Optional `theme-color` meta value rendered by `base.html.j2` |
-| `pending_users_count` | int | Pending-user count used by the sidebar `Users` link |
+| `pending_users_count` | int | Pending-user count used by the sidebar `Users` link; `0` for an anonymous client |
 | `static_url` | callable | `static_url(path)` function |
 | `flash` | dict | `{"error": [...], "warning": [...], "info": [...]}` |
 | `urls` | dict | Navigation URLs (see below) |

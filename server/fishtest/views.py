@@ -18,7 +18,7 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, TypedDict
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
 import bson
 import regex
@@ -125,7 +125,9 @@ from fishtest.util import (
     format_time_ago,
     get_chi2,
     get_tc_ratio,
+    is_old_run_id,
     is_sprt_ltc_data,
+    parse_page_number,
     password_strength,
     plural,
     reasonable_run_hashes,
@@ -389,6 +391,7 @@ class _ViewRouteConfig(TypedDict, total=False):
     request_method: _RouteMethods
     http_cache: int
     direct: bool
+    login_required: Callable[[_ViewContext], bool]
 
 
 type _ViewRoute = tuple[Callable[..., Any], str, _ViewRouteConfig]
@@ -520,7 +523,15 @@ async def _dispatch_view(
         commit_session_response(request, session, shim, response)
         return _apply_response_headers(shim, response)
 
-    result = await run_in_threadpool(fn, shim)
+    login_required = cfg.get("login_required")
+    if (
+        login_required is not None
+        and not shim.authenticated_userid
+        and login_required(shim)
+    ):
+        result = _login_gate_response(shim)
+    else:
+        result = await run_in_threadpool(fn, shim)
 
     if isinstance(result, Response):
         commit_session_response(request, session, shim, result)
@@ -606,10 +617,97 @@ def ensure_logged_in(request: _ViewContext) -> str | RedirectResponse:
     if not userid:
         request.session.flash("Please login")
         return RedirectResponse(
-            url=f"/login?{urlencode({'next': _path_qs(request)})}",
+            url=_login_url(_path_qs(request)),
             status_code=302,
         )
     return userid
+
+
+def _local_redirect_path(value: str | None) -> str | None:
+    """Return a redirect target if it stays on this site, or None.
+
+    Browsers read a backslash as a slash and drop tabs and line breaks from a URL,
+    so both can turn a path into another host.
+    """
+    if not value or not value.startswith("/") or value.startswith("//"):
+        return None
+    if "\\" in value or any(ord(char) < 0x20 for char in value):  # noqa: PLR2004
+        return None
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        return None
+    return None if parts.scheme or parts.netloc else value
+
+
+def _login_url(next_page: str) -> str:
+    return f"/login?{urlencode({'next': next_page})}"
+
+
+def _page_on_screen(request: _ViewContext) -> str:
+    """Return the page an htmx request came from, which is not the fragment."""
+    try:
+        current = urlsplit(request.headers.get("HX-Current-URL") or "")
+    except ValueError:
+        return "/"
+    path = f"{current.path}?{current.query}" if current.query else current.path
+    return _local_redirect_path(path) or "/"
+
+
+def _login_gate_response(request: _ViewContext) -> Response:
+    """Send an anonymous client to the login page without reading any data.
+
+    Details: docs/4-ui-reference.md (section: "Anonymous access").
+    """
+    request.session.flash("Please login")
+    if (request.headers.get("HX-Request") or "").lower() == "true" or (
+        request.headers.get("HX-History-Restore-Request") or ""
+    ).lower() == "true":
+        # Every htmx request, a full-page swap and a history restore included:
+        # fetch() follows a redirect, which would swap the login page into the
+        # target at the gated URL, so the browser is told to navigate instead.
+        # A whole-page request comes back to its own URL, and a fragment to the
+        # page on screen. A history restore sends neither HX-Request nor
+        # HX-Current-URL.
+        next_page = (
+            _page_on_screen(request) if _is_hx_request(request) else _path_qs(request)
+        )
+        response = Response(status_code=204)
+        response.headers["HX-Redirect"] = _login_url(next_page)
+    else:
+        response = RedirectResponse(
+            url=_login_url(_path_qs(request)),
+            status_code=302,
+        )
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+def _login_always(_request: _ViewContext) -> bool:
+    return True
+
+
+def _login_for_old_run(request: _ViewContext) -> bool:
+    return is_old_run_id(request.matchdict["id"])
+
+
+def _login_for_old_run_or_task_link(request: _ViewContext) -> bool:
+    return "show_task" in request.params or _login_for_old_run(request)
+
+
+def _login_beyond_first_page(request: _ViewContext) -> bool:
+    """Report whether a list request asks for more than its default first page.
+
+    A live run-tables poll asks for no list: /tests and /tests/user/{username}
+    answer it, and the other routes ignore the parameter.
+    """
+    return any(
+        not (
+            (key == "page" and value in {"", "1"})
+            or (key == "live" and value == "run_tables")
+        )
+        for key, value in request.query_params.multi_items()
+    )
 
 
 def _login_remember_me_checked(request: _ViewContext) -> bool:
@@ -683,7 +781,11 @@ def login(request: _ViewContext) -> dict[str, Any] | RedirectResponse:
             else:
                 # Session ends when the browser is closed
                 remember(request, username)
-            next_page = request.params.get("next") or came_from
+            next_page = (
+                _local_redirect_path(request.params.get("next"))
+                or _local_redirect_path(came_from)
+                or "/"
+            )
             return RedirectResponse(url=next_page, status_code=302)
         message = token["error"]
         # `error_code` is a stable contract from `UserDb.authenticate()`.
@@ -1326,9 +1428,8 @@ def nns(request: _ViewContext) -> dict[str, Any] | Response:  # noqa: C901, PLR0
         master_only = read_cookie_bool(request, MASTER_ONLY_COOKIE_NAME)
 
     page_idx = 0
-    page_param = request.params.get("page", "")
     if view_param == "paged":
-        page_idx = max(0, int(page_param) - 1) if page_param.isdigit() else 0
+        page_idx = _page_index_from_params(request.params)
 
     nns, num_nns = request.rundb.get_nns(
         user=user,
@@ -1496,7 +1597,11 @@ def rate_limits_server(request: _ViewContext) -> Response:  # noqa: ARG001
     )
 
 
-def user_management_pending_count(request: _ViewContext) -> dict[str, Any]:  # noqa: ARG001
+def user_management_pending_count(request: _ViewContext) -> dict[str, Any]:
+    if not request.authenticated_userid:
+        # An anonymous page renders no poller; a tab outliving its session
+        # stops updating.
+        request.response_status = 204
     return {}
 
 
@@ -2084,6 +2189,11 @@ def _render_tests_run_tables_live_fragment(
             status_code=302,
         )
 
+    if not request.authenticated_userid:
+        # An anonymous page renders no poller; a tab outliving its session
+        # stops updating.
+        return Response(status_code=204)
+
     context = _build_tests_run_tables_fragment_context(request)
     if isinstance(context, RedirectResponse):
         return context
@@ -2308,8 +2418,8 @@ def tests(request: _ViewContext) -> dict[str, Any] | Response:
     # The homepage mixes user-specific state with frequently refreshed content,
     # so intermediary caches must not store it.
     _append_no_store_headers(request)
-    page_param = request.params.get("page", "")
-    if page_param.isdigit() and int(page_param) > 1:
+    page_number = parse_page_number(request.params.get("page", ""))
+    if page_number is not None and page_number > 1:
         # page 2 and beyond only show finished test results
         finished_context = get_paginated_finished_runs(request)
         if isinstance(finished_context, RedirectResponse):
@@ -2336,6 +2446,9 @@ def tests(request: _ViewContext) -> dict[str, Any] | Response:
         return last_tests
 
     authenticated_user = request.authenticated_userid
+    if not authenticated_user:
+        # The workers panel is login-only, so its state is not read.
+        return {**last_tests, "has_authenticated_user": False}
 
     machines_sort = read_cookie_text(request, MACHINES_SORT_COOKIE_NAME).lower()
     if machines_sort not in _MACHINES_SORT_MAP:
@@ -2357,9 +2470,6 @@ def tests(request: _ViewContext) -> dict[str, Any] | Response:
     machines_my_workers = _is_truthy_param(
         read_cookie_text(request, MACHINES_MY_WORKERS_COOKIE_NAME),
     )
-    if not authenticated_user:
-        machines_my_workers = False
-
     machine_filters = _machine_filter_state(
         request.cookies,
         authenticated_username=authenticated_user,
@@ -2397,7 +2507,7 @@ def tests(request: _ViewContext) -> dict[str, Any] | Response:
         "machines_q": machines_q,
         "machines_page": machines_page,
         "machines_my_workers": machines_my_workers,
-        "has_authenticated_user": bool(authenticated_user),
+        "has_authenticated_user": True,
     }
 
 
@@ -3401,7 +3511,10 @@ def _build_tests_view_detail_context(
         "run_args": _build_tests_view_run_args(run),
         "approver": request.has_permission("approve_run"),
         "chi2": get_chi2(run["tasks"]),
-        "document_size": len(bson.BSON.encode(run)),
+        # Encoding a large run is costly, and only a login shows the result.
+        "document_size": (
+            len(bson.BSON.encode(run)) if request.authenticated_userid else None
+        ),
         "spsa_data": request.rundb.spsa_handler.get_spsa_data(run_id),
         "spsa_percentage_checked": read_cookie_bool(
             request,
@@ -3516,6 +3629,41 @@ def tests_view_detail(request: _ViewContext) -> dict[str, Any] | Response:
     return context
 
 
+def _tests_view_tasks_context(
+    request: _ViewContext,
+    *,
+    run: dict[str, Any],
+    chi2: float,
+) -> dict[str, Any]:
+    if not request.authenticated_userid:
+        # The tasks panel is login-only, so its rows are not built.
+        return {
+            "tasks_shown": False,
+            "show_task": -1,
+            "tasks_login_url": _login_url(request.path),
+        }
+    table = _task_table_state(
+        request,
+        run=run,
+        show_task=_parse_show_task_param(request),
+        chi2=chi2,
+    )
+    return {
+        "tasks_shown": table["show_task"] != -1
+        or read_cookie_toggle_state(request, TASKS_STATE_COOKIE_NAME) == "Hide",
+        "show_task": table["show_task"],
+        "tasks_sort": table["sort"],
+        "tasks_order": table["order"],
+        "tasks_view": table["view"],
+        "tasks_page": table["current_page"],
+        "tasks_q": table["q"],
+        "tasks_pages": table["pages"],
+        "tasks_num_tasks": table["num_tasks"],
+        "tasks_max_all": table["max_all"],
+        "tasks_is_truncated": table["is_truncated"],
+    }
+
+
 def tests_view(request: _ViewContext) -> dict[str, Any] | RedirectResponse:  # noqa: C901, PLR0912, PLR0915
     run = request.rundb.get_run(request.matchdict["id"])
     if run is None:
@@ -3531,15 +3679,10 @@ def tests_view(request: _ViewContext) -> dict[str, Any] | RedirectResponse:  # n
         results_info=results_info,
     )
 
-    chi2 = detail_context["chi2"]
-
-    show_task = _parse_show_task_param(request)
-
-    tasks_table_context = _task_table_state(
+    tasks_context = _tests_view_tasks_context(
         request,
         run=run,
-        show_task=show_task,
-        chi2=chi2,
+        chi2=detail_context["chi2"],
     )
 
     same_user = is_same_user(request, run)
@@ -3670,18 +3813,7 @@ def tests_view(request: _ViewContext) -> dict[str, Any] | RedirectResponse:  # n
         "open_graph": open_graph,
         "page_title": page_title,
         "results_info": results_info,
-        "tasks_shown": tasks_table_context["show_task"] != -1
-        or read_cookie_toggle_state(request, TASKS_STATE_COOKIE_NAME) == "Hide",
-        "show_task": tasks_table_context["show_task"],
-        "tasks_sort": tasks_table_context["sort"],
-        "tasks_order": tasks_table_context["order"],
-        "tasks_view": tasks_table_context["view"],
-        "tasks_page": tasks_table_context["current_page"],
-        "tasks_q": tasks_table_context["q"],
-        "tasks_pages": tasks_table_context["pages"],
-        "tasks_num_tasks": tasks_table_context["num_tasks"],
-        "tasks_max_all": tasks_table_context["max_all"],
-        "tasks_is_truncated": tasks_table_context["is_truncated"],
+        **tasks_context,
         "follow": follow,
         "has_pgns": request.rundb.has_run_pgns(str(run["_id"])),
         "can_modify_run": can_modify_run(request, run),
@@ -3699,7 +3831,8 @@ def tests_view(request: _ViewContext) -> dict[str, Any] | RedirectResponse:  # n
 # === Router Registration ===
 
 # Each entry: (view_function, path, config_dict)
-# Config keys: renderer, require_csrf, require_primary, request_method, http_cache
+# Config keys: renderer, require_csrf, require_primary, request_method, http_cache,
+# login_required (a predicate over an anonymous request, called before the view)
 # Special: direct=True bypasses _dispatch_view
 # (for pure redirects, no DB/session needed)
 _VIEW_ROUTES: list[_ViewRoute] = [
@@ -3741,7 +3874,11 @@ _VIEW_ROUTES: list[_ViewRoute] = [
             "request_method": ("GET", "POST"),
         },
     ),
-    (nns, "/nns", {"renderer": "nns.html.j2"}),
+    (
+        nns,
+        "/nns",
+        {"renderer": "nns.html.j2", "login_required": _login_beyond_first_page},
+    ),
     (sprt_calc, "/sprt_calc", {"renderer": "sprt_calc.html.j2"}),
     (rate_limits, "/rate_limits", {"renderer": "rate_limits.html.j2"}),
     (rate_limits_server, "/rate_limits/server", {}),
@@ -3750,7 +3887,11 @@ _VIEW_ROUTES: list[_ViewRoute] = [
         "/user_management/pending_count",
         {"renderer": "pending_users_nav_fragment.html.j2"},
     ),
-    (actions, "/actions", {"renderer": "actions.html.j2"}),
+    (
+        actions,
+        "/actions",
+        {"renderer": "actions.html.j2", "login_required": _login_beyond_first_page},
+    ),
     (user_management, "/user_management", {"renderer": "user_management.html.j2"}),
     (
         user,
@@ -3770,11 +3911,21 @@ _VIEW_ROUTES: list[_ViewRoute] = [
             "request_method": ("GET", "POST"),
         },
     ),
-    (contributors, "/contributors", {"renderer": "contributors.html.j2"}),
+    (
+        contributors,
+        "/contributors",
+        {
+            "renderer": "contributors.html.j2",
+            "login_required": _login_beyond_first_page,
+        },
+    ),
     (
         contributors_monthly,
         "/contributors/monthly",
-        {"renderer": "contributors.html.j2"},
+        {
+            "renderer": "contributors.html.j2",
+            "login_required": _login_beyond_first_page,
+        },
     ),
     (
         tests_run,
@@ -3811,32 +3962,69 @@ _VIEW_ROUTES: list[_ViewRoute] = [
         "/tests/delete",
         {"require_csrf": True, "request_method": "POST", "require_primary": True},
     ),
-    (tests_live_elo, "/tests/live_elo/{id}", {"renderer": "tests_live_elo.html.j2"}),
+    (
+        tests_live_elo,
+        "/tests/live_elo/{id}",
+        {"renderer": "tests_live_elo.html.j2", "login_required": _login_for_old_run},
+    ),
     (
         live_elo_update,
         "/tests/live_elo_update/{id}",
-        {"renderer": "live_elo_fragment.html.j2"},
+        {"renderer": "live_elo_fragment.html.j2", "login_required": _login_for_old_run},
     ),
-    (tests_stats, "/tests/stats/{id}", {"renderer": "tests_stats.html.j2"}),
+    (
+        tests_stats,
+        "/tests/stats/{id}",
+        {"renderer": "tests_stats.html.j2", "login_required": _login_always},
+    ),
     (
         tests_tasks,
         "/tests/tasks/{id}",
-        {"renderer": "tasks_content_fragment.html.j2"},
+        {"renderer": "tasks_content_fragment.html.j2", "login_required": _login_always},
     ),
     (
         tests_view_detail,
         "/tests/view/{id}/detail",
-        {"renderer": "tests_view_detail_fragment.html.j2"},
+        {
+            "renderer": "tests_view_detail_fragment.html.j2",
+            "login_required": _login_for_old_run,
+        },
     ),
     (
         tests_machines,
         "/tests/machines",
-        {"renderer": "machines_fragment.html.j2", "http_cache": 10},
+        {
+            "renderer": "machines_fragment.html.j2",
+            "http_cache": 10,
+            "login_required": _login_always,
+        },
     ),
-    (tests_view, "/tests/view/{id}", {"renderer": "tests_view.html.j2"}),
-    (tests_finished, "/tests/finished", {"renderer": "tests_finished.html.j2"}),
-    (tests_user, "/tests/user/{username}", {"renderer": "tests_user.html.j2"}),
-    (tests, "/tests", {"renderer": "tests.html.j2"}),
+    (
+        tests_view,
+        "/tests/view/{id}",
+        {
+            "renderer": "tests_view.html.j2",
+            "login_required": _login_for_old_run_or_task_link,
+        },
+    ),
+    (
+        tests_finished,
+        "/tests/finished",
+        {
+            "renderer": "tests_finished.html.j2",
+            "login_required": _login_beyond_first_page,
+        },
+    ),
+    (
+        tests_user,
+        "/tests/user/{username}",
+        {"renderer": "tests_user.html.j2", "login_required": _login_beyond_first_page},
+    ),
+    (
+        tests,
+        "/tests",
+        {"renderer": "tests.html.j2", "login_required": _login_beyond_first_page},
+    ),
 ]
 
 

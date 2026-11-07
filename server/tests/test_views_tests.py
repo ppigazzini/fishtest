@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
+import test_support
 from ui_user_test_case import UiUserTestCase
 
 from fishtest.http.settings import UI_STATE_COOKIE_MAX_AGE_SECONDS
@@ -12,6 +13,10 @@ from fishtest.http.settings import UI_STATE_COOKIE_MAX_AGE_SECONDS
 
 class TestTestsHomepage(UiUserTestCase):
     username = "TestHomepageUser"
+
+    def setUp(self):
+        super().setUp()
+        test_support.authenticate_client(self.client, username=self.username)
 
     def test_tests_homepage_hidden_workers_count_recomputes_filtered_value(self):
         now = datetime.now(UTC)

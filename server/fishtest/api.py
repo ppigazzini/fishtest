@@ -3,7 +3,7 @@ import copy
 import io
 import os
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException
@@ -14,9 +14,15 @@ from vtjson import ValidationError, validate
 
 import fishtest.github_api as gh
 from fishtest.http.boundary import ApiRequestShim, get_request_shim
-from fishtest.schemas import api_access_schema, api_schema, gzip_data
+from fishtest.http.settings import ANONYMOUS_RUN_MAX_AGE_DAYS
+from fishtest.schemas import (
+    anonymous_actions_query_schema,
+    api_access_schema,
+    api_schema,
+    gzip_data,
+)
 from fishtest.stats.stat_util import SPRT_elo, get_elo
-from fishtest.util import strip_run, worker_name
+from fishtest.util import is_old_run_id, parse_page_number, strip_run, worker_name
 
 WORKER_VERSION = 331
 
@@ -64,11 +70,12 @@ class GenericApi:
         result["duration"] = (datetime.now(UTC) - self.timestamp()).total_seconds()
         return result
 
-    def handle_error(self, error, status_code=400):
+    def handle_error(self, error, status_code=400, *, log=True):
         if error != "":
             api = urlparse(str(self.request.url)).path
             error = f"{api}: {error}"
-            print(error, flush=True)
+            if log:
+                print(error, flush=True)
             raise HTTPException(
                 status_code=status_code,
                 detail=self.add_time({"error": error}),
@@ -338,6 +345,23 @@ class WorkerApi(GenericApi):
 
 
 class UserApi(GenericApi):
+    def require_login(self):
+        # A crawler arrives here at its own rate, so a refusal is not logged.
+        if not self.request.authenticated_userid:
+            self.handle_error("Login required", status_code=401, log=False)
+
+    def require_login_for_old_run(self, run_id):
+        # Runs before the database is read, so a refusal costs no cold load.
+        if is_old_run_id(run_id):
+            self.require_login()
+
+    def is_anonymous_actions_query(self):
+        try:
+            validate(anonymous_actions_query_schema, self.request.json_body)
+        except ValidationError, ValueError:
+            return False
+        return True
+
     def rate_limit(self):
         return gh.rate_limit()
 
@@ -364,9 +388,10 @@ class UserApi(GenericApi):
 
         if page_param == "":
             self.handle_error("Please provide a Page number.")
-        if not page_param.isdigit() or int(page_param) < 1:
+        page_number = parse_page_number(page_param)
+        if page_number is None or page_number < 1:
             self.handle_error("Please provide a valid Page number.")
-        page_idx = int(page_param) - 1
+        page_idx = page_number - 1
         page_size = 50
 
         last_updated = None
@@ -374,6 +399,15 @@ class UserApi(GenericApi):
             last_updated = datetime.fromtimestamp(float(timestamp))
         elif timestamp != "":
             self.handle_error("Please provide a valid UNIX timestamp.")
+
+        # Without a login: the newest runs, or a recent update feed. Anything else
+        # walks the history, whose run pages and JSON need a login too.
+        oldest_public = datetime.now(UTC) - timedelta(days=ANONYMOUS_RUN_MAX_AGE_DAYS)
+        recent_feed = (
+            last_updated is not None and float(timestamp) >= oldest_public.timestamp()
+        )
+        if page_idx > 0 and not recent_feed:
+            self.require_login()
 
         runs, num_finished = self.request.rundb.get_finished_runs(
             username=username,
@@ -394,6 +428,8 @@ class UserApi(GenericApi):
         return finished
 
     def actions(self):
+        if not self.is_anonymous_actions_query():
+            self.require_login()
         try:
             query = self.request.json_body
             actions = self.request.rundb.db["actions"].find(query).limit(200)
@@ -409,6 +445,7 @@ class UserApi(GenericApi):
 
     def get_run(self):
         run_id = self.request.matchdict["id"]
+        self.require_login_for_old_run(run_id)
         run = self.request.rundb.get_run(run_id)
         if run is None:
             self.handle_error(f"The run {run_id} does not exist", status_code=404)
@@ -417,6 +454,7 @@ class UserApi(GenericApi):
         return strip_run(run)
 
     def get_task(self):
+        self.require_login()
         try:
             run_id = self.request.matchdict["id"]
             run = self.request.rundb.get_run(run_id)
@@ -457,6 +495,7 @@ class UserApi(GenericApi):
 
     def get_elo(self):
         run_id = self.request.matchdict["id"]
+        self.require_login_for_old_run(run_id)
         run = self.request.rundb.get_run(run_id)
         if run is None:
             self.handle_error(f"The run {run_id} does not exist", status_code=404)

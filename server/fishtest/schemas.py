@@ -49,6 +49,22 @@ from fishtest.constants import (
 run_id = intersect(str, set_name(ObjectId.is_valid, "valid_object_id"))
 run_id_pgns = regex(r"[a-f0-9]{24}-(0|[1-9]\d*)", name="run_id_pgns")
 run_name = intersect(regex(r".*-[a-f0-9]{7}", name="run_name"), size(0, 23 + 1 + 7))
+
+# The action log filters an anonymous client may run: the ones
+# static/js/notifications.js sends. Each is scoped to runs, which the run_id
+# index answers, and a strict schema leaves no room for another operator.
+ANONYMOUS_ACTIONS_LIST_MAX = 1000
+anonymous_actions_query_schema = {
+    "run_id": union(
+        run_id,
+        {"$in": intersect([run_id, ...], size(0, ANONYMOUS_ACTIONS_LIST_MAX))},
+    ),
+    "action?": union(
+        str,
+        {"$in": intersect([str, ...], size(0, ANONYMOUS_ACTIONS_LIST_MAX))},
+    ),
+    "time?": {"$gte": union(int, float)},
+}
 ACTION_MESSAGE_SIZE = 5120
 action_message = intersect(str, size(0, ACTION_MESSAGE_SIZE))
 worker_message = intersect(str, size(0, 500))

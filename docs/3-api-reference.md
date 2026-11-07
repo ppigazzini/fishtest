@@ -339,10 +339,31 @@ verify that the reporting worker is actually assigned to that task.
 Endpoint-specific CORS preflight handlers are not part of the public API
 contract.
 
-## Read-only endpoints (no authentication)
+## Read-only endpoints
 
-These endpoints do not require worker authentication. They serve data to the
-web UI, external tools, and API consumers.
+These endpoints take no worker credentials. They serve data to the web UI,
+external tools, and API consumers.
+
+Some requests need a web login: the session cookie from `POST /login`. Without
+one, they return HTTP 401 with a JSON error payload before any run is read.
+
+| Endpoint | Without a login |
+|----------|-----------------|
+| `GET /api/active_runs` | Served |
+| `GET /api/finished_runs` | Served for page 1, or with a recent `timestamp` |
+| `POST /api/actions` | Served for the run-scoped filters below |
+| `GET /api/get_run/{id}` | Served for a recent run |
+| `GET /api/get_elo/{id}` | Served for a recent run |
+| `GET /api/get_task/{id}/{task_id}` | HTTP 401 |
+| `GET /api/calc_elo` | Served |
+| `GET /api/nn/{id}` | Served |
+| `GET /api/pgn/{id}` | Served |
+| `GET /api/run_pgns/{id}` | Served |
+| `GET /api/rate_limit` | Served |
+
+A run is recent when its ID was created within the last
+`ANONYMOUS_RUN_MAX_AGE_DAYS` days. The age comes from the ObjectId, whether or
+not the run has finished.
 
 ### GET /api/active_runs
 
@@ -362,9 +383,21 @@ Returns paginated finished runs. Query parameters:
 | `ltc_only` | bool | Only long time control runs |
 | `timestamp` | string | UNIX timestamp filter |
 
+Without a login, a page after the first needs a `timestamp` within the last
+`ANONYMOUS_RUN_MAX_AGE_DAYS` days.
+
 ### POST /api/actions
 
 Returns up to 200 recent actions matching the JSON query body.
+
+Without a login the body must select runs, and may contain only these keys.
+Any other body returns HTTP 401.
+
+| Key | Value |
+|-----|-------|
+| `run_id` (required) | A run ID, or `{"$in": [run IDs]}` |
+| `action` | An action name, or `{"$in": [action names]}` |
+| `time` | `{"$gte": number}` |
 
 ### GET /api/get_run/{id}
 
@@ -418,6 +451,8 @@ Request bodies are validated against vtjson schemas defined in `schemas.py`:
 - `api_schema` -- validates the full request body structure for worker
   endpoints.
 - `gzip_data` -- validates that uploaded PGN data is valid gzip.
+- `anonymous_actions_query_schema` -- validates the `POST /api/actions` body
+  of a request without a login.
 
 Schema validation failures produce HTTP 400 responses.
 

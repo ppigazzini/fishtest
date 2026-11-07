@@ -11,6 +11,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import urlencode
 
+from fishtest.util import parse_page_number
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -59,8 +61,8 @@ def _is_truthy_param(value: Any) -> bool:  # noqa: ANN401
 
 
 def _page_index_from_params(params: Any, *, key: str = "page") -> int:  # noqa: ANN401
-    page_value = str(params.get(key, "")).strip()
-    return max(0, int(page_value) - 1) if page_value.isdigit() else 0
+    page_number = parse_page_number(params.get(key, ""))
+    return max(0, page_number - 1) if page_number is not None else 0
 
 
 def _normalize_sort_order(

@@ -2,16 +2,19 @@ import copy
 import hashlib
 import math
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import cache
 
 import numpy as np
 import scipy.stats
+from bson.errors import InvalidId
+from bson.objectid import ObjectId
 from email_validator import EmailNotValidError, caching_resolver, validate_email
 from zxcvbn import zxcvbn
 
 import fishtest.github_api as gh
 import fishtest.stats.stat_util
+from fishtest.http.settings import ANONYMOUS_RUN_MAX_AGE_DAYS
 
 FISHTEST = "fishtest_new"
 PASSWORD_MAX_LENGTH = 72
@@ -542,6 +545,34 @@ def email_valid(email):
 def get_hash(engine_options):
     match = re.search("Hash=([0-9]+)", engine_options)
     return int(match.group(1)) if match else 0
+
+
+# Ten million pages is past any collection here, and the product fits a skip.
+PAGE_DIGITS_MAX = 7
+
+
+def parse_page_number(value):
+    """Return a page parameter as an int, or None if it cannot be one.
+
+    str.isdigit() accepts characters such as a superscript that int() refuses, and
+    int() refuses very long strings, so neither check is enough alone.
+    """
+    text = str(value).strip()
+    return int(text) if text.isdecimal() and len(text) <= PAGE_DIGITS_MAX else None
+
+
+def is_old_run_id(run_id):
+    """Report whether a run was created before the anonymous access window.
+
+    The creation time comes from the ObjectId, so the answer costs no database
+    read and no run-cache lock. An invalid id is not old: the caller's lookup
+    answers it as not found.
+    """
+    try:
+        created = ObjectId(run_id).generation_time
+    except InvalidId, TypeError:
+        return False
+    return datetime.now(UTC) - created > timedelta(days=ANONYMOUS_RUN_MAX_AGE_DAYS)
 
 
 def strip_run(run):

@@ -92,6 +92,7 @@ class TestNNViews(unittest.TestCase):
             include_api=False,
             include_views=True,
         )
+        test_support.authenticate_client(self.client, username="NNViewsUser")
 
     def tearDown(self):
         self.rundb.nndb.delete_many({"name": {"$regex": "^nn-h16-"}})
@@ -137,10 +138,8 @@ class TestNNViews(unittest.TestCase):
         ]
         self.rundb.nndb.insert_many(docs)
 
-        response = self.client.get(
-            "/nns?network_name=nn-h16-cookie&view=all",
-            headers={"cookie": "master_only=true"},
-        )
+        self.client.cookies.set("master_only", "true")
+        response = self.client.get("/nns?network_name=nn-h16-cookie&view=all")
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("nn-h16-cookie-master.nnue", response.text)

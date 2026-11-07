@@ -311,6 +311,7 @@
     {% include "tests_view_spsa_section.html.j2" %}
   {% endif %}
 
+  {% if current_user %}
   <h4>
     <a
       id="tasks-button"
@@ -387,6 +388,13 @@
       hx-swap="innerMorph"
     ></div>
   </section>
+  {% else %}
+  <h4>Tasks <span id="tasks-totals">{{ tasks_totals }}</span></h4>
+  <p>
+    <a href="{{ tasks_login_url }}">Log in</a>
+    to see the tasks of this test.
+  </p>
+  {% endif %}
 {# End of enclosing div to be able to make things invisible. #}
 </div>
 

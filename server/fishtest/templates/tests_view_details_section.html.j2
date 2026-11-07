@@ -68,10 +68,12 @@
             </tr>
           {% endif %}
         {% endfor %}
+        {% if document_size is not none %}
         <tr>
           <td>document size</td>
           <td>{{ document_size }} bytes</td>
         </tr>
+        {% endif %}
         <tr>
           <td>events</td>
           <td><a href="/actions?run_id={{ run_id }}">/actions?run_id={{ run_id }}</a></td>

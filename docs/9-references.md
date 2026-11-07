@@ -595,6 +595,7 @@ validation fails.
 | `test_views_contributors.py` | Contributors search, rank jump, sorting, and HTMX state sync |
 | `test_views_detail.py` | `/tests/view/{id}` detail polling, `/tests/tasks/{id}`, and task UI assets |
 | `test_views_finished.py` | Finished-runs search and pagination |
+| `test_views_login_gate.py` | What an anonymous client gets from pages, fragments, polls, and read APIs |
 | `test_views_helpers.py` | Shared pagination, parameter, and merge helpers |
 | `test_views_machines.py` | Machines helper behavior plus `/tests/machines` HTTP contracts |
 | `test_views_run.py` | Run-form validation, SPSA parsing, permissions, and run action routes |

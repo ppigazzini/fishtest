@@ -5,7 +5,7 @@
 {% set failed_toggle = prefix ~ 'failed' %}
 {% set active_toggle = prefix ~ 'active' %}
 
-{% if page_idx == 0 %}
+{% if page_idx == 0 and current_user %}
   <div id="run-tables-poller"
        hx-get="{{ live_url }}"
       hx-trigger="every[document.visibilityState === 'visible'] {{ poll.tests_run_tables }}s, visibilitychange[document.visibilityState === 'visible'] from:document"

@@ -884,7 +884,10 @@ class TestHttpApi(unittest.TestCase):
         self.assertIn(run_id, body)
 
     def test_actions_post(self):
-        response = self.client.post("/api/actions", json={})
+        response = self.client.post(
+            "/api/actions",
+            json={"run_id": "64e74776a170cb1f26fa3930"},
+        )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers.get("access-control-allow-origin"), "*")
         self.assertEqual(

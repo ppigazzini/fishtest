@@ -27,6 +27,7 @@
   </div>
 
   <h4>
+    {% if has_authenticated_user %}
     <a
       id="machines-button"
       class="btn btn-sm btn-light border"
@@ -38,11 +39,13 @@
       aria-controls="machines-panel">
       {{ 'Hide' if machines_shown else 'Show' }}
     </a>
+    {% endif %}
     <span id="workers-count">
       {{ workers_count_text if workers_count_text is defined else ("Workers - " ~ machines_count) }}
     </span>
   </h4>
 
+  {% if has_authenticated_user %}
   <section id="machines-panel" class="collapse {{ 'show' if machines_shown else '' }}">
     <form
       class="row g-2 align-items-end mb-2"
@@ -51,7 +54,7 @@
       hx-get="/tests/machines"
       hx-target="#machines"
       hx-swap="innerHTML"
-      hx-trigger="submit, input changed delay:{{ htmx.input_changed_delay_ms }}ms from:#machines_q{% if has_authenticated_user %}, change from:#machines_my_workers{% endif %}"
+      hx-trigger="submit, input changed delay:{{ htmx.input_changed_delay_ms }}ms from:#machines_q, change from:#machines_my_workers"
     >
       <input type="hidden" id="machines_sort" name="sort" value="{{ machines_sort }}">
       <input type="hidden" id="machines_order" name="order" value="{{ machines_order }}">
@@ -70,21 +73,19 @@
         >
       </div>
 
-      {% if has_authenticated_user %}
-        <div class="col-auto">
-          <div class="form-check mb-1">
-            <input
-              class="form-check-input"
-              type="checkbox"
-              value="1"
-              id="machines_my_workers"
-              name="my_workers"
-              {{ 'checked' if machines_my_workers else '' }}
-            >
-            <label class="form-check-label" for="machines_my_workers">My workers</label>
-          </div>
+      <div class="col-auto">
+        <div class="form-check mb-1">
+          <input
+            class="form-check-input"
+            type="checkbox"
+            value="1"
+            id="machines_my_workers"
+            name="my_workers"
+            {{ 'checked' if machines_my_workers else '' }}
+          >
+          <label class="form-check-label" for="machines_my_workers">My workers</label>
         </div>
-      {% endif %}
+      </div>
 
       <div class="col-auto d-flex align-items-end" id="machines-pagination" aria-live="polite"></div>
     </form>
@@ -110,6 +111,7 @@
     </section>
   </section>
   <script src="{{ static_url('fishtest:static/js/tests_homepage.js') }}"></script>
+  {% endif %}
   <script src="{{ static_url('fishtest:static/js/active_run_filters.js') }}"></script>
 {% endif %}
 

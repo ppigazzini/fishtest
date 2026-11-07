@@ -4,6 +4,7 @@ import unittest
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
+import test_support
 from ui_user_test_case import UiUserTestCase
 
 from fishtest.http.settings import UI_STATE_COOKIE_MAX_AGE_SECONDS
@@ -192,6 +193,10 @@ class TestsMachinesEntryPointTests(unittest.TestCase):
 
 class TestMachinesViews(UiUserTestCase):
     username = "TestMachinesUser"
+
+    def setUp(self):
+        super().setUp()
+        test_support.authenticate_client(self.client, username=self.username)
 
     def test_tests_machines_server_sort_and_pagination(self):
         now = datetime.now(UTC)

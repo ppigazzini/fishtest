@@ -16,6 +16,7 @@ from starlette.requests import Request
 from fishtest.http.cookie_session import (
     CookieSession,
     authenticated_user,
+    authenticated_user_from_data,
     is_https,
     mark_session_force_clear,
     mark_session_max_age,
@@ -98,6 +99,12 @@ class ApiRequestShim:
             self.actiondb = get_actiondb(request)
         except DependencyNotInitializedError:
             self.actiondb = None
+
+    @property
+    def authenticated_userid(self) -> str | None:
+        """Return the logged-in username without touching the session contents."""
+        session = self._request.scope.get("session")
+        return authenticated_user_from_data(session) if session else None
 
     @property
     def json_body(self) -> object | None:
@@ -265,7 +272,8 @@ def build_template_context(
     user = authenticated_user(session)
     pending_users_count = 0
     try:
-        pending_users_count = len(get_userdb(request).get_pending())
+        if user:
+            pending_users_count = len(get_userdb(request).get_pending())
     except DependencyNotInitializedError:
         pending_users_count = 0
 

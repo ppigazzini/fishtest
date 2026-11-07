@@ -152,6 +152,23 @@ def make_test_client(*, rundb: Any, include_api: bool, include_views: bool):
     return TestClient(app)
 
 
+def authenticate_client(client: Any, *, username: str) -> None:
+    """Give a test client a signed session, skipping the login form."""
+    from itsdangerous import TimestampSigner
+
+    from fishtest.http.cookie_session import (
+        SESSION_COOKIE_NAME,
+        session_secret_key,
+    )
+    from fishtest.http.session_middleware import _encode_cookie_value
+
+    signer = TimestampSigner(session_secret_key())
+    client.cookies.set(
+        SESSION_COOKIE_NAME,
+        _encode_cookie_value({"user": username}, signer),
+    )
+
+
 _CSRF_META_RE = re.compile(
     r"<meta\s+name=\"csrf-token\"\s+content=\"([^\"]+)\"",
     re.IGNORECASE,

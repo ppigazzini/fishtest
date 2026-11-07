@@ -42,6 +42,10 @@ SESSION_COOKIE_VALUE_MAX_BYTES: int = 3800
 SESSION_REMEMBER_ME_MAX_AGE_SECONDS: int = 60 * 60 * 24 * 400
 UI_STATE_COOKIE_MAX_AGE_SECONDS: int = 60 * 60 * 24 * 400
 
+# Runs created longer ago than this are login-only.
+# Details: docs/4-ui-reference.md (section: "Anonymous access").
+ANONYMOUS_RUN_MAX_AGE_DAYS: int = 30
+
 # Template and UI view defaults.
 WORKERS_PAGE_SIZE: int = 25
 WORKERS_MAX_ALL: int = 5000

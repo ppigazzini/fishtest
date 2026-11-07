@@ -13,6 +13,7 @@ from urllib.parse import urlencode
 if TYPE_CHECKING:
     from starlette.responses import RedirectResponse
 
+from fishtest.util import parse_page_number
 from fishtest.views_helpers import (
     _ANONYMOUS_RESULT_LIMIT_HARD,
     _DEFAULT_SORT_ORDER,
@@ -506,7 +507,8 @@ def actions(  # noqa: PLR0915
     # If the requested page is out of range, redirect to the last page.
     if num_actions > 0:
         last_page = (num_actions - 1) // page_size + 1
-        if page_param.isdigit() and int(page_param) > last_page:
+        page_number = parse_page_number(page_param)
+        if page_number is not None and page_number > last_page:
             redirect_query = dict(request.params)
             redirect_query["page"] = str(last_page)
             if max_count is not None:

@@ -304,7 +304,7 @@ class HttpCacheHeaderTests(unittest.TestCase):
         response = Response()
         result = apply_http_cache(response, {"http_cache": 60})
         self.assertIs(result, response)
-        self.assertEqual(response.headers.get("Cache-Control"), "max-age=60")
+        self.assertEqual(response.headers.get("Cache-Control"), "private, max-age=60")
 
     def test_preserves_existing_cache_control(self):
         response = Response(headers={"Cache-Control": "no-store"})

@@ -364,6 +364,7 @@ class TestAdminViews(UiUserTestCase):
 
         try:
             expected_count = len(self.rundb.userdb.get_pending())
+            self._login_user()
 
             full_response = self.client.get("/rate_limits")
             self.assertEqual(full_response.status_code, 200)

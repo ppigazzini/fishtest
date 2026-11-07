@@ -227,6 +227,7 @@ class TestTestsViewDetail(unittest.TestCase):
 
     def test_tests_view_page_renders_query_free_open_graph_metadata(self):
         run_id = self._create_run()
+        test_support.authenticate_client(self.client, username="DetailUser")
 
         response = self.client.get(f"/tests/view/{run_id}?follow=1&show_task=7")
 
@@ -255,6 +256,7 @@ class TestTestsViewDetail(unittest.TestCase):
 
     def test_tests_view_page_uses_shared_ui_cookie_max_age_for_theme_and_tasks(self):
         run_id = self._create_run()
+        test_support.authenticate_client(self.client, username="DetailUser")
 
         response = self.client.get(f"/tests/view/{run_id}")
 
@@ -582,6 +584,10 @@ class TestSpsaChartAssets(unittest.TestCase):
 
 class TestTestsViewTasks(UiUserTestCase):
     username = "TasksUser"
+
+    def setUp(self):
+        super().setUp()
+        test_support.authenticate_client(self.client, username=self.username)
 
     def test_tests_view_tasks_loader_attaches_before_domcontentloaded(self):
         template_path = (

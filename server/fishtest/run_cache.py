@@ -89,6 +89,9 @@ class RunCache:
             run_id_obj = ObjectId(run_id)
         except InvalidId:
             return None
+        # ObjectId accepts either case of a hex digit, and the cache is keyed by
+        # string: another spelling would load a second copy that is never evicted.
+        run_id = str(run_id_obj)
 
         with self.run_cache_lock:
             if run_id in self.run_cache:

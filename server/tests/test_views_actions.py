@@ -276,6 +276,7 @@ class TestActionsViews(unittest.TestCase):
             include_api=False,
             include_views=True,
         )
+        test_support.authenticate_client(self.client, username="ActionsUser")
         self.run_id = "64e74776a170cb1f26fa3930"
 
     def tearDown(self):
@@ -321,7 +322,7 @@ class TestActionsViews(unittest.TestCase):
             f'<input type="hidden" name="run_id" value="{self.run_id}">',
             response.text,
         )
-        self.assertIn('name="max_count" value="5000"', response.text)
+        self.assertIn('name="max_count" value="50000"', response.text)
         self.assertIn('name="sort" value="event"', response.text)
         self.assertIn('name="order" value="asc"', response.text)
 

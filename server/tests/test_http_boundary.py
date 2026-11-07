@@ -48,18 +48,7 @@ class TestHttpBoundary(unittest.TestCase):
         )
 
     def _set_authenticated_session_cookie(self, client, *, username: str) -> None:
-        from itsdangerous import TimestampSigner
-
-        from fishtest.http.cookie_session import (
-            SESSION_COOKIE_NAME,
-            session_secret_key,
-        )
-        from fishtest.http.session_middleware import _encode_cookie_value
-
-        payload: dict[str, object] = {"user": username}
-        signer = TimestampSigner(session_secret_key())
-        cookie_value = _encode_cookie_value(payload, signer)
-        client.cookies.set(SESSION_COOKIE_NAME, cookie_value)
+        test_support.authenticate_client(client, username=username)
 
     def _create_live_elo_run(self, *, sprt_state: str = "") -> str:
         run_id = self.rundb.new_run(
@@ -490,6 +479,7 @@ class TestHttpBoundary(unittest.TestCase):
     def test_tests_finished_full_page_vs_fragment(self):
         app = self._build_app(include_views=True)
         client = self.TestClient(app)
+        self._set_authenticated_session_cookie(client, username="BoundaryUser")
 
         full_response = client.get("/tests/finished?page=4&success_only=1")
         self.assertEqual(full_response.status_code, 200)
@@ -519,6 +509,7 @@ class TestHttpBoundary(unittest.TestCase):
         # with or without an HX-Request header alongside.
         app = self._build_app(include_views=True)
         client = self.TestClient(app)
+        self._set_authenticated_session_cookie(client, username="BoundaryUser")
 
         for headers in (
             {"HX-History-Restore-Request": "true"},
@@ -540,6 +531,7 @@ class TestHttpBoundary(unittest.TestCase):
     def test_tests_finished_search_mode_full_page_vs_fragment(self):
         app = self._build_app(include_views=True)
         client = self.TestClient(app)
+        self._set_authenticated_session_cookie(client, username="BoundaryUser")
 
         full_response = client.get(
             "/tests/finished?mode=search&user=Fin&text=branch&max_count=1000"
@@ -561,6 +553,7 @@ class TestHttpBoundary(unittest.TestCase):
     def test_tests_finished_search_mode_uses_stable_results_target(self):
         app = self._build_app(include_views=True)
         client = self.TestClient(app)
+        self._set_authenticated_session_cookie(client, username="BoundaryUser")
 
         response = client.get(
             "/tests/finished?mode=search&user=Fin&text=branch&max_count=1000"
@@ -575,6 +568,7 @@ class TestHttpBoundary(unittest.TestCase):
     def test_tests_finished_search_mode_uses_htmx_search_without_status_tabs(self):
         app = self._build_app(include_views=True)
         client = self.TestClient(app)
+        self._set_authenticated_session_cookie(client, username="BoundaryUser")
 
         response = client.get(
             "/tests/finished?mode=search&user=Fin&text=branch&max_count=1000"
@@ -603,7 +597,7 @@ class TestHttpBoundary(unittest.TestCase):
         self.assertIn('target="_blank"', response.text)
         self.assertIn('rel="noopener noreferrer"', response.text)
         self.assertIn(
-            f"Anonymous requests are capped at {FINISHED_FILTER_MAX_COUNT_ANON} finished rows.",
+            "Requests default to",
             response.text,
         )
         self.assertNotIn(">Green<", response.text)
@@ -613,6 +607,7 @@ class TestHttpBoundary(unittest.TestCase):
     def test_tests_finished_search_mode_username_and_text_filters(self):
         app = self._build_app(include_views=True)
         client = self.TestClient(app)
+        self._set_authenticated_session_cookie(client, username="BoundaryUser")
 
         usernames = [
             "FinishedFilterAlpha",
@@ -682,23 +677,19 @@ class TestHttpBoundary(unittest.TestCase):
             self.rundb.userdb.users.delete_many({"username": {"$in": usernames}})
             self.rundb.userdb.clear_cache()
 
-    def test_tests_finished_search_mode_anonymous_request_uses_default_cap_on_entry(
-        self,
-    ):
+    def test_tests_finished_search_mode_anonymous_request_goes_to_login(self):
         app = self._build_app(include_views=True)
         client = self.TestClient(app)
 
-        response = client.get("/tests/finished?mode=search")
+        response = client.get("/tests/finished?mode=search", follow_redirects=False)
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(
-            f'name="max_count" value="{FINISHED_FILTER_MAX_COUNT_ANON}"',
-            response.text,
-        )
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers["location"].startswith("/login?next="))
 
     def test_tests_finished_navigation_mode_drops_stale_max_count_from_url(self):
         app = self._build_app(include_views=True)
         client = self.TestClient(app)
+        self._set_authenticated_session_cookie(client, username="BoundaryUser")
 
         response = client.get(
             "/tests/finished?success_only=1&max_count=1000",
@@ -714,6 +705,7 @@ class TestHttpBoundary(unittest.TestCase):
     def test_tests_finished_redirects_old_filter_urls_to_search_mode(self):
         app = self._build_app(include_views=True)
         client = self.TestClient(app)
+        self._set_authenticated_session_cookie(client, username="BoundaryUser")
 
         response = client.get(
             "/tests/finished?success_only=1&user=filter&text=branch",
@@ -756,6 +748,7 @@ class TestHttpBoundary(unittest.TestCase):
     ):
         app = self._build_app(include_views=True)
         client = self.TestClient(app)
+        self._set_authenticated_session_cookie(client, username="BoundaryUser")
 
         response = client.get(
             "/tests/finished?mode=search&yellow_only=1&user=filter",
@@ -797,6 +790,7 @@ class TestHttpBoundary(unittest.TestCase):
     def test_tests_homepage_live_run_tables_returns_valid_hx_response(self):
         app = self._build_app(include_views=True)
         client = self.TestClient(app)
+        self._set_authenticated_session_cookie(client, username="BoundaryUser")
 
         response = client.get(
             "/tests?live=run_tables",
@@ -809,6 +803,7 @@ class TestHttpBoundary(unittest.TestCase):
     def test_tests_user_live_run_tables_redirects_non_hx_to_canonical_page(self):
         app = self._build_app(include_views=True)
         client = self.TestClient(app)
+        self._set_authenticated_session_cookie(client, username="BoundaryUser")
 
         username = "httpboundarytestsuser"
         self.rundb.userdb.users.delete_many({"username": username})
@@ -838,6 +833,7 @@ class TestHttpBoundary(unittest.TestCase):
     def test_tests_user_live_run_tables_omits_homepage_only_oob(self):
         app = self._build_app(include_views=True)
         client = self.TestClient(app)
+        self._set_authenticated_session_cookie(client, username="BoundaryUser")
 
         username = "httpboundarytestsuserhx"
         self.rundb.userdb.users.delete_many({"username": username})
@@ -872,6 +868,7 @@ class TestHttpBoundary(unittest.TestCase):
 
         app = self._build_app(include_views=True)
         client = self.TestClient(app)
+        self._set_authenticated_session_cookie(client, username="BoundaryUser")
 
         username = "httpboundarytestsuseronce"
         self.rundb.userdb.users.delete_many({"username": username})
@@ -905,6 +902,7 @@ class TestHttpBoundary(unittest.TestCase):
 
         app = self._build_app(include_views=True)
         client = self.TestClient(app)
+        self._set_authenticated_session_cookie(client, username="BoundaryUser")
 
         route_username = "httpboundarytestsuserroute"
         query_username = "httpboundarytestsuserquery"
@@ -1362,14 +1360,18 @@ class TestHttpBoundary(unittest.TestCase):
 
         @app.get("/pending-count")
         async def _pending_count_probe(request: Request):
-            context = build_template_context(request, CookieSession(data={}))
+            session = CookieSession(data=dict(request.query_params))
+            context = build_template_context(request, session)
             return {"pending_users_count": context["pending_users_count"]}
 
         try:
             client = self.TestClient(app)
-            response = client.get("/pending-count")
+            response = client.get("/pending-count", params={"user": username})
             self.assertEqual(response.status_code, 200)
             self.assertGreaterEqual(response.json()["pending_users_count"], 1)
+            # Only a logged-in user is shown the count, so an anonymous page reads none.
+            response = client.get("/pending-count")
+            self.assertEqual(response.json()["pending_users_count"], 0)
         finally:
             self.rundb.userdb.users.delete_many({"username": username})
             self.rundb.userdb.clear_cache()

@@ -21,7 +21,6 @@ import fishtest
 import fishtest.github_api as gh
 from fishtest.http import template_helpers as helpers
 from fishtest.http.settings import (
-    FINISHED_FILTER_MAX_COUNT_ANON,
     FINISHED_FILTER_MAX_COUNT_AUTH,
     HTMX_INPUT_CHANGED_DELAY_MS,
     POLL_LIVE_ELO_S,
@@ -156,7 +155,6 @@ def default_environment() -> Environment:
             "input_changed_delay_ms": HTMX_INPUT_CHANGED_DELAY_MS,
         },
         "finished": {
-            "filter_max_count_anon": FINISHED_FILTER_MAX_COUNT_ANON,
             "filter_max_count_auth": FINISHED_FILTER_MAX_COUNT_AUTH,
         },
         "cookies": {

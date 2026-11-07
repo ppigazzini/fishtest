@@ -17,6 +17,7 @@ from fishtest.http.settings import (
     FINISHED_FILTER_MAX_COUNT_ANON,
     FINISHED_FILTER_MAX_COUNT_AUTH,
 )
+from fishtest.util import parse_page_number
 from fishtest.views_helpers import (
     _DEFAULT_SORT_ORDER,
     _DEFAULT_TIME_SORT_FIELD,
@@ -140,8 +141,7 @@ def _finished_canonical_query_string(  # noqa: PLR0913
             ),
         ).strip()
     if page is None:
-        page_param = str(params.get("page", "")).strip()
-        page = int(page_param) if page_param.isdigit() else None
+        page = parse_page_number(params.get("page", ""))
 
     return _build_query_string(
         _finished_query_pairs(
@@ -420,7 +420,8 @@ def get_paginated_finished_runs(  # noqa: C901, PLR0912, PLR0915
 
     if num_finished_runs > 0:
         last_page = (num_finished_runs - 1) // page_size + 1
-        if page_param.isdigit() and int(page_param) > last_page:
+        page_number = parse_page_number(page_param)
+        if page_number is not None and page_number > last_page:
             redirect_query = dict(request.params)
             redirect_query["page"] = str(last_page)
             if exposed_max_count is not None:

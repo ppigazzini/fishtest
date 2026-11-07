@@ -60,7 +60,7 @@ but generic `OPTIONS` is not part of the UI route contract and returns `405`.
 | `/tests/live_elo/{id}` | GET | `tests_live_elo` | `tests_live_elo.html.j2` | Live Elo page + dual-scale gauge |
 | `/tests/stats/{id}` | GET | `tests_stats` | `tests_stats.html.j2` | HX: `tests_stats_content_fragment.html.j2`; active runs poll with the dedicated stats-page interval and visibility-aware refresh |
 | `/tests/tasks/{id}` | GET | `tests_tasks` | `tasks_content_fragment.html.j2` | Fragment-only; updates the scrolling task table body and refreshes fixed controls/pagination OOB, with server-side sorting for every visible task column, one combined worker/info search filter, and 25-row pagination |
-| `/tests/machines` | GET | `tests_machines` | `machines_fragment.html.j2` | Fragment-only, 10s cache |
+| `/tests/machines` | GET | `tests_machines` | `machines_fragment.html.j2` | Fragment-only, login-only, 10s private cache |
 | `/tests/live_elo_update/{id}` | GET | `live_elo_update` | `live_elo_fragment.html.j2` | Fragment-only (OOB) |
 | `/tests/finished` | GET | `tests_finished` | `tests_finished.html.j2` | HX: `tests_finished_content_fragment` |
 | `/tests/user/{username}` | GET | `tests_user` | `tests_user.html.j2` | HX: `tests_user_content_fragment`; page 1 live run tables poll the same route via `?live=run_tables` |
@@ -83,8 +83,8 @@ but generic `OPTIONS` is not part of the UI route contract and returns `405`.
 The sidebar contains two visibility-aware status links:
 
 - `Users` is rendered inside the stable `#pending-users-nav` wrapper in
-   `base.html.j2`. Full pages include the current count server-side, and that
-   same wrapper mounts the visibility-aware htmx poll to
+   `base.html.j2`. Full pages include the current count server-side, and for a
+   logged-in user that same wrapper mounts the visibility-aware htmx poll to
    `/user_management/pending_count`; the fragment route itself returns only the
    anchor HTML.
 - `GitHub Rate Limits` uses separate cadences: `POLL_RATE_LIMITS_GITHUB_S` for
@@ -101,6 +101,8 @@ Route notes:
   history restore, a full-document swap, or a top-level navigation; otherwise
   renders the full-page template.
 - **OOB**: fragment contains `hx-swap-oob` attributes for multi-element updates.
+- Several routes need a login for some or all requests. See
+  "Anonymous access".
 
 ## Tests Repository URL Contract
 
@@ -155,6 +157,9 @@ Page-head metadata contract:
    page-head metadata.
 - Shared links and social preview clients must fetch the full page URL, not the
    fragment URL.
+- A social preview client is an anonymous client: the link to an old run sends
+   it to the login page, which carries the default metadata. See
+   "Anonymous access".
 
 For SPSA runs, the detail fragment updates the existing
 `#spsa-data-<run_id>` node in place. The page-owned `spsa.js` controller keeps
@@ -311,19 +316,22 @@ following steps in order:
    path params, and DB handles into a single object passed to the handler.
 5. **Primary-instance guard** -- if `require_primary` is set and the instance
    is not primary, returns a 503 HTML response.
-6. **Handler execution** -- `await run_in_threadpool(fn, shim)` runs the
+6. **Login gate** -- if the route's `login_required` predicate holds for an
+   anonymous request, answers it without calling the handler (see "Anonymous
+   access").
+7. **Handler execution** -- `await run_in_threadpool(fn, shim)` runs the
    sync handler body in the threadpool.
-7. **Redirect handling** -- if the handler returns a `RedirectResponse`, it is
+8. **Redirect handling** -- if the handler returns a `RedirectResponse`, it is
    returned directly (with session commit).
-8. **Template rendering** -- if `renderer` is set and the handler returns a
+9. **Template rendering** -- if `renderer` is set and the handler returns a
    dict, `render_template_to_response()` renders the Jinja2 template.
-9. **Session commit** -- `commit_session_response()` applies remember/forget
-   flags to the cookie.
-10. **HTTP cache headers** -- `apply_http_cache()` sets `Cache-Control` if
+10. **Session commit** -- `commit_session_response()` applies remember/forget
+    flags to the cookie.
+11. **HTTP cache headers** -- `apply_http_cache()` sets `Cache-Control` if
     configured.
-11. **Vary header** -- one token per header the fragment decision reads is
+12. **Vary header** -- one token per header the fragment decision reads is
     appended to every GET response (see htmx fragment dispatch above).
-12. **Response headers** -- custom headers from the handler are propagated.
+13. **Response headers** -- custom headers from the handler are propagated.
 
 ## Session handling
 
@@ -445,6 +453,42 @@ while letting low-risk UI preferences remain simple, readable browser state.
 - Validation uses `secrets.compare_digest()` for timing-safe comparison.
 - Failure raises HTTP 403.
 
+## Anonymous access
+
+The app serves anonymous clients the current state of the project and sends
+history and detail to the login page. The rule is a `login_required` predicate
+on the route in `_VIEW_ROUTES`. `_dispatch_view()` evaluates it before the
+handler runs, from the URL alone, so a refused request reads no run.
+
+| Route | Anonymous client |
+|-------|------------------|
+| `/tests`, `/tests/finished`, `/tests/user/{username}`, `/actions`, `/nns`, `/contributors`, `/contributors/monthly` | Served with no query string, or with `page=1`; any other query string needs a login |
+| `/tests/view/{id}` | Served for a recent run; an old run or a `show_task` link needs a login |
+| `/tests/view/{id}/detail`, `/tests/live_elo/{id}`, `/tests/live_elo_update/{id}` | Served for a recent run; an old run needs a login |
+| `/tests/tasks/{id}`, `/tests/stats/{id}`, `/tests/machines` | Needs a login |
+
+A run is old when its ID was created more than `ANONYMOUS_RUN_MAX_AGE_DAYS`
+days ago. The age comes from the ObjectId, whether or not the run has finished.
+
+A request that needs a login is answered with `Cache-Control: no-store` and a
+`Please login` flash message:
+
+- A page load gets a `302` to `/login?next=<requested URL>`.
+- An htmx request gets a `204` with `HX-Redirect`, because `fetch()` would follow
+  a redirect and swap the login page into the target. For a fragment, `next` is
+  the page on screen, taken from `HX-Current-URL`. For a full-page swap or a
+  history restore, it is the requested URL.
+
+Anonymous pages render neither the login-only panels nor their pollers:
+
+- `/tests` shows the worker count without the workers panel, and does not read
+  the workers state cookies.
+- `/tests/view/{id}` shows the task totals and a login link, builds no task rows,
+  and omits the document size.
+- `/tests`, `/tests/user/{username}`, and every sidebar omit the run-tables and
+  `Users` pollers. A tab that outlives its session gets a `204` from these two
+  polls and stops updating.
+
 ## Authentication
 
 ### Login flow
@@ -460,7 +504,8 @@ while letting low-risk UI preferences remain simple, readable browser state.
    the current browser session.
 7. `POST /login` also refreshes `login_remember_me` so the user's explicit
    checkbox choice survives later browser starts.
-8. Redirect to the `next` URL or the referrer.
+8. Redirect to the `next` or `came_from` path when it stays on this site,
+   otherwise to `/`.
 
 ### Logout flow
 
@@ -523,8 +568,8 @@ while letting low-risk UI preferences remain simple, readable browser state.
 
 ## Homepage workers (`/tests/machines`) query parameters
 
-The homepage workers fragment (`/tests/machines`) supports URL-driven state for
-server sorting, paging, and lightweight filtering.
+The homepage workers fragment (`/tests/machines`) needs a login and supports
+URL-driven state for server sorting, paging, and lightweight filtering.
 
 | Parameter | Values | Default |
 |-----|-----|-----|
@@ -539,8 +584,7 @@ Behavior notes:
 - Sorting is server-authoritative and stable with username asc tie-breaks.
 - Pagination is enabled with page size `500`; links are omitted for one-page
    result sets.
-- `my_workers` only applies for authenticated users; anonymous requests ignore
-   this filter.
+- `my_workers` selects the workers of the logged-in user.
 - `q` performs case-insensitive substring matching across all displayed table
    columns (machine, cores, UUID, MNps, RAM, system, arch, compiler, python,
    worker, running-on, and last-active text).
@@ -791,6 +835,7 @@ Behavior notes:
 - Sorting is server-authoritative. The default `time desc` path stays on the
    indexed fast query; explicit alternate sorts materialize and sort the
    capped working set server-side.
+- Filters, sorting, and later pages need a login. See "Anonymous access".
 - Anonymous requests are capped at `5000` actions. Unfiltered authenticated
    requests default to `50000`; explicit `max_count` values are preserved in
    the URL and hidden form state.
@@ -824,6 +869,8 @@ Behavior notes:
    `/tests/view/{id}`, the preview keeps the current query string in `og:url`
    because the filters, time cursor, and explicit `max_count` define the shared
    log slice; the title and description summarize the first visible action row.
+   A social preview client is an anonymous client, so it gets this metadata for
+   the page without a query string only.
 
 ## Finished Tests (`/tests/finished`) query parameters
 
@@ -870,9 +917,9 @@ Behavior notes:
    run info text on finished runs only.
 - `/actions`, `/tests/finished`, and `/tests/user/{username}` share the
    same `max_count` query parameter for result caps.
-- Anonymous search requests use the anonymous finished-run search cap.
-   Authenticated search requests use the authenticated finished-run default.
-   Explicit `max_count` values are preserved in the URL and hidden form state.
+- Search needs a login. See "Anonymous access". Search requests use the
+   authenticated finished-run default, and explicit `max_count` values are
+   preserved in the URL and hidden form state.
 - Navigation mode (no filters active) is uncapped — `max_count` is not used.
 - Stale `max_count` values in navigation-mode URLs are stripped via redirect.
 - The summary line reports both the visible row count on the current page and

@@ -4,6 +4,7 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
+import test_support
 from ui_user_test_case import UiUserTestCase
 
 from fishtest.http.settings import HTMX_INPUT_CHANGED_DELAY_MS
@@ -11,6 +12,10 @@ from fishtest.http.settings import HTMX_INPUT_CHANGED_DELAY_MS
 
 class TestViewsContributors(UiUserTestCase):
     username = "TestContributorsUser"
+
+    def setUp(self):
+        super().setUp()
+        test_support.authenticate_client(self.client, username=self.username)
 
     def test_contributors_search_goto_redirects_to_best_match(self):
         hit_name = "HxSearchMatchUser"
@@ -278,9 +283,11 @@ class TestViewsContributors(UiUserTestCase):
             )
             self.rundb.userdb.user_cache.delete_one({"username": self.username})
 
-    def test_contributors_findme_unauthenticated_no_redirect(self):
-        response = self.client.get("/contributors?findme=1")
-        self.assertEqual(response.status_code, 200)
+    def test_contributors_findme_unauthenticated_goes_to_login(self):
+        self.client.cookies.clear()
+        response = self.client.get("/contributors?findme=1", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers["location"].startswith("/login?next="))
 
     def test_contributors_search_goto_redirects_in_view_all(self):
         hit_name = "ViewAllSearchTarget"

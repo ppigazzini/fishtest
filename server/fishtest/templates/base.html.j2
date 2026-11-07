@@ -333,9 +333,11 @@
                     <li>
                       <span
                         id="pending-users-nav"
+                        {% if current_user %}
                         hx-get="/user_management/pending_count"
                         hx-trigger="load, every[document.visibilityState === 'visible'] {{ poll.pending_users_nav }}s, visibilitychange[document.visibilityState === 'visible'] from:document"
                         hx-swap="innerHTML"
+                        {% endif %}
                       >
                         {% include "pending_users_nav_fragment.html.j2" %}
                       </span>

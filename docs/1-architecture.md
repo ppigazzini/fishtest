@@ -274,8 +274,8 @@ page.
 UI GET responses also emit `Cache-Control`: the default is
 `no-cache, private`, auth-sensitive pages use `no-store`, and explicit
 route-level overrides such as `/tests/machines` can still set a short
-`max-age`. This keeps dynamic cache policy server-authoritative and prevents
-shared caches such as nginx `proxy_cache` from storing personalized UI
+`private, max-age`. This keeps dynamic cache policy server-authoritative and
+prevents shared caches such as nginx `proxy_cache` from storing personalized UI
 responses.
 
 **Reverse-proxy cache boundary.** nginx should respect those application

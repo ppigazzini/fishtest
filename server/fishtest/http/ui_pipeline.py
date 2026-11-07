@@ -20,5 +20,6 @@ def apply_http_cache(response: Response, cfg: Mapping[str, object] | None) -> Re
     if http_cache is not None and "Cache-Control" not in response.headers:
         with suppress(Exception):
             if isinstance(http_cache, (int, float, str)):
-                response.headers["Cache-Control"] = f"max-age={int(http_cache)}"
+                max_age = int(http_cache)
+                response.headers["Cache-Control"] = f"private, max-age={max_age}"
     return response

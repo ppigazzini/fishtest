@@ -41,6 +41,7 @@ class TestTestsStatsView(unittest.TestCase):
             include_api=False,
             include_views=True,
         )
+        test_support.authenticate_client(self.client, username="StatsUser")
 
     def _create_run(self) -> str:
         run_id = self.rundb.new_run(
