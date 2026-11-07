@@ -1,4 +1,5 @@
 # ruff: noqa: ANN201, D100, D101, D102
+import json
 import unittest
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
@@ -8,8 +9,10 @@ import test_support
 from bson.objectid import ObjectId
 from ui_user_test_case import UiUserTestCase
 
+from fishtest.api import ACTIONS_BODY_MAX
 from fishtest.http.settings import ANONYMOUS_RUN_MAX_AGE_DAYS
 from fishtest.http.ui_cookies import MACHINES_QUERY_COOKIE_NAME
+from fishtest.schemas import ACTION_QUERY_CLAUSE_MAX
 from fishtest.util import is_old_run_id, parse_page_number
 
 
@@ -332,6 +335,19 @@ class TestRunCacheSpelling(_GateTestCase):
 class TestAnonymousApi(_GateTestCase):
     username = "TestGateApiUser"
 
+    def tearDown(self):
+        self.rundb.db["actions"].delete_many({"username": self.username})
+
+    def add_action(self, run_id):
+        self.rundb.db["actions"].insert_one(
+            {
+                "action": "new_run",
+                "username": self.username,
+                "run_id": run_id,
+                "time": datetime.now(UTC).timestamp(),
+            },
+        )
+
     def test_refusal_says_how_to_authenticate(self):
         response = self.client.get(f"/api/get_run/{OLD_RUN_ID}")
         self.assertEqual(response.status_code, 401)
@@ -372,6 +388,42 @@ class TestAnonymousApi(_GateTestCase):
             with self.subTest(page=page[:8]):
                 response = self.client.get(f"/api/finished_runs?page={page}")
                 self.assertEqual(response.status_code, 400)
+
+    def test_actions_of_an_old_run_are_left_out(self):
+        # Left out and not refused: notifications.js stops at an error.
+        recent = self._create_run()
+        self.add_action(recent)
+        self.add_action(OLD_RUN_ID)
+        response = self.client.post(
+            "/api/actions",
+            json={"run_id": {"$in": [recent, OLD_RUN_ID]}},
+        )
+        self.assertEqual(response.status_code, 200)
+        run_ids = {action["run_id"] for action in response.json()}
+        self.assertIn(recent, run_ids)
+        self.assertNotIn(OLD_RUN_ID, run_ids)
+        response = self.client.post("/api/actions", json={"run_id": OLD_RUN_ID})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), [])
+
+    def test_long_or_broken_body_is_refused_before_it_costs_anything(self):
+        run_id = self._create_run()
+        padded = json.dumps({"run_id": run_id, "pad": "x" * ACTIONS_BODY_MAX})
+        response = self.client.post(
+            "/api/actions",
+            content=padded,
+            headers={"content-type": "application/json"},
+        )
+        self.assertEqual(response.status_code, 413)
+        self.assertIn("error", response.json())
+        for body in ("[" * (ACTIONS_BODY_MAX - 1), b"\xff\xfe\xfd", "not json"):
+            with self.subTest(body=body[:12]):
+                response = self.client.post(
+                    "/api/actions",
+                    content=body,
+                    headers={"content-type": "application/json"},
+                )
+                self.assertEqual(response.status_code, 401)
 
     def test_old_run_json_is_refused_without_reading_it(self):
         with patch.object(self.rundb, "get_run", side_effect=AssertionError):
@@ -421,6 +473,10 @@ class TestAnonymousApi(_GateTestCase):
             {"action": "new_run"},
             {"run_id": {"$ne": run_id}},
             {"run_id": {"$regex": ".*"}},
+            {"run_id": {"$in": [run_id] * 21}},
+            {"run_id": run_id, "action": "failed_task"},
+            {"run_id": run_id, "action": {"$in": ["failed_task"]}},
+            {"run_id": run_id, "time": {"$gte": 10**30}},
             {"run_id": "not-an-object-id"},
             {"run_id": run_id, "$where": "sleep(1000)"},
             {"run_id": run_id, "message": {"$regex": ".*"}},
@@ -455,9 +511,62 @@ class TestAuthenticatedApi(_GateTestCase):
     username = "TestGateApiAuthUser"
 
     def tearDown(self):
+        self.rundb.db["actions"].delete_many({"username": self.username})
         user = self.rundb.userdb.get_user(self.username)
         user["blocked"] = False
         self.rundb.userdb.save_user(user)
+
+    def test_filter_runs_no_operator_the_schema_does_not_name(self):
+        # None of these may reach MongoDB: one $where can take the server down.
+        for query in (
+            {"$where": "sleep(1000) || true"},
+            {"$or": [{"$where": "true"}]},
+            {"$expr": {"$eq": [1, 1]}},
+            {"$bad": 1},
+            {"message": {"$regex": "x"}},
+            {"unknown_field": "x"},
+            {"$or": []},
+            [],
+            {"time": 10**30},
+            {"$or": [{"action": "x"}] * (ACTION_QUERY_CLAUSE_MAX + 1)},
+        ):
+            with self.subTest(query=str(query)[:40]):
+                with patch.object(self.rundb, "db") as db:
+                    response = self.client.post("/api/actions", json=query)
+                self.assertEqual(response.status_code, 400)
+                db.__getitem__.assert_not_called()
+
+    def test_refused_filter_gets_a_fixed_answer(self):
+        for body, message in (
+            ("not json", "not json encoded"),
+            ('{"action": {"$bad": 1}}', "not a filter"),
+            ('{"action": "\\ud800"}', "not a filter"),
+        ):
+            with self.subTest(body=body):
+                response = self.client.post(
+                    "/api/actions",
+                    content=body,
+                    headers={"content-type": "application/json"},
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(message, response.json()["error"])
+
+    def test_filter_returns_newest_first(self):
+        run_id = self._create_run()
+        for when in (1.0, 3.0, 2.0):
+            self.rundb.db["actions"].insert_one(
+                {
+                    "action": "new_run",
+                    "username": self.username,
+                    "run_id": run_id,
+                    "time": when,
+                },
+            )
+        response = self.client.post(
+            "/api/actions",
+            json={"run_id": run_id, "time": {"$lt": 10}},
+        )
+        self.assertEqual([a["time"] for a in response.json()], [3.0, 2.0, 1.0])
 
     def test_answer_is_not_kept_by_a_cache(self):
         for response in (

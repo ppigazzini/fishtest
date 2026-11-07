@@ -6,7 +6,10 @@ import re
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
+from bson.errors import BSONError
 from fastapi import APIRouter, HTTPException
+from pymongo import DESCENDING
+from pymongo.errors import ExecutionTimeout, OperationFailure
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import (
@@ -21,6 +24,7 @@ import fishtest.github_api as gh
 from fishtest.http.boundary import ApiRequestShim, get_request_shim
 from fishtest.http.settings import ANONYMOUS_RUN_MAX_AGE_DAYS
 from fishtest.schemas import (
+    action_query_schema,
     anonymous_actions_query_schema,
     api_access_schema,
     api_schema,
@@ -30,6 +34,11 @@ from fishtest.stats.stat_util import SPRT_elo, get_elo
 from fishtest.util import is_old_run_id, parse_page_number, strip_run, worker_name
 
 WORKER_VERSION = 331
+
+# The body of /api/actions is parsed on the event loop, so its size is bounded
+# before the parse. A filter that needs more than this is not one to run.
+ACTIONS_BODY_MAX = 64 * 1024
+ACTIONS_QUERY_MAX_MS = 5000
 
 WORKER_API_PATHS = {
     "/api/request_version",
@@ -388,12 +397,34 @@ class UserApi(GenericApi):
         if is_old_run_id(run_id):
             self.require_login()
 
-    def is_anonymous_actions_query(self):
+    def anonymous_actions_query(self):
+        """Return the filter to run for an anonymous client, or None if there is none.
+
+        The actions of an old run are login-only like the run. They are left out
+        and not refused, because notifications.js stops at an error, which would
+        end the notifications of every other run a visitor follows.
+        """
         try:
-            validate(anonymous_actions_query_schema, self.request.json_body)
-        except ValidationError, ValueError:
-            return False
-        return True
+            query = self.request.json_body
+            validate(anonymous_actions_query_schema, query, "query")
+        except ValidationError, ValueError, RecursionError:
+            return None
+        run_ids = query["run_id"]
+        listed = run_ids["$in"] if isinstance(run_ids, dict) else [run_ids]
+        recent = [run_id for run_id in listed if not is_old_run_id(run_id)]
+        return {**query, "run_id": {"$in": recent}}
+
+    def login_actions_query(self):
+        self.require_login()
+        try:
+            query = self.request.json_body
+        except ValueError:
+            self.refuse("request is not json encoded")
+        try:
+            validate(action_query_schema, query, "query")
+        except ValidationError, RecursionError:
+            self.refuse("request is not a filter this endpoint accepts")
+        return query
 
     def rate_limit(self):
         return gh.rate_limit()
@@ -461,19 +492,32 @@ class UserApi(GenericApi):
         return finished
 
     def actions(self):
-        if not self.is_anonymous_actions_query():
-            self.require_login()
-        try:
-            query = self.request.json_body
-            actions = self.request.rundb.db["actions"].find(query).limit(200)
-        except Exception:
-            actions = []
+        self.allow_cross_origin()
+        if self.request.body_too_large:
+            self.refuse(
+                f"request body exceeds {ACTIONS_BODY_MAX} bytes",
+                status_code=413,
+            )
+        query = self.anonymous_actions_query()
+        if query is None:
+            query = self.login_actions_query()
         ret = []
-        for action in actions:
-            action["_id"] = str(action["_id"])
-            ret.append(action)
-        self.request.response.headers["access-control-allow-origin"] = "*"
-        self.request.response.headers["access-control-allow-headers"] = "content-type"
+        try:
+            # Newest first, the order the actions indexes keep.
+            actions = (
+                self.request.rundb.db["actions"]
+                .find(query)
+                .sort([("time", DESCENDING), ("_id", DESCENDING)])
+                .limit(200)
+                .max_time_ms(ACTIONS_QUERY_MAX_MS)
+            )
+            for action in actions:
+                action["_id"] = str(action["_id"])
+                ret.append(action)
+        except ExecutionTimeout:
+            self.refuse("the filter took too long", status_code=503)
+        except OperationFailure, BSONError, OverflowError, UnicodeError:
+            self.refuse("request is not a filter this endpoint accepts")
         return ret
 
     def get_run(self):
@@ -783,7 +827,7 @@ async def api_finished_runs(request: Request, response: Response):
 
 @router.post("/api/actions")
 async def api_actions(request: Request):
-    api = UserApi(await get_request_shim(request))
+    api = UserApi(await get_request_shim(request, max_body_bytes=ACTIONS_BODY_MAX))
     result = await run_in_threadpool(api.actions)
     return JSONResponse(result, headers=api.request.response.headers)
 

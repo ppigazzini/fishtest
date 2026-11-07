@@ -22,6 +22,7 @@ from vtjson import (
     gt,
     ifthen,
     intersect,
+    interval,
     ip_address,
     keys,
     lax,
@@ -50,21 +51,70 @@ run_id = intersect(str, set_name(ObjectId.is_valid, "valid_object_id"))
 run_id_pgns = regex(r"[a-f0-9]{24}-(0|[1-9]\d*)", name="run_id_pgns")
 run_name = intersect(regex(r".*-[a-f0-9]{7}", name="run_name"), size(0, 23 + 1 + 7))
 
+# A number MongoDB can store. NaN fails the comparison, so it is refused too.
+action_query_number = intersect(
+    union(int, float),
+    interval(-(2**63), 2**63 - 1),
+)
+
 # The action log filters an anonymous client may run: the ones
 # static/js/notifications.js sends. Each is scoped to runs, which the run_id
-# index answers, and a strict schema leaves no room for another operator.
-ANONYMOUS_ACTIONS_LIST_MAX = 1000
+# index answers. A strict schema leaves no room for another operator, and size
+# comes first so that a long list is refused without checking its elements.
+ANONYMOUS_ACTIONS_RUN_IDS_MAX = 20  # designCapacity in notifications.js
+anonymous_action_name = union("finished_run", "stop_run", "delete_run", "new_run")
 anonymous_actions_query_schema = {
     "run_id": union(
         run_id,
-        {"$in": intersect([run_id, ...], size(0, ANONYMOUS_ACTIONS_LIST_MAX))},
+        {"$in": intersect(size(0, ANONYMOUS_ACTIONS_RUN_IDS_MAX), [run_id, ...])},
     ),
     "action?": union(
-        str,
-        {"$in": intersect([str, ...], size(0, ANONYMOUS_ACTIONS_LIST_MAX))},
+        anonymous_action_name,
+        {"$in": intersect(size(0, 4), [anonymous_action_name, ...])},
     ),
-    "time?": {"$gte": union(int, float)},
+    "time?": {"$gte": action_query_number},
 }
+
+# The action log filters a logged-in client may run. The body is a MongoDB filter,
+# so an operator this does not name would be one the caller gets to run, $where
+# and its server-side JavaScript included.
+ACTION_QUERY_LIST_MAX = 1000
+ACTION_QUERY_CLAUSE_MAX = 16
+action_query_constant = union(str, action_query_number, None)
+action_query_list = intersect(
+    size(0, ACTION_QUERY_LIST_MAX),
+    [action_query_constant, ...],
+)
+action_query_comparison = {
+    "$eq?": action_query_constant,
+    "$ne?": action_query_constant,
+    "$gt?": action_query_constant,
+    "$gte?": action_query_constant,
+    "$lt?": action_query_constant,
+    "$lte?": action_query_constant,
+    "$in?": action_query_list,
+    "$nin?": action_query_list,
+}
+action_query_term = union(action_query_constant, action_query_comparison)
+action_query_schema = {
+    "action?": action_query_term,
+    "username?": action_query_term,
+    "worker?": action_query_term,
+    "run_id?": action_query_term,
+    "run?": action_query_term,
+    "task_id?": action_query_term,
+    "time?": action_query_term,
+    "message?": action_query_term,
+    "nn?": action_query_term,
+    "user?": action_query_term,
+}
+action_query_clauses = intersect(
+    size(1, ACTION_QUERY_CLAUSE_MAX),
+    [action_query_schema, ...],
+)
+action_query_schema["$and?"] = action_query_clauses
+action_query_schema["$or?"] = action_query_clauses
+action_query_schema["$nor?"] = action_query_clauses
 ACTION_MESSAGE_SIZE = 5120
 action_message = intersect(str, size(0, ACTION_MESSAGE_SIZE))
 worker_message = intersect(str, size(0, 500))

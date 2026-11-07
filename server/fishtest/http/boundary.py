@@ -6,6 +6,7 @@ wiring for the UI and API layers.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from functools import cached_property
 from json import JSONDecodeError
@@ -71,12 +72,14 @@ class ApiRequestShim:
         *,
         json_body: object | None = None,
         json_error: bool = False,
+        body_too_large: bool = False,
         matchdict: dict[str, str] | None = None,
     ) -> None:
         """Initialize the request shim with parsed request metadata."""
         self._request = request
         self._json_body = json_body
         self._json_error = json_error
+        self.body_too_large = body_too_large
         self.matchdict = matchdict or {}
         self.params = request.query_params
         self.headers = request.headers
@@ -132,17 +135,45 @@ class ApiRequestShim:
 
 @dataclass(frozen=True)
 class JsonBodyResult:
-    """Result of JSON parsing with error flag."""
+    """Result of JSON parsing with error flags."""
 
     body: object | None
     error: bool
+    too_large: bool = False
 
 
-async def get_json_body(request: Request) -> JsonBodyResult:
-    """Parse JSON body, preserving legacy error behavior."""
+async def _read_body_within(request: Request, max_bytes: int) -> bytes | None:
+    """Return the body, or None as soon as it is longer than the limit."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdecimal() and len(declared) > len(str(max_bytes)):
+        return None
+    if declared.isdecimal() and int(declared) > max_bytes:
+        return None
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > max_bytes:
+            return None
+    return bytes(body)
+
+
+async def get_json_body(
+    request: Request,
+    max_bytes: int | None = None,
+) -> JsonBodyResult:
+    """Parse JSON body, preserving legacy error behavior.
+
+    With a limit, a longer body is neither read to the end nor parsed.
+    """
     try:
-        body = await request.json()
-    except JSONDecodeError, TypeError, ValueError:
+        if max_bytes is None:
+            body = await request.json()
+        else:
+            raw_body = await _read_body_within(request, max_bytes)
+            if raw_body is None:
+                return JsonBodyResult(body=None, error=True, too_large=True)
+            body = json.loads(raw_body)
+    except JSONDecodeError, TypeError, ValueError, RecursionError:
         return JsonBodyResult(body=None, error=True)
     return JsonBodyResult(body=body, error=False)
 
@@ -150,13 +181,16 @@ async def get_json_body(request: Request) -> JsonBodyResult:
 async def get_request_shim(
     request: Request,
     matchdict: dict[str, str] | None = None,
+    *,
+    max_body_bytes: int | None = None,
 ) -> ApiRequestShim:
     """Dependency that builds the API request shim."""
-    json_body = await get_json_body(request)
+    json_body = await get_json_body(request, max_body_bytes)
     return ApiRequestShim(
         request,
         json_body=json_body.body,
         json_error=json_body.error,
+        body_too_large=json_body.too_large,
         matchdict=matchdict,
     )
 

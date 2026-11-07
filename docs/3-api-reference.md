@@ -419,15 +419,24 @@ Without a login, a page after the first needs a `timestamp` within the last
 
 ### POST /api/actions
 
-Returns up to 200 recent actions matching the JSON query body.
+Returns up to 200 actions matching the JSON query body, newest first. A body
+longer than `ACTIONS_BODY_MAX` bytes (`api.py`) returns HTTP 413. A filter that
+runs longer than `ACTIONS_QUERY_MAX_MS` returns HTTP 503.
+
+With a login the body is a filter on the fields `action`, `username`, `worker`,
+`run_id`, `run`, `task_id`, `time`, `message`, `nn`, and `user`. A field takes a
+constant or the comparisons `$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`, `$in`,
+and `$nin`. `$and`, `$or`, and `$nor` combine filters. Anything else returns
+HTTP 400.
 
 Without a login the body must select runs, and may contain only these keys.
-Any other body returns HTTP 401.
+Any other body returns HTTP 401. The actions of an old run are left out of the
+answer.
 
 | Key | Value |
 |-----|-------|
-| `run_id` (required) | A run ID, or `{"$in": [run IDs]}` |
-| `action` | An action name, or `{"$in": [action names]}` |
+| `run_id` (required) | A run ID, or `{"$in": [run IDs]}` with at most `ANONYMOUS_ACTIONS_RUN_IDS_MAX` IDs (`schemas.py`) |
+| `action` | `finished_run`, `stop_run`, `delete_run`, or `new_run`, or `{"$in": [those names]}` |
 | `time` | `{"$gte": number}` |
 
 ### GET /api/get_run/{id}
@@ -482,10 +491,14 @@ Request bodies are validated against vtjson schemas defined in `schemas.py`:
 - `api_schema` -- validates the full request body structure for worker
   endpoints.
 - `gzip_data` -- validates that uploaded PGN data is valid gzip.
+- `action_query_schema` -- validates the `POST /api/actions` body of a request
+  with a login.
 - `anonymous_actions_query_schema` -- validates the `POST /api/actions` body
   of a request without a login.
 
-Schema validation failures produce HTTP 400 responses.
+Schema validation failures produce HTTP 400 responses, except that a
+`POST /api/actions` body failing `anonymous_actions_query_schema` returns HTTP
+401 without a login.
 
 ## Error shape
 

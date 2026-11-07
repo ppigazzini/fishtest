@@ -95,7 +95,7 @@ Async generators that yield chunks, with each chunk read in the threadpool.
 
 | Component | Domain | Notes |
 |-----------|--------|-------|
-| Route wrappers (`async def`) | `[LOOP]` | Parse JSON body, construct shim |
+| Route wrappers (`async def`) | `[LOOP]` | Parse JSON body, bounded on `/api/actions`, construct shim |
 | `WorkerApi` handler methods | `[THREAD]` | All 9 worker endpoints |
 | `UserApi` handler methods | `[THREAD]` | All 11 user/read-only endpoints, including the session and API token check |
 | PGN streaming | `[STREAM/THREAD]` | `iterate_in_threadpool` over file chunks |
