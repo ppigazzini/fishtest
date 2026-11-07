@@ -41,8 +41,10 @@ from fishtest.http.boundary import (
     remember,
 )
 from fishtest.http.cookie_session import (
+    SESSION_STAMP_KEY,
     CookieSession,
     authenticated_user,
+    password_stamp,
 )
 from fishtest.http.csrf import csrf_token_from_form
 from fishtest.http.dependencies import (
@@ -777,10 +779,15 @@ def login(request: _ViewContext) -> dict[str, Any] | RedirectResponse:
         token = request.userdb.authenticate(username, password)
         if "error" not in token:
             if remember_me_checked:
-                remember(request, username, max_age=SESSION_REMEMBER_ME_MAX_AGE_SECONDS)
+                remember(
+                    request,
+                    username,
+                    max_age=SESSION_REMEMBER_ME_MAX_AGE_SECONDS,
+                    password=password,
+                )
             else:
                 # Session ends when the browser is closed
-                remember(request, username)
+                remember(request, username, password=password)
             next_page = (
                 _local_redirect_path(request.params.get("next"))
                 or _local_redirect_path(came_from)
@@ -1829,6 +1836,7 @@ def user(request: _ViewContext) -> dict[str, Any] | RedirectResponse:  # noqa: C
         new_api_token = _apply_api_token_form(request, user_data)
     elif "user" in request.POST:
         if profile:
+            password_changed = False
             old_password = _form_string_value(request.POST, "old_password").strip()
             new_password = _form_string_value(request.POST, "password").strip()
             new_password_verify = _form_string_value(request.POST, "password2").strip()
@@ -1850,10 +1858,7 @@ def user(request: _ViewContext) -> dict[str, Any] | RedirectResponse:  # noqa: C
                     )
                     if strong_password:
                         user_data["password"] = new_password
-                        request.session.flash("Success! Password updated")
-                        # Whoever knew the old password could have made the token.
-                        if request.userdb.revoke_api_token(user_name):
-                            request.session.flash("API token revoked")
+                        password_changed = True
                     else:
                         request.session.flash(password_err, "error")
                         return home(request)
@@ -1886,6 +1891,16 @@ def user(request: _ViewContext) -> dict[str, Any] | RedirectResponse:  # noqa: C
                 user_data["email"] = validated_email
                 request.session.flash("Success! Email updated")
             request.userdb.save_user(user_data)
+            if password_changed:
+                request.session.flash("Success! Password updated")
+                # Whoever knew the old password could have made the token.
+                if request.userdb.revoke_api_token(user_name):
+                    request.session.flash("API token revoked")
+                # This browser stays logged in, and every other session ends.
+                request.session.data[SESSION_STAMP_KEY] = password_stamp(
+                    user_name,
+                    new_password,
+                )
         elif "blocked" in request.POST and request.POST["blocked"].isdigit():
             user_data["blocked"] = bool(int(request.POST["blocked"]))
             request.session.flash(

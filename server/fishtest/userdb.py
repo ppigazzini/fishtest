@@ -7,6 +7,7 @@ from pymongo import ASCENDING
 from vtjson import ValidationError, validate
 
 import fishtest.github_api as gh
+from fishtest.http.cookie_session import session_matches_password
 from fishtest.http.settings import API_TOKEN_MAX_AGE_DAYS
 from fishtest.lru_cache import lru_cache
 from fishtest.schemas import api_token_schema, user_schema
@@ -126,17 +127,31 @@ class UserDb:
     def api_token_expires(record):
         return record["created_at"] + timedelta(days=API_TOKEN_MAX_AGE_DAYS)
 
-    def is_active_user(self, username):
-        """Report whether a user exists and is neither blocked nor pending.
-
-        Reads the database and not the per-process user cache, so a block reaches
-        every instance at once. Only a request that needs a login pays for this.
-        """
-        user = self.users.find_one(
+    def _login_state(self, username):
+        # The database and not the per-process user cache, so a block or a password
+        # change reaches every instance at once. Anonymous requests never get here.
+        return self.users.find_one(
             {"username": username},
-            {"blocked": 1, "pending": 1},
+            {"blocked": 1, "pending": 1, "password": 1},
         )
+
+    def is_active_user(self, username):
+        """Report whether a user exists and is neither blocked nor pending."""
+        user = self._login_state(username)
         return not (user is None or user.get("blocked") or user.get("pending"))
+
+    def is_current_session(self, session_data, username):
+        """Report whether a session belongs to an active user and current password.
+
+        A session without a stamp fails this, so it cannot outlive a password change
+        that happened before its next use.
+        """
+        user = self._login_state(username)
+        if user is None or user.get("blocked") or user.get("pending"):
+            return False
+        return session_matches_password(
+            session_data, username, user.get("password", "")
+        )
 
     def username_for_api_token(self, token):
         if not API_TOKEN_SHAPE.fullmatch(token):

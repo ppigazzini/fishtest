@@ -594,7 +594,7 @@ class TestAuthenticatedApi(_GateTestCase):
         self.assertEqual(response.status_code, 401)
 
     def test_session_of_a_removed_user_counts_as_no_login(self):
-        test_support.authenticate_client(self.client, username="NoSuchGateUser")
+        test_support.set_session(self.client, {"user": "NoSuchGateUser"})
         response = self.client.get(f"/api/get_run/{OLD_RUN_ID}")
         self.assertEqual(response.status_code, 401)
 

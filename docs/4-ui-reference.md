@@ -370,6 +370,29 @@ Cookie ownership is split intentionally:
 | `csrf_token` | string | CSRF token (generated on first access) |
 | `flashes` | dict | Flash message queues (`error`, `warning`, default) |
 | `created_at` | string | ISO timestamp of session creation |
+| `password_stamp` | string | Stamp of the password the user logged in with |
+
+### Session validity
+
+A login stamps the session with an HMAC of the username and password, keyed with
+the session signing key. The cookie is signed and not encrypted, so it carries
+the stamp and not the password.
+
+Every request with a logged-in session compares the stamp with the current
+password in the database, so a change reaches every instance at once. A session
+that does not match counts as logged out:
+
+- On page routes, `RedirectBlockedUiUsersMiddleware` empties it, and the request
+  continues as an anonymous request.
+- On `/api`, `ApiRequestShim.authenticated_userid` treats it as no login.
+
+Changing the password on `/user` ends every other session of that user, and the
+browser that made the change stays logged in. A password written directly to the
+database ends all of them. The session of a removed user, and a session with no
+stamp, also count as logged out.
+
+Logging out clears the cookie in that browser. It does not end a copy of the
+cookie held elsewhere, which stays valid until the password changes.
 
 ### Per-request overrides
 
@@ -508,7 +531,8 @@ page metadata.
    page renders the checkbox unchecked on later visits.
 3. User submits username/password to `POST /login`.
 4. `UserDb.authenticate()` validates credentials.
-5. On success, `remember(request, username)` sets `session["user"]`.
+5. On success, `remember(request, username, password=password)` sets
+   `session["user"]` and `session["password_stamp"]`.
 6. Checked Remember me emits a persistent signed session cookie using the
    shared remember-me lifetime. Unchecked login keeps the auth cookie scoped to
    the current browser session.

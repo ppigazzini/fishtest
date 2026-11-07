@@ -165,7 +165,7 @@ order (outermost first in the request path):
 | Order | Middleware | Responsibility |
 |-------|-----------|----------------|
 | 1 | `FishtestSessionMiddleware` | Reads/writes signed session cookie (itsdangerous) |
-| 2 | `RedirectBlockedUiUsersMiddleware` | Redirects blocked users to `/tests` (302) |
+| 2 | `RedirectBlockedUiUsersMiddleware` | Redirects blocked users to `/tests` (302), and empties a session that no longer matches the password of its user |
 | 3 | `RejectNonPrimaryWorkerApiMiddleware` | Returns 503 for worker API on non-primary instances |
 | 4 | `AttachRequestStateMiddleware` | Copies `app.state` handles to `request.state`; stamps `request_started_at` |
 | 5 | `ShutdownGuardMiddleware` | Returns 503 for all requests during shutdown |

@@ -16,12 +16,14 @@ from typing import TYPE_CHECKING, Protocol, cast
 from starlette.requests import Request
 
 from fishtest.http.cookie_session import (
+    SESSION_STAMP_KEY,
     CookieSession,
     authenticated_user,
     authenticated_user_from_data,
     is_https,
     mark_session_force_clear,
     mark_session_max_age,
+    password_stamp,
 )
 from fishtest.http.csrf import csrf_or_403
 from fishtest.http.dependencies import (
@@ -109,12 +111,16 @@ class ApiRequestShim:
         """Return the active user of the session or of the API token, if any.
 
         A session is checked against the user record here because the middleware
-        that ends the session of a blocked user skips /api. Reads the session
-        without touching its contents.
+        that ends a stale session skips /api. Reads the session without touching
+        its contents.
         """
         session = self._request.scope.get("session")
         user = authenticated_user_from_data(session) if session else None
-        if user and self.userdb is not None and self.userdb.is_active_user(user):
+        if (
+            user
+            and self.userdb is not None
+            and self.userdb.is_current_session(session, user)
+        ):
             return user
         return self._api_token_user()
 
@@ -281,11 +287,23 @@ def remember(
     request: _SessionUser,
     username: str,
     max_age: int | None = None,
+    *,
+    password: str | None = None,
 ) -> list[tuple[str, str]]:
-    """Remember a user in the session and mark the cookie for persistence."""
+    """Remember a user in the session and mark the cookie for persistence.
+
+    The password stamps the session, which ends when the password changes.
+    """
     session_data = _resolve_session_data(request.session)
     if session_data is not None:
         session_data["user"] = username
+        if password is None:
+            session_data.pop(SESSION_STAMP_KEY, None)
+        else:
+            session_data[SESSION_STAMP_KEY] = password_stamp(
+                username,
+                password,
+            )
         if max_age is None:
             session_data.pop("remember_max_age", None)
         else:

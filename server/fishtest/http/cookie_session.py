@@ -6,6 +6,8 @@ Starlette session middleware backed by ``request.scope["session"]``.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
 import secrets
 from dataclasses import dataclass
@@ -18,6 +20,7 @@ if TYPE_CHECKING:
     from starlette.requests import Request
 
 SESSION_COOKIE_NAME: Final[str] = "fishtest_session"
+SESSION_STAMP_KEY: Final[str] = "password_stamp"
 DEFAULT_SAMESITE: Final[Literal["lax", "strict", "none"]] = "lax"
 INSECURE_DEV_ENV: Final[str] = "FISHTEST_INSECURE_DEV"
 
@@ -50,6 +53,31 @@ def _secret_key() -> str:
 def session_secret_key() -> str:
     """Expose the session signing key for middleware configuration."""
     return _secret_key()
+
+
+def password_stamp(username: str, password: str) -> str:
+    """Return a value that changes with the password and does not reveal it.
+
+    The session cookie is signed, not encrypted, so it carries this and not the
+    password. Details: docs/4-ui-reference.md (section: "Session validity").
+    """
+    message = f"{username}\0{password}".encode()
+    return hmac.new(_secret_key().encode(), message, hashlib.sha256).hexdigest()
+
+
+def session_matches_password(
+    session_data: Mapping[str, object],
+    username: str,
+    password: str,
+) -> bool:
+    """Return whether a session was stamped with this user's current password."""
+    stamp = session_data.get(SESSION_STAMP_KEY)
+    if not isinstance(stamp, str):
+        return False
+    return hmac.compare_digest(
+        stamp.encode(),
+        password_stamp(username, password).encode(),
+    )
 
 
 def _utc_now_iso() -> str:
@@ -164,6 +192,7 @@ __all__ = [
     "DEFAULT_SAMESITE",
     "INSECURE_DEV_ENV",
     "SESSION_COOKIE_NAME",
+    "SESSION_STAMP_KEY",
     "CookieSession",
     "MissingAuthenticationSecretError",
     "authenticated_user",
@@ -172,5 +201,7 @@ __all__ = [
     "load_session",
     "mark_session_force_clear",
     "mark_session_max_age",
+    "password_stamp",
+    "session_matches_password",
     "session_secret_key",
 ]

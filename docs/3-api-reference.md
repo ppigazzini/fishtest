@@ -347,8 +347,9 @@ external tools, and API consumers.
 Some requests need a login: the session cookie from `POST /login`, or an API
 token. Without one, they return HTTP 401 before any run is read, with a JSON
 error payload, a `WWW-Authenticate: Bearer` header, and `Cache-Control:
-no-store`. The session of a blocked or removed user counts as no login. An
-answer that needed a login also carries `Cache-Control: no-store`.
+no-store`. The session of a blocked or removed user, or one from before the last
+password change, counts as no login. An answer that needed a login also carries
+`Cache-Control: no-store`.
 
 | Endpoint | Without a login |
 |----------|-----------------|

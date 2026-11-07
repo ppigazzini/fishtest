@@ -152,8 +152,8 @@ def make_test_client(*, rundb: Any, include_api: bool, include_views: bool):
     return TestClient(app)
 
 
-def authenticate_client(client: Any, *, username: str) -> None:
-    """Give a test client a signed session, skipping the login form."""
+def set_session(client: Any, session: dict[str, object]) -> None:
+    """Give a test client a signed session with exactly this content."""
     from itsdangerous import TimestampSigner
 
     from fishtest.http.cookie_session import (
@@ -163,9 +163,40 @@ def authenticate_client(client: Any, *, username: str) -> None:
     from fishtest.http.session_middleware import _encode_cookie_value
 
     signer = TimestampSigner(session_secret_key())
-    client.cookies.set(
-        SESSION_COOKIE_NAME,
-        _encode_cookie_value({"user": username}, signer),
+    client.cookies.set(SESSION_COOKIE_NAME, _encode_cookie_value(session, signer))
+
+
+def ensure_active_user(userdb: Any, username: str) -> str:
+    """Create the user if needed, and return the password of the active user."""
+    if userdb.users.find_one({"username": username}) is None:
+        userdb.create_user(
+            username,
+            "test-session-password",
+            f"{username.lower()}@example.com",
+            "",
+        )
+        userdb.users.update_one({"username": username}, {"$set": {"pending": False}})
+        userdb.clear_cache()
+    return userdb.users.find_one({"username": username})["password"]
+
+
+def authenticate_client(client: Any, *, username: str) -> None:
+    """Log a test client in as an active user, skipping the login form.
+
+    A session needs a user record, so a user that does not exist is created.
+    """
+    from fishtest.http.cookie_session import (
+        SESSION_STAMP_KEY,
+        password_stamp,
+    )
+
+    password = ensure_active_user(client.app.state.userdb, username)
+    set_session(
+        client,
+        {
+            "user": username,
+            SESSION_STAMP_KEY: password_stamp(username, password),
+        },
     )
 
 

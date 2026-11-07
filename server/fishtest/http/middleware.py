@@ -31,6 +31,13 @@ class _BlockedUserDb(Protocol):
     def get_blocked(self) -> list[dict[str, object]]:
         """Return blocked users from the data store."""
 
+    def is_current_session(
+        self,
+        session_data: dict[str, object],
+        username: str,
+    ) -> bool:
+        """Return whether a session belongs to an active user and current password."""
+
 
 @dataclass
 class _BlockedCache:
@@ -225,14 +232,19 @@ class AttachRequestStateMiddleware:
 
 
 class RedirectBlockedUiUsersMiddleware:
-    """If an authenticated UI user becomes blocked, invalidate and redirect."""
+    """End the session of a blocked user, and of a session that is no longer valid.
+
+    A blocked user is redirected. A session from before the last password change,
+    or of a removed user, continues as an anonymous request, so a public page stays
+    served and a login-only route meets its usual answer.
+    """
 
     def __init__(self, app: ASGIApp) -> None:
         """Store the downstream ASGI app."""
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Invalidate session and redirect if an authenticated user is blocked."""
+        """Invalidate a session that is blocked or no longer valid."""
         if scope.get("type") != "http":
             await self.app(scope, receive, send)
             return
@@ -271,5 +283,13 @@ class RedirectBlockedUiUsersMiddleware:
             response = RedirectResponse(url="/tests", status_code=302)
             await response(scope, receive, send)
             return
+
+        current = await run_in_threadpool(
+            userdb.is_current_session,
+            session_data,
+            username,
+        )
+        if not current:
+            session_data.clear()
 
         await self.app(scope, receive, send)

@@ -20,6 +20,7 @@ from starlette.requests import HTTPConnection
 from fishtest.http.cookie_session import (
     DEFAULT_SAMESITE,
     SESSION_COOKIE_NAME,
+    SESSION_STAMP_KEY,
 )
 from fishtest.http.settings import SESSION_COOKIE_VALUE_MAX_BYTES
 
@@ -282,7 +283,14 @@ def _enforce_size_limit(
         return candidate
 
     minimal: dict[str, object] = {}
-    for key in ("user", "csrf_token", "created_at", "updated_at", "remember_max_age"):
+    for key in (
+        "user",
+        SESSION_STAMP_KEY,
+        "csrf_token",
+        "created_at",
+        "updated_at",
+        "remember_max_age",
+    ):
         if key in candidate:
             minimal[key] = candidate[key]
     return minimal

@@ -17,6 +17,9 @@ class _UserDbStub:
             return [{"username": self._blocked_username, "blocked": True}]
         return []
 
+    def is_current_session(self, session_data, username):
+        return True
+
 
 class _RunDbStub:
     def __init__(

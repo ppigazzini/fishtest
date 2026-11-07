@@ -1105,13 +1105,15 @@ class TestHttpBoundary(unittest.TestCase):
         from fishtest.http.boundary import commit_session_response, remember
         from fishtest.http.cookie_session import load_session
 
+        # A session lasts only while it matches an active user and password.
+        password = test_support.ensure_active_user(self.rundb.userdb, "Tester")
         app = self._build_app()
 
         @app.get("/remember-persist")
         async def _remember_persist_probe(request: Request):
             session = load_session(request)
             shim = SimpleNamespace(session=session, _remember=False, _forget=False)
-            remember(shim, "Tester", max_age=60)
+            remember(shim, "Tester", max_age=60, password=password)
             response = Response("ok")
             commit_session_response(request, session, shim, response)
             return response
@@ -1241,13 +1243,15 @@ class TestHttpBoundary(unittest.TestCase):
         from fishtest.http.boundary import commit_session_response, remember
         from fishtest.http.cookie_session import load_session
 
+        # A session lasts only while it matches an active user and password.
+        password = test_support.ensure_active_user(self.rundb.userdb, "Tester")
         app = self._build_app()
 
         @app.get("/remember-large")
         async def _remember_large_probe(request: Request):
             session = load_session(request)
             shim = SimpleNamespace(session=session, _remember=False, _forget=False)
-            remember(shim, "Tester", max_age=60)
+            remember(shim, "Tester", max_age=60, password=password)
             session.data["blob"] = "x" * 20000
             response = Response("ok")
             commit_session_response(request, session, shim, response)

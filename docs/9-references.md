@@ -576,8 +576,10 @@ Most test files import `test_support`, which provides:
 - `cleanup_test_rundb(...)`: drops test collections after a test class runs.
 - `find_run(...)`: retrieves a run from the database by field match.
 - `extract_csrf_token(html)`: parses a CSRF token from rendered HTML.
-- `authenticate_client(client, username=...)`: gives a test client a signed
-  session without the login form.
+- `authenticate_client(client, username=...)`: logs a test client in as an active
+  user without the login form, creating the user if needed.
+- `set_session(client, session)`: gives a test client a signed session with exactly
+  this content.
 
 User-facing UI route modules also reuse `ui_user_test_case.py` for shared
 client setup, login helpers, run creation, and DB cleanup.
@@ -601,6 +603,7 @@ validation fails.
 | `test_views_finished.py` | Finished-runs search and pagination |
 | `test_views_login_gate.py` | What an anonymous client gets from pages, fragments, polls, and read APIs |
 | `test_api_tokens.py` | API token storage, the `Authorization` header contract, and the `/user` form |
+| `test_session_password.py` | A session ends when the password of its user changes |
 | `test_views_helpers.py` | Shared pagination, parameter, and merge helpers |
 | `test_views_machines.py` | Machines helper behavior plus `/tests/machines` HTTP contracts |
 | `test_views_run.py` | Run-form validation, SPSA parsing, permissions, and run action routes |
