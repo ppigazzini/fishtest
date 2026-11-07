@@ -344,8 +344,11 @@ contract.
 These endpoints take no worker credentials. They serve data to the web UI,
 external tools, and API consumers.
 
-Some requests need a web login: the session cookie from `POST /login`. Without
-one, they return HTTP 401 with a JSON error payload before any run is read.
+Some requests need a login: the session cookie from `POST /login`, or an API
+token. Without one, they return HTTP 401 before any run is read, with a JSON
+error payload, a `WWW-Authenticate: Bearer` header, and `Cache-Control:
+no-store`. The session of a blocked or removed user counts as no login. An
+answer that needed a login also carries `Cache-Control: no-store`.
 
 | Endpoint | Without a login |
 |----------|-----------------|
@@ -364,6 +367,34 @@ one, they return HTTP 401 with a JSON error payload before any run is read.
 A run is recent when its ID was created within the last
 `ANONYMOUS_RUN_MAX_AGE_DAYS` days. The age comes from the ObjectId, whether or
 not the run has finished.
+
+### API tokens
+
+A script identifies its user with an API token in the `Authorization` header:
+
+```bash
+curl -H "Authorization: Bearer $FISHTEST_TOKEN" \
+  https://tests.stockfishchess.org/api/get_task/<run_id>/0
+```
+
+- A user creates, replaces, and revokes their token on the `/user` page. Each
+  user has one token.
+- The page shows a new token once. The server stores only its SHA-256 hash.
+- A token stops working `API_TOKEN_MAX_AGE_DAYS` days after it was created
+  (`http/settings.py`). Replacing it starts a new period.
+- Changing the password, being blocked or unblocked, and removal of the account
+  revoke the token, so a user is never unblocked with a working one. A blocked or
+  pending user cannot create a token.
+- A token whose user is blocked or removed in the database, outside the app, is
+  deleted the next time it is used.
+- Only the endpoints in this section accept a token. Web pages and worker
+  endpoints do not.
+- A token in a query string is ignored.
+- An unknown, expired, or revoked token, or the token of a blocked or pending
+  user, counts as no credential: public requests are served and the rest return
+  HTTP 401 with `WWW-Authenticate: Bearer error="invalid_token"`.
+- Browser pages on other origins cannot send the header, because these endpoints
+  answer no preflight request.
 
 ### GET /api/active_runs
 

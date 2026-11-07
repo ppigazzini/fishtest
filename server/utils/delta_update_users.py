@@ -315,6 +315,8 @@ def cleanup_users(rundb: RunDb) -> None:
         else:
             logger.info("Delete: %s", u["_id"])
             rundb.userdb.users.delete_one({"_id": u["_id"]})
+            # The username can be registered again.
+            rundb.userdb.revoke_api_token(u["username"])
 
 
 def main() -> None:

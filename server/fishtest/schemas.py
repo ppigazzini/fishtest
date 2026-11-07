@@ -148,6 +148,13 @@ user_schema = {
     "machine_limit": uint,
 }
 
+api_token_schema = {
+    "_id?": ObjectId,
+    "token_hash": regex(r"[0-9a-f]{64}", name="token_hash"),
+    "username": username,
+    "created_at": datetime_utc,
+}
+
 kvstore_schema = {
     "_id": str,
     "value": anything,

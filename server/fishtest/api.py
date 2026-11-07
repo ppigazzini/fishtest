@@ -9,7 +9,12 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 from starlette.requests import Request
-from starlette.responses import JSONResponse, RedirectResponse, StreamingResponse
+from starlette.responses import (
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from vtjson import ValidationError, validate
 
 import fishtest.github_api as gh
@@ -70,7 +75,7 @@ class GenericApi:
         result["duration"] = (datetime.now(UTC) - self.timestamp()).total_seconds()
         return result
 
-    def handle_error(self, error, status_code=400, *, log=True):
+    def handle_error(self, error, status_code=400, *, log=True, headers=None):
         if error != "":
             api = urlparse(str(self.request.url)).path
             error = f"{api}: {error}"
@@ -79,6 +84,7 @@ class GenericApi:
             raise HTTPException(
                 status_code=status_code,
                 detail=self.add_time({"error": error}),
+                headers=headers,
             )
 
 
@@ -345,10 +351,37 @@ class WorkerApi(GenericApi):
 
 
 class UserApi(GenericApi):
-    def require_login(self):
+    def allow_cross_origin(self):
+        self.request.response.headers["access-control-allow-origin"] = "*"
+        self.request.response.headers["access-control-allow-headers"] = "content-type"
+
+    def refuse(self, error, status_code=400, headers=None):
         # A crawler arrives here at its own rate, so a refusal is not logged.
-        if not self.request.authenticated_userid:
-            self.handle_error("Login required", status_code=401, log=False)
+        self.handle_error(
+            error,
+            status_code=status_code,
+            log=False,
+            headers={**self.request.response.headers, **(headers or {})},
+        )
+
+    def require_login(self):
+        if self.request.authenticated_userid:
+            # The answer depends on the credential, so no cache may keep it.
+            self.request.response.headers["cache-control"] = "no-store"
+            return
+        scheme = self.request.headers.get("authorization", "").partition(" ")[0]
+        self.refuse(
+            "Login required",
+            status_code=401,
+            headers={
+                "www-authenticate": (
+                    'Bearer error="invalid_token"'
+                    if scheme.lower() == "bearer"
+                    else "Bearer"
+                ),
+                "cache-control": "no-store",
+            },
+        )
 
     def require_login_for_old_run(self, run_id):
         # Runs before the database is read, so a refusal costs no cold load.
@@ -444,13 +477,12 @@ class UserApi(GenericApi):
         return ret
 
     def get_run(self):
+        self.allow_cross_origin()
         run_id = self.request.matchdict["id"]
         self.require_login_for_old_run(run_id)
         run = self.request.rundb.get_run(run_id)
         if run is None:
-            self.handle_error(f"The run {run_id} does not exist", status_code=404)
-        self.request.response.headers["access-control-allow-origin"] = "*"
-        self.request.response.headers["access-control-allow-headers"] = "content-type"
+            self.refuse(f"The run {run_id} does not exist", status_code=404)
         return strip_run(run)
 
     def get_task(self):
@@ -466,7 +498,7 @@ class UserApi(GenericApi):
                 task_id = int(task_id)
                 task = copy.deepcopy(run["tasks"][task_id])
         except Exception:
-            self.handle_error(
+            self.refuse(
                 f"The task {run_id}/{task_id} does not exist",
                 status_code=404,
             )
@@ -498,7 +530,7 @@ class UserApi(GenericApi):
         self.require_login_for_old_run(run_id)
         run = self.request.rundb.get_run(run_id)
         if run is None:
-            self.handle_error(f"The run {run_id} does not exist", status_code=404)
+            self.refuse(f"The run {run_id} does not exist", status_code=404)
         results = run["results"]
         if "sprt" not in run["args"]:
             return {}
@@ -742,9 +774,11 @@ async def api_active_runs(request: Request):
 
 
 @router.get("/api/finished_runs")
-async def api_finished_runs(request: Request):
+async def api_finished_runs(request: Request, response: Response):
     api = UserApi(ApiRequestShim(request))
-    return await run_in_threadpool(api.finished_runs)
+    result = await run_in_threadpool(api.finished_runs)
+    response.headers.update(api.request.response.headers)
+    return result
 
 
 @router.post("/api/actions")
@@ -762,15 +796,19 @@ async def api_get_run(id, request: Request):
 
 
 @router.get("/api/get_task/{id}/{task_id}")
-async def api_get_task(id, task_id, request: Request):
+async def api_get_task(id, task_id, request: Request, response: Response):
     api = UserApi(ApiRequestShim(request, matchdict={"id": id, "task_id": task_id}))
-    return await run_in_threadpool(api.get_task)
+    result = await run_in_threadpool(api.get_task)
+    response.headers.update(api.request.response.headers)
+    return result
 
 
 @router.get("/api/get_elo/{id}")
-async def api_get_elo(id, request: Request):
+async def api_get_elo(id, request: Request, response: Response):
     api = UserApi(ApiRequestShim(request, matchdict={"id": id}))
-    return await run_in_threadpool(api.get_elo)
+    result = await run_in_threadpool(api.get_elo)
+    response.headers.update(api.request.response.headers)
+    return result
 
 
 @router.get("/api/calc_elo")

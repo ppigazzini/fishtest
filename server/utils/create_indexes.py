@@ -106,6 +106,11 @@ def create_users_indexes():
     db["users"].create_index("username", unique=True)
 
 
+def create_api_tokens_indexes():
+    db["api_tokens"].create_index("token_hash", unique=True)
+    db["api_tokens"].create_index("username", unique=True)
+
+
 def create_workers_indexes():
     db["workers"].create_index("worker_name", unique=True)
 
@@ -182,6 +187,9 @@ if __name__ == "__main__":
             if collection_name == "users":
                 drop_indexes("users")
                 create_users_indexes()
+            if collection_name == "api_tokens":
+                drop_indexes("api_tokens")
+                create_api_tokens_indexes()
             if collection_name == "workers":
                 drop_indexes("workers")
                 create_workers_indexes()

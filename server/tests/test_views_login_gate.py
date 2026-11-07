@@ -332,6 +332,24 @@ class TestRunCacheSpelling(_GateTestCase):
 class TestAnonymousApi(_GateTestCase):
     username = "TestGateApiUser"
 
+    def test_refusal_says_how_to_authenticate(self):
+        response = self.client.get(f"/api/get_run/{OLD_RUN_ID}")
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.headers["www-authenticate"], "Bearer")
+        self.assertEqual(response.headers["cache-control"], "no-store")
+        # A page on another origin can read the refusal, as it can read the run.
+        self.assertEqual(response.headers["access-control-allow-origin"], "*")
+
+    def test_refused_token_is_named_in_the_challenge(self):
+        response = self.client.get(
+            f"/api/get_run/{OLD_RUN_ID}",
+            headers={"Authorization": "Bearer junk"},
+        )
+        self.assertEqual(
+            response.headers["www-authenticate"],
+            'Bearer error="invalid_token"',
+        )
+
     def test_history_feed_needs_a_login(self):
         now = datetime.now(UTC).timestamp()
         day = 24 * 3600
@@ -435,6 +453,34 @@ class TestAnonymousApi(_GateTestCase):
 
 class TestAuthenticatedApi(_GateTestCase):
     username = "TestGateApiAuthUser"
+
+    def tearDown(self):
+        user = self.rundb.userdb.get_user(self.username)
+        user["blocked"] = False
+        self.rundb.userdb.save_user(user)
+
+    def test_answer_is_not_kept_by_a_cache(self):
+        for response in (
+            self.client.get(f"/api/get_task/{self._create_run()}/0"),
+            self.client.post("/api/actions", json={}),
+            self.client.get("/api/finished_runs?page=2"),
+        ):
+            self.assertEqual(response.headers.get("cache-control"), "no-store")
+
+    def test_blocked_session_counts_as_no_login(self):
+        # The middleware that ends a blocked session skips /api.
+        user = self.rundb.userdb.get_user(self.username)
+        user["blocked"] = True
+        self.rundb.userdb.save_user(user)
+        response = self.client.get(f"/api/get_run/{OLD_RUN_ID}")
+        self.assertEqual(response.status_code, 401)
+        response = self.client.post("/api/actions", json={})
+        self.assertEqual(response.status_code, 401)
+
+    def test_session_of_a_removed_user_counts_as_no_login(self):
+        test_support.authenticate_client(self.client, username="NoSuchGateUser")
+        response = self.client.get(f"/api/get_run/{OLD_RUN_ID}")
+        self.assertEqual(response.status_code, 401)
 
     def setUp(self):
         super().setUp()

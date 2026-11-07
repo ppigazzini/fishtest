@@ -900,6 +900,10 @@ Rendered structure:
 | `form_action` | URL |
 | `registration_time_label` | string |
 | `blocked` | bool |
+| `new_api_token` | string, or `None` except in the response that created it |
+| `api_token_created` | string, or `None` without a token or outside profile mode |
+| `api_token_expires` | string, `Unknown` without a token or outside profile mode |
+| `api_token_expired` | bool |
 
 Tests repository contract:
 

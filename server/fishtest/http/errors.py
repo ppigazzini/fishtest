@@ -56,7 +56,11 @@ async def _http_exception_handler(request: Request, exc: Exception) -> Response:
     # Preserve legacy behavior: when an endpoint raises an HTTP exception with a
     # dict payload, return that dict as the response body.
     if isinstance(getattr(exc, "detail", None), dict):
-        return JSONResponse(exc.detail, status_code=exc.status_code)
+        return JSONResponse(
+            exc.detail,
+            status_code=exc.status_code,
+            headers=getattr(exc, "headers", None),
+        )
 
     # UI auth failures should not return JSON.
     if exc.status_code in {STATUS_UNAUTHORIZED, STATUS_FORBIDDEN}:

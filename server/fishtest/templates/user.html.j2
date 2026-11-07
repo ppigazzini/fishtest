@@ -255,6 +255,60 @@
       {% endif %}
     {% endif %}
   </form>
+
+  {% if profile %}
+    <section id="api-token" class="mt-4">
+      <h4>API token</h4>
+      <p>
+        Scripts send this token in an <code>Authorization: Bearer</code> header to
+        read the API routes that need a login.
+      </p>
+      {% if new_api_token %}
+        <div class="alert alert-warning">
+          <p class="mb-2">Copy this token now. It is not shown again.</p>
+          <code id="new-api-token" class="text-break user-select-all">{{ new_api_token }}</code>
+        </div>
+      {% endif %}
+      <p id="api-token-status">
+        {% if api_token_created %}
+          Created: {{ api_token_created }}.
+          {{ 'Expired' if api_token_expired else 'Expires' }}: {{ api_token_expires }}.
+        {% else %}
+          No token.
+        {% endif %}
+      </p>
+      <form id="api_token_form" action="{{ request.url }}" method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="input-group mb-3">
+          <div class="form-floating">
+            <input
+              type="password"
+              class="form-control"
+              id="api_token_password"
+              name="api_token_password"
+              placeholder="Password"
+              autocomplete="current-password"
+              required
+            />
+            <label for="api_token_password" class="d-flex align-items-end">Password</label>
+          </div>
+          <span class="input-group-text toggle-password-visibility" role="button">
+            <i class="fa-solid fa-lg fa-eye pe-none icon-fixed-width"></i>
+          </span>
+        </div>
+        <div class="d-flex gap-2">
+          <button name="api_token" value="create" type="submit" class="btn btn-primary flex-fill">
+            {{ 'Replace token' if api_token_created else 'Create token' }}
+          </button>
+          {% if api_token_created %}
+            <button name="api_token" value="revoke" type="submit" class="btn btn-danger flex-fill">
+              Revoke token
+            </button>
+          {% endif %}
+        </div>
+      </form>
+    </section>
+  {% endif %}
 </div>
 
 <script src="{{ static_url('fishtest:static/js/toggle_password.js') }}"></script>

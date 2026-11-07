@@ -1,13 +1,20 @@
-from datetime import UTC, datetime
+import hashlib
+import re
+import secrets
+from datetime import UTC, datetime, timedelta
 
 from pymongo import ASCENDING
 from vtjson import ValidationError, validate
 
 import fishtest.github_api as gh
+from fishtest.http.settings import API_TOKEN_MAX_AGE_DAYS
 from fishtest.lru_cache import lru_cache
-from fishtest.schemas import user_schema
+from fishtest.schemas import api_token_schema, user_schema
 
 DEFAULT_MACHINE_LIMIT = 16
+
+# 32 random bytes in URL-safe base64. Junk is refused without a database read.
+API_TOKEN_SHAPE = re.compile(r"fst_[A-Za-z0-9_-]{43}")
 
 
 def validate_user(user):
@@ -19,11 +26,18 @@ def validate_user(user):
         raise ValidationError(message) from None
 
 
+def _hash_api_token(token):
+    # A token is 256 random bits, so it cannot be guessed offline from its hash
+    # and a fast hash can serve as the lookup key.
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 class UserDb:
     def __init__(self, db):
         self.db = db
         self.users = self.db["users"]
         self.user_cache = self.db["user_cache"]
+        self.api_tokens = self.db["api_tokens"]
         self.top_month = self.db["top_month"]
 
     def clear_cache(self):
@@ -77,6 +91,66 @@ class UserDb:
             )
 
         return {"username": username, "authenticated": True}
+
+    def create_api_token(self, username):
+        """Replace the token of a user and return the new one.
+
+        Only the hash is stored, so this is the only time the token exists. A blocked
+        or pending user gets None and no token.
+        """
+        if not self.is_active_user(username):
+            return None
+        token = f"fst_{secrets.token_urlsafe(32)}"
+        record = {
+            "token_hash": _hash_api_token(token),
+            "username": username,
+            "created_at": datetime.now(UTC),
+        }
+        validate(api_token_schema, record, "api_token")
+        self.api_tokens.replace_one({"username": username}, record, upsert=True)
+        print(f"API token created for user: {username}", flush=True)
+        return token
+
+    def revoke_api_token(self, username):
+        """Remove the token of a user and report whether there was one."""
+        # delete_many: without the unique index, concurrent creates can leave two.
+        deleted = self.api_tokens.delete_many({"username": username}).deleted_count
+        if deleted:
+            print(f"API token revoked for user: {username}", flush=True)
+        return bool(deleted)
+
+    def get_api_token(self, username):
+        return self.api_tokens.find_one({"username": username})
+
+    @staticmethod
+    def api_token_expires(record):
+        return record["created_at"] + timedelta(days=API_TOKEN_MAX_AGE_DAYS)
+
+    def is_active_user(self, username):
+        """Report whether a user exists and is neither blocked nor pending.
+
+        Reads the database and not the per-process user cache, so a block reaches
+        every instance at once. Only a request that needs a login pays for this.
+        """
+        user = self.users.find_one(
+            {"username": username},
+            {"blocked": 1, "pending": 1},
+        )
+        return not (user is None or user.get("blocked") or user.get("pending"))
+
+    def username_for_api_token(self, token):
+        if not API_TOKEN_SHAPE.fullmatch(token):
+            return None
+        record = self.api_tokens.find_one({"token_hash": _hash_api_token(token)})
+        if record is None or datetime.now(UTC) >= self.api_token_expires(record):
+            return None
+        username = record["username"]
+        if self.is_active_user(username):
+            return username
+        # A block written outside the app leaves the token, and an unblock would
+        # bring it back, so it ends here.
+        self.revoke_api_token(username)
+        return None
 
     def get_users(self):
         return self.users.find(sort=[("_id", ASCENDING)])
@@ -153,6 +227,8 @@ class UserDb:
         if result.deleted_count > 0:
             # User successfully deleted
             self.clear_cache()
+            # The username can be registered again.
+            self.revoke_api_token(user["username"])
             # logs rejected users to the server
             print(
                 f"user: {user['username']} with email: {user['email']} was rejected by: {rejector}",

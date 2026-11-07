@@ -46,6 +46,10 @@ UI_STATE_COOKIE_MAX_AGE_SECONDS: int = 60 * 60 * 24 * 400
 # Details: docs/4-ui-reference.md (section: "Anonymous access").
 ANONYMOUS_RUN_MAX_AGE_DAYS: int = 30
 
+# A token stops working this long after it was created.
+# Details: docs/3-api-reference.md (section: "API tokens").
+API_TOKEN_MAX_AGE_DAYS: int = 365
+
 # Template and UI view defaults.
 WORKERS_PAGE_SIZE: int = 25
 WORKERS_MAX_ALL: int = 5000

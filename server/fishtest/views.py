@@ -1783,6 +1783,32 @@ def user_management(request: _ViewContext) -> dict[str, Any] | Response:  # noqa
     )
 
 
+def _apply_api_token_form(
+    request: _ViewContext,
+    user_data: dict[str, Any],
+) -> str | None:
+    """Create or revoke the API token of the logged-in user.
+
+    Return a new token, which the response shows once. It stays out of the flash
+    messages because the session cookie is signed, not encrypted.
+    """
+    password = _form_string_value(request.POST, "api_token_password").strip()
+    # Temporary comparison until passwords are hashed.
+    if password != user_data["password"].strip():
+        request.session.flash("Invalid password!", "error")
+        return None
+    action = _form_string_value(request.POST, "api_token")
+    if action == "create":
+        token = request.userdb.create_api_token(user_data["username"])
+        if token is None:
+            request.session.flash("This account cannot have an API token", "error")
+        return token
+    if action == "revoke":
+        request.userdb.revoke_api_token(user_data["username"])
+        request.session.flash("API token revoked")
+    return None
+
+
 def user(request: _ViewContext) -> dict[str, Any] | RedirectResponse:  # noqa: C901, PLR0911, PLR0912, PLR0915
     _append_no_store_headers(request)
     userid = ensure_logged_in(request)
@@ -1798,7 +1824,10 @@ def user(request: _ViewContext) -> dict[str, Any] | RedirectResponse:  # noqa: C
     user_data = request.userdb.get_user(user_name)
     if user_data is None:
         raise StarletteHTTPException(status_code=404)
-    if "user" in request.POST:
+    new_api_token = None
+    if profile and "api_token" in request.POST:
+        new_api_token = _apply_api_token_form(request, user_data)
+    elif "user" in request.POST:
         if profile:
             old_password = _form_string_value(request.POST, "old_password").strip()
             new_password = _form_string_value(request.POST, "password").strip()
@@ -1822,6 +1851,9 @@ def user(request: _ViewContext) -> dict[str, Any] | RedirectResponse:  # noqa: C
                     if strong_password:
                         user_data["password"] = new_password
                         request.session.flash("Success! Password updated")
+                        # Whoever knew the old password could have made the token.
+                        if request.userdb.revoke_api_token(user_name):
+                            request.session.flash("API token revoked")
                     else:
                         request.session.flash(password_err, "error")
                         return home(request)
@@ -1861,6 +1893,9 @@ def user(request: _ViewContext) -> dict[str, Any] | RedirectResponse:  # noqa: C
                 + " user "
                 + user_name,
             )
+            # Before the save, so a failed save leaves no token behind a block. An
+            # unblock revokes too: the user may have been blocked outside this form.
+            request.userdb.revoke_api_token(user_name)
             request.userdb.clear_cache()
             request.userdb.save_user(user_data)
             request.actiondb.block_user(
@@ -1901,6 +1936,10 @@ def user(request: _ViewContext) -> dict[str, Any] | RedirectResponse:  # noqa: C
     registration_time_label = (
         format_date(registration_time) if registration_time else "Unknown"
     )
+    api_token = request.userdb.get_api_token(user_name) if profile else None
+    api_token_expires = (
+        request.userdb.api_token_expires(api_token) if api_token else None
+    )
 
     return {
         "user": user_data,
@@ -1912,6 +1951,14 @@ def user(request: _ViewContext) -> dict[str, Any] | RedirectResponse:  # noqa: C
         "form_action": request.url,
         "registration_time_label": registration_time_label,
         "blocked": bool(user_data.get("blocked", False)),
+        "new_api_token": new_api_token,
+        "api_token_created": (
+            format_date(api_token["created_at"]) if api_token else None
+        ),
+        "api_token_expires": format_date(api_token_expires),
+        "api_token_expired": (
+            api_token_expires is not None and datetime.now(UTC) >= api_token_expires
+        ),
     }
 
 

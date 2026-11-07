@@ -7,6 +7,7 @@ wiring for the UI and API layers.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 from json import JSONDecodeError
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Protocol, cast
@@ -100,11 +101,25 @@ class ApiRequestShim:
         except DependencyNotInitializedError:
             self.actiondb = None
 
-    @property
+    @cached_property
     def authenticated_userid(self) -> str | None:
-        """Return the logged-in username without touching the session contents."""
+        """Return the active user of the session or of the API token, if any.
+
+        A session is checked against the user record here because the middleware
+        that ends the session of a blocked user skips /api. Reads the session
+        without touching its contents.
+        """
         session = self._request.scope.get("session")
-        return authenticated_user_from_data(session) if session else None
+        user = authenticated_user_from_data(session) if session else None
+        if user and self.userdb is not None and self.userdb.is_active_user(user):
+            return user
+        return self._api_token_user()
+
+    def _api_token_user(self) -> str | None:
+        scheme, _, token = self.headers.get("authorization", "").partition(" ")
+        if scheme.lower() != "bearer" or self.userdb is None:
+            return None
+        return self.userdb.username_for_api_token(token.strip())
 
     @property
     def json_body(self) -> object | None:

@@ -68,7 +68,7 @@ but generic `OPTIONS` is not part of the UI route contract and returns `405`.
 | `/contributors` | GET | `contributors` | `contributors.html.j2` | HX: `contributors_content_fragment`; paginated (100/page) |
 | `/contributors/monthly` | GET | `contributors_monthly` | `contributors.html.j2` | HX: `contributors_content_fragment`; paginated (100/page) |
 | `/user/{username}` | GET, POST | `user` | `user.html.j2` | CSRF |
-| `/user` | GET, POST | `user` | `user.html.j2` | CSRF |
+| `/user` | GET, POST | `user` | `user.html.j2` | CSRF; manages the API token |
 | `/user_management` | GET | `user_management` | `user_management.html.j2` | HX: `user_management_content_fragment` |
 | `/user_management/pending_count` | GET | `user_management_pending_count` | `pending_users_nav_fragment.html.j2` | Sidebar status fragment; the stable wrapper and poll triggers live in `base.html.j2`, and this route returns only the `Users` anchor HTML |
 | `/workers/{worker_name}` | GET, POST | `workers` | `workers.html.j2` | CSRF; HX: `workers_content_fragment` |
@@ -512,6 +512,15 @@ Anonymous pages render neither the login-only panels nor their pollers:
 1. `POST /logout` calls `forget(request)`.
 2. Session dict is cleared and `session_force_clear` is set.
 3. Redirect to `/tests`.
+
+### API tokens
+
+The `/user` page in profile mode creates, replaces, and revokes the user's API
+token after checking the current password. The response to a new token shows it
+once, outside the flash messages, because the session cookie is signed and not
+encrypted. Page routes do not accept a token.
+[3-api-reference.md](3-api-reference.md) holds the header contract and what
+revokes a token.
 
 ### Access control
 

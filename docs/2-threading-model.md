@@ -97,7 +97,7 @@ Async generators that yield chunks, with each chunk read in the threadpool.
 |-----------|--------|-------|
 | Route wrappers (`async def`) | `[LOOP]` | Parse JSON body, construct shim |
 | `WorkerApi` handler methods | `[THREAD]` | All 9 worker endpoints |
-| `UserApi` handler methods | `[THREAD]` | All 11 user/read-only endpoints |
+| `UserApi` handler methods | `[THREAD]` | All 11 user/read-only endpoints, including the session and API token check |
 | PGN streaming | `[STREAM/THREAD]` | `iterate_in_threadpool` over file chunks |
 
 ### UI router (`views.py`)
