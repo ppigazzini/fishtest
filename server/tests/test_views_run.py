@@ -47,6 +47,10 @@ class _UserDbStub:
     def __init__(self, user: dict[str, object]) -> None:
         self._user = dict(user)
         self.saved_users: list[dict[str, object]] = []
+        self.saved_tests_repos: list[str] = []
+
+    def save_tests_repo(self, _username: str, tests_repo: str) -> None:
+        self.saved_tests_repos.append(tests_repo)
 
     def get_user(self, _username: str) -> dict[str, object]:
         return dict(self._user)
@@ -362,7 +366,9 @@ class ValidateFormTests(unittest.TestCase):
             data = validate_form(request)
 
         self.assertEqual(data["tests_repo"], BASE_REPO)
-        self.assertEqual(request.userdb.saved_users[-1]["tests_repo"], BASE_REPO)
+        self.assertEqual(request.userdb.saved_tests_repos[-1], BASE_REPO)
+        # The cached copy of the user is not written back.
+        self.assertEqual(request.userdb.saved_users, [])
 
     def test_validate_form_rejects_invalid_arch_regex(self):
         post_data = _valid_post_data()

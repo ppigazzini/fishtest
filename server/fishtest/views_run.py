@@ -486,8 +486,7 @@ def validate_form(request: Any) -> dict[str, Any]:  # noqa: ANN401, C901, PLR091
         )
         u = request.userdb.get_user(data["username"])
         if u.get("tests_repo", "") != data["tests_repo"]:
-            u["tests_repo"] = data["tests_repo"]
-            request.userdb.save_user(u)
+            request.userdb.save_tests_repo(data["username"], data["tests_repo"])
 
     if len(data["resolved_base"]) == 0 or len(data["resolved_new"]) == 0:
         msg = "Unable to find branch!"

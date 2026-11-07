@@ -400,6 +400,29 @@ class TestUsers(UiUserTestCase):
         self.assertIn("location", {k.lower() for k in response.headers})
         self.assertIn("set-cookie", {k.lower() for k in response.headers})
 
+    def test_saving_a_tests_repo_cannot_restore_an_old_password(self):
+        # /tests/run runs on another instance, whose cached copy of the user can
+        # predate a password change. Saving a repository must not write it back.
+        userdb = self.rundb.userdb
+        new_password = "Corr3ct-H0rse-Battery-Staple-Zebra!"
+        userdb.clear_cache()
+        userdb.get_user(self.username)
+        userdb.users.update_one(
+            {"username": self.username},
+            {"$set": {"password": new_password}},
+        )
+        try:
+            userdb.save_tests_repo(self.username, self.tests_repo)
+            stored = userdb.users.find_one({"username": self.username})
+            self.assertEqual(stored["password"], new_password)
+            self.assertEqual(stored["tests_repo"], self.tests_repo)
+        finally:
+            userdb.users.update_one(
+                {"username": self.username},
+                {"$set": {"password": self.password}},
+            )
+            userdb.clear_cache()
+
     def test_user_profile_post_requires_csrf(self):
         original_user = self.rundb.userdb.get_user(self.username)
         original_email = original_user["email"]

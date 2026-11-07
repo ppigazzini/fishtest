@@ -222,6 +222,20 @@ class UserDb:
         self.users.replace_one({"_id": user["_id"]}, user)
         self.clear_cache()
 
+    def save_tests_repo(self, username, tests_repo):
+        """Store the tests repository of a user and nothing else.
+
+        The caller can hold a copy of the user cached before another instance changed
+        the password, which save_user would write back.
+        """
+        tests_repo = gh.canonicalize_repo_url(tests_repo)
+        validate(user_schema["tests_repo"], tests_repo, "tests_repo")
+        self.users.update_one(
+            {"username": username},
+            {"$set": {"tests_repo": tests_repo}},
+        )
+        self.clear_cache()
+
     def remove_user(self, user, rejector):
         result = self.users.delete_one({"_id": user["_id"]})
         if result.deleted_count > 0:
