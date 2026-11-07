@@ -400,7 +400,7 @@ These are not HTTP modules. They encapsulate business logic and MongoDB access.
 | Adapter | Module | Responsibility |
 |---------|--------|----------------|
 | `RunDb` | `rundb.py` | Run lifecycle, task assignment, result aggregation, run cache |
-| `UserDb` | `userdb.py` | User CRUD, password hashing (zxcvbn strength), group membership |
+| `UserDb` | `userdb.py` | User CRUD, password strength checks (zxcvbn), group membership, API tokens |
 | `ActionDb` | `actiondb.py` | Audit trail for user and system actions |
 | `WorkerDb` | `workerdb.py` | Worker ban list management |
 | `KVStore` | `kvstore.py` | Lightweight key-value pairs in MongoDB |

@@ -20,7 +20,7 @@ Source files:
 
 | Constant | Value | Location |
 |----------|-------|----------|
-| `WORKER_VERSION` | 322 | `worker.py` |
+| `WORKER_VERSION` | 331 | `worker.py` |
 | `FASTCHESS_SHA` | `3de44228aec904e688a4ad71c554eb9d461a5a2a` | `worker.py` |
 | `HTTP_TIMEOUT` | 30.0 s | `worker.py`, `games.py` |
 | `INITIAL_RETRY_TIME` | 15.0 s | `worker.py` |

@@ -584,7 +584,7 @@ revokes a token.
 
 3. Create the Jinja2 template in `templates/`.
 
-4. Add a contract test in `tests/test_actions_view.py` or a new test file.
+4. Add a contract test in `tests/test_views_actions.py` or a new test file.
 
 5. If anonymous clients must not reach all of the route, add a `login_required`
    predicate and list the route under "Anonymous access".

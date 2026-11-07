@@ -1309,8 +1309,9 @@ table state without introducing page-specific synchronization JavaScript.
 5. **Macros**: use Jinja2 macros for repeated patterns (pagination, run
    tables).
 
-6. **Request object**: not used directly in templates except via `url_for`
-   and `static_url` helpers.
+6. **Request object**: `request.url` and `request.url.path` supply same-page
+   form actions and sort links. Other request data reaches templates through
+   context keys.
 
 7. **Escaping boundary**: view handlers pass raw strings. Jinja2 autoescape
    handles HTML-escaping at render time. Do not pre-escape values into plain

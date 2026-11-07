@@ -181,7 +181,7 @@ map $uri $backends {
     ~^/api/(nn|pgn|run_pgns)/              backend_8002;
     ~^/api/upload_pgn                      backend_8003;
     ~^/tests/(finished|machines|user)      backend_8002;
-    ~^/(actions/|contributors)             backend_8002;
+    ~^/(actions(?:/|$)|contributors(?:/|$))  backend_8002;
     ~^/(api|tests)/                        backend_8000;
     default                                backend_8001;
 }

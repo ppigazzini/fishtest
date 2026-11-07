@@ -39,9 +39,9 @@ backward compatibility.
 
 | Instance | Port | Responsibilities |
 |----------|------|------------------|
-| Primary | 8000 | Scheduler, GitHub integration, aggregated data, cache flush, worker API |
-| Secondary | 8001 | UI traffic (`/tests` homepage) |
-| Secondary | 8002 | Read-only API, finished tests, contributors, static pages |
+| Primary | 8000 | Scheduler, GitHub integration, aggregated data, cache flush, worker API, `/tests/view`, `/tests/tasks`, `/tests/stats`, `/tests/live_elo`, `/api/get_run`, `/api/get_task`, `/api/get_elo`, `/api/finished_runs` |
+| Secondary | 8001 | `/tests` homepage and every route the map does not name, `/login` and `/user` included |
+| Secondary | 8002 | `/api/actions`, `/api/active_runs`, `/api/calc_elo`, net and PGN downloads, finished tests, workers table, user test lists, contributors |
 | Secondary | 8003 | PGN uploads (`/api/upload_pgn`) -- 3 Uvicorn workers (production override) |
 
 Four systemd units (ports 8000-8003), six OS processes total. The primary
@@ -301,7 +301,7 @@ map $uri $backends {
     ~^/api/(nn|pgn|run_pgns)/              backend_8002;
     ~^/api/upload_pgn                      backend_8003;
     ~^/tests/(finished|machines|user)      backend_8002;
-    ~^/(actions/|contributors)             backend_8002;
+    ~^/(actions(?:/|$)|contributors(?:/|$))  backend_8002;
     ~^/(api|tests)/                        backend_8000;
     default                                backend_8001;
 }

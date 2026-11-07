@@ -12,7 +12,7 @@ These invariants apply to every worker API endpoint:
   also includes `duration`.
 - Content-Type is always `application/json`.
 - The current worker protocol version is defined by `WORKER_VERSION` in
-  `api.py` (currently 322).
+  `api.py`.
 
 ## Authentication
 
@@ -20,7 +20,7 @@ Workers authenticate via `username` and `password` fields in the
 `worker_info` section of every POST body. Credentials are validated against
 `UserDb.authenticate()`.
 
-- Invalid credentials -> HTTP 200 + `{"error": "Invalid password ..."}`.
+- Invalid credentials -> HTTP 401 + `{"error": "..."}`.
 - Missing or malformed JSON -> HTTP 400 + `{"error": "..."}`.
 
 ## Protocol lifecycle
@@ -38,7 +38,7 @@ sequenceDiagram
     S-->>W: version > local
     W->>W: Self-update and restart
   else Current version
-    S-->>W: version 322
+    S-->>W: current version
     W->>S: POST /api/request_task
     alt No task ready
       S-->>W: task_waiting false
@@ -130,7 +130,7 @@ to check if they need to upgrade.
 
 **Response**:
 ```json
-{ "version": 322, "duration": 0.001 }
+{ "version": 331, "duration": 0.001 }
 ```
 
 ---
@@ -442,7 +442,9 @@ answer.
 
 ### GET /api/get_run/{id}
 
-Returns a single run document (with tasks stripped of sensitive fields).
+Returns a single run document with `tasks`, `bad_tasks`, and
+`args.spsa.param_history` emptied. `GET /api/get_task/{id}/{task_id}` returns a
+task.
 
 ### GET /api/get_task/{id}/{task_id}
 
@@ -451,7 +453,8 @@ Returns a single task document. The `unique_key` is truncated and
 
 ### GET /api/get_elo/{id}
 
-Returns SPRT ELO analysis for a run.
+Returns `{}` for a run without SPRT. For an SPRT run, returns the run document
+as `GET /api/get_run/{id}` shapes it, with an added `elo` object.
 
 ### GET /api/calc_elo
 
