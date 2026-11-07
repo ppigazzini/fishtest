@@ -193,6 +193,32 @@ for the full analysis. There is no need for an HTTP-layer concurrency cap.
 production (`openapi_url` defaults to `None`). Set `OPENAPI_URL=/openapi.json`
 in the environment to re-enable during development.
 
+## Database indexes
+
+Indexes are created by hand. `server/utils/create_indexes.py` drops and
+re-creates the indexes of each collection named on its command line, on the
+local `fishtest_new` database. With no argument it prints the current indexes.
+
+```bash
+cd /home/USER_NAME/fishtest/server
+.venv/bin/python utils/create_indexes.py api_tokens
+```
+
+The `api_tokens` collection needs this before API tokens are used. Without the
+indexes each token lookup scans the collection and one token per user is not
+enforced.
+
+## MongoDB hardening
+
+Fishtest runs no server-side JavaScript, so disable it in `mongod.conf`. Any
+caller that reaches a raw query filter can otherwise run code in the database
+with `$where`, whose cost has no index to bound it.
+
+```yaml
+security:
+  javascriptEnabled: false
+```
+
 ## nginx configuration
 
 The nginx setup uses two configuration files:
