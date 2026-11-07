@@ -399,7 +399,8 @@ curl -H "Authorization: Bearer $FISHTEST_TOKEN" \
 ### GET /api/active_runs
 
 Returns all unfinished runs as a JSON object keyed by run ID. Tasks and
-heavy fields are excluded from the projection.
+heavy fields are excluded from the projection. The feed can lag by a few
+seconds.
 
 ### GET /api/finished_runs
 

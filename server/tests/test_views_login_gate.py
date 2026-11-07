@@ -337,6 +337,7 @@ class TestAnonymousApi(_GateTestCase):
 
     def tearDown(self):
         self.rundb.db["actions"].delete_many({"username": self.username})
+        self.rundb.active_runs_feed.cache_clear()
 
     def add_action(self, run_id):
         self.rundb.db["actions"].insert_one(
@@ -365,6 +366,12 @@ class TestAnonymousApi(_GateTestCase):
             response.headers["www-authenticate"],
             'Bearer error="invalid_token"',
         )
+
+    def test_active_feed_is_served_from_one_read(self):
+        self.client.get("/api/active_runs")
+        with patch.object(self.rundb, "runs") as runs:
+            self.assertEqual(self.client.get("/api/active_runs").status_code, 200)
+        runs.find.assert_not_called()
 
     def test_history_feed_needs_a_login(self):
         now = datetime.now(UTC).timestamp()

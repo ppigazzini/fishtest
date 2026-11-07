@@ -430,17 +430,7 @@ class UserApi(GenericApi):
         return gh.rate_limit()
 
     def active_runs(self):
-        runs = self.request.rundb.runs.find(
-            {"finished": False},
-            {"tasks": 0, "bad_tasks": 0, "args.spsa.param_history": 0},
-        )
-        active = {}
-        for run in runs:
-            # some string conversions
-            for key in ("_id", "start_time", "last_updated"):
-                run[key] = str(run[key])
-            active[str(run["_id"])] = run
-        return active
+        return self.request.rundb.active_runs_feed()
 
     def finished_runs(self):
         username = self.request.params.get("username", "")

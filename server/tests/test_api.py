@@ -878,6 +878,7 @@ class TestHttpApi(unittest.TestCase):
 
     def test_get_active_runs(self):
         run_id = self._create_run()
+        self.rundb.active_runs_feed.cache_clear()
         response = self.client.get("/api/active_runs")
         self.assertEqual(response.status_code, 200)
         body = response.json()

@@ -82,6 +82,9 @@ _UNFINISHED_RUNS_STATS_PROJECTION = {
 }
 
 
+ACTIVE_RUNS_FEED_TTL_S = 5
+
+
 class RunDb:
     def __init__(self, db_name=FISHTEST, port=-1, is_primary_instance=True):
         # MongoDB server is assumed to be on the same machine, if not user should
@@ -869,6 +872,25 @@ class RunDb:
                 task_id=task_id,
             )
             self.set_inactive_task(task_id, run)
+
+    @lru_cache(maxsize=1, expiration=ACTIVE_RUNS_FEED_TTL_S, refresh=False)
+    def active_runs_feed(self):
+        """Return the public feed of unfinished runs, keyed by run id.
+
+        The route is public and has no proof-of-work, so one read serves every
+        client for a few seconds.
+        """
+        runs = self.runs.find(
+            {"finished": False},
+            {"tasks": 0, "bad_tasks": 0, "args.spsa.param_history": 0},
+        )
+        active = {}
+        for run in runs:
+            # some string conversions
+            for key in ("_id", "start_time", "last_updated"):
+                run[key] = str(run[key])
+            active[str(run["_id"])] = run
+        return active
 
     def get_unfinished_runs_id(self):
         unfinished_runs = self.runs.find(
