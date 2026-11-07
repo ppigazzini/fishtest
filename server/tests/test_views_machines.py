@@ -164,6 +164,7 @@ class TestsMachinesEntryPointTests(unittest.TestCase):
         request = _RequestStub(
             machines=machines,
             params={"sort": "machine", "page": str(TARGET_PAGE_NUMBER)},
+            authenticated_userid="TestMachineOwner",
         )
 
         result = tests_machines(request)

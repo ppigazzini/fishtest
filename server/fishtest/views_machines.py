@@ -27,6 +27,7 @@ from fishtest.http.ui_cookies import (
 )
 from fishtest.util import format_time_ago, worker_name
 from fishtest.views_helpers import (
+    _anonymous_list_snapshot,
     _build_query_string,
     _clamp_page_index,
     _is_truthy_param,
@@ -185,7 +186,14 @@ def _filter_machine_rows(
     return filtered_rows
 
 
+@_anonymous_list_snapshot()
+def _anonymous_machine_rows(rundb: Any) -> list[dict[str, Any]]:  # noqa: ANN401
+    return [_normalize_machine_row(machine) for machine in rundb.get_machines()]
+
+
 def _normalized_machine_rows(request: Any) -> list[dict[str, Any]]:  # noqa: ANN401
+    if not request.authenticated_userid:
+        return _anonymous_machine_rows(request.rundb)
     return [_normalize_machine_row(machine) for machine in request.rundb.get_machines()]
 
 
@@ -269,6 +277,10 @@ def _set_machine_cookies(  # noqa: PLR0913
         order_param,
         max_age_seconds=cookie_max_age,
     )
+    if not request.authenticated_userid:
+        # A search and a later page need a login, so an anonymous response has none
+        # to save, and must leave what a logged-in user saved.
+        return
     append_ui_cookie(
         request,
         MACHINES_PAGE_COOKIE_NAME,

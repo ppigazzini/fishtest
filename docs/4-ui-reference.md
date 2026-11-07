@@ -457,7 +457,9 @@ carry authentication state:
 - `machines_sort`, `machines_order`, `machines_page`, `machines_q`,
    and `machines_my_workers` are written server-side through
    `http/ui_cookies.py` from `views_machines.py` when `/tests/machines`
-   normalizes the current filter state.
+   normalizes the current filter state. An anonymous response writes only
+   `machines_sort` and `machines_order`, and leaves the page, the search, and
+   `My workers` a logged-in user saved.
 - `active_run_filters` is written by `static/js/active_run_filters.js` and
    preserves the Active runs filter selection across the three dimensions
    (test type, time control, and threads).
@@ -486,13 +488,29 @@ handler runs, from the URL alone, so a refused request reads no run.
 
 | Route | Anonymous client |
 |-------|------------------|
-| `/tests`, `/tests/finished`, `/tests/user/{username}`, `/actions`, `/nns`, `/contributors`, `/contributors/monthly` | Served with no query string, with `page=1`, or with `live=run_tables`; any other query string needs a login |
+| `/tests`, `/tests/finished`, `/tests/user/{username}`, `/actions`, `/nns`, `/contributors`, `/contributors/monthly`, `/tests/machines` | Served by the rule below |
 | `/tests/view/{id}` | Served for a recent run; an old run or a `show_task` link needs a login |
 | `/tests/view/{id}/detail`, `/tests/live_elo/{id}`, `/tests/live_elo_update/{id}` | Served for a recent run; an old run needs a login |
-| `/tests/tasks/{id}`, `/tests/stats/{id}`, `/tests/machines` | Needs a login |
+| `/tests/tasks/{id}`, `/tests/stats/{id}` | Needs a login |
 
 A run is old when its ID was created more than `ANONYMOUS_RUN_MAX_AGE_DAYS`
 days ago. The age comes from the ObjectId, whether or not the run has finished.
+
+Every list table follows one rule for an anonymous client. A fixed choice works,
+and anything else navigates to the login page:
+
+| Control | Anonymous client |
+|---------|------------------|
+| Sort a column | Works |
+| Show or hide a table | Works |
+| Active runs filter, `/nns` master only, `/actions` event list, finished-run tabs | Works |
+| Typed search or filter | Needs a login |
+| Page 2 and later, `view=all` | Needs a login |
+| `run_id`, `before`, or a `max_count` of its own | Needs a login |
+
+The rule is `_login_beyond_clicks()` in `views_helpers.py`, and each route lists
+its fixed choices. A value outside them needs a login, so a request cannot step
+around the shared reads.
 
 A request that needs a login is answered with `Cache-Control: no-store` and a
 `Please login` flash message:
@@ -505,27 +523,30 @@ A request that needs a login is answered with `Cache-Control: no-store` and a
 
 Anonymous pages render neither the login-only panels nor their pollers:
 
-- `/tests` shows the worker count without the workers panel, and does not read
-  the workers state cookies.
+- `/tests` shows the Workers panel as the `machines_state` cookie left it, without
+  `My workers`, and applies no saved search or page.
 - `/tests/view/{id}` shows the task totals and a login link, builds no task rows,
   and omits the document size.
 - `/tests`, `/tests/user/{username}`, and every sidebar omit the run-tables and
   `Users` pollers, and the sidebar omits the pending-user count.
 
-An anonymous request for a default first page of these lists reads a snapshot
-that it shares with every other such request:
+An anonymous request for the first page of a list reads a snapshot that it shares
+with every other such request:
 
 | Page | Snapshot |
 |------|----------|
 | `/tests` | Unfinished runs with their totals, and the first page of finished runs with their count |
-| `/tests/finished` | The first page of finished runs with their count |
-| `/nns` | The first page and the summary, one snapshot per `master_only` value |
-| `/contributors`, `/contributors/monthly` | The first page and the summary |
+| `/tests/finished` | The first page of finished runs with their count, one snapshot per tab |
+| `/tests/machines` | Every worker row, for any sort |
+| `/nns` | The catalog and the summary per `master_only` value, and the first page per sort |
+| `/contributors`, `/contributors/monthly` | The users and the summary, and the first page per sort |
+| `/actions` | The rows per event choice, and the first page per sort |
 
-Each process reads a snapshot at most once per `ANONYMOUS_LIST_TTL_S` seconds, so
-an anonymous client can see a list that old. Requests that arrive during the read
+Each process reads a snapshot at most once per `ANONYMOUS_LIST_TTL_S` seconds. A
+sorted first page comes from a read that is itself a snapshot, so an anonymous
+client can see a list up to twice that old. Requests that arrive during the read
 wait for it. A logged-in user reads fresh data on every request, and so does every
-request for `/tests/user/{username}` and `/actions`.
+request for `/tests/user/{username}`.
 
 A snapshot holds no per-visitor state. The CSRF token, flash messages, and the
 theme, toggle, and filter cookies apply to each response, and the `Cache-Control`
@@ -533,9 +554,9 @@ of these pages does not depend on the snapshot.
 
 A tab that outlives its session keeps polling. The run-tables and `Users` polls
 get a `204`, so the tab stops updating. Every other poller meets the login gate
-when its route needs a login: `/tests/machines`, `/tests/tasks/{id}`, and
-`/tests/stats/{id}` always, and the detail and live Elo polls on an old run. The
-tab then navigates to the login page.
+when its route needs a login: `/tests/tasks/{id}` and `/tests/stats/{id}` always,
+and the detail and live Elo polls on an old run. The tab then navigates to the
+login page.
 
 A social preview client is an anonymous client: an old run and an `/actions` URL
 with a query string answer `302` to `/login`, and the preview shows the login
@@ -634,7 +655,9 @@ revokes a token.
 
 ## Homepage workers (`/tests/machines`) query parameters
 
-The homepage workers fragment (`/tests/machines`) needs a login and supports
+The homepage workers fragment (`/tests/machines`) is public. A search with `q` and
+a later page need a login, and `my_workers` applies only to a logged-in user. It
+supports
 URL-driven state for server sorting, paging, and lightweight filtering.
 
 | Parameter | Values | Default |
@@ -822,7 +845,7 @@ URL-driven state for server sorting, search, paging, full view, and rank jump.
 
 Behavior notes:
 
-- Search, sorting, `view`, `findme`, and later pages need a login. See "Anonymous
+- Search, `view=all`, `findme`, and later pages need a login. See "Anonymous
    access".
 - Sorting is server-authoritative and stable with username asc tie-breaks.
 - Rank is global for the filtered+sorted dataset (not page-local loop index).
@@ -856,7 +879,7 @@ search and paging.
 
 Behavior notes:
 
-- Filters, sorting, `view`, and later pages need a login. See "Anonymous access".
+- `network_name`, `user`, `view=all`, and later pages need a login. See "Anonymous access".
    A `master_only` cookie still applies to an anonymous first page.
 - The page renders four summary cards above the table for the current filtered
    result set: Nets, Master nets, Contributors, and Downloads.
@@ -905,7 +928,7 @@ Behavior notes:
 - Sorting is server-authoritative. The default `time desc` path stays on the
    indexed fast query; explicit alternate sorts materialize and sort the
    capped working set server-side.
-- Filters, sorting, and later pages need a login. See "Anonymous access".
+- `user`, `text`, `run_id`, `before`, and later pages need a login. See "Anonymous access".
 - Anonymous requests are capped at `5000` actions. Unfiltered authenticated
    requests default to `50000`; explicit `max_count` values are preserved in
    the URL and hidden form state.
@@ -987,7 +1010,7 @@ Behavior notes:
    run info text on finished runs only.
 - `/actions`, `/tests/finished`, and `/tests/user/{username}` share the
    same `max_count` query parameter for result caps.
-- Filter tabs, search, and later pages need a login. See "Anonymous access".
+- Search text, `user`, and later pages need a login. See "Anonymous access".
    Search requests use the authenticated finished-run default, and explicit
    `max_count` values are preserved in the URL and hidden form state.
 - Navigation mode (no filters active) is uncapped — `max_count` is not used.

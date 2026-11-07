@@ -11,7 +11,7 @@ from fishtest.http.cookie_session import SESSION_COOKIE_NAME
 from fishtest.http.session_middleware import _enforce_size_limit
 
 NEW_PASSWORD = "Corr3ct-H0rse-Battery-Staple-Zebra!"
-GATED_PAGE = "/tests/machines"
+GATED_PAGE = "/tests/machines?q=abc"
 
 
 class TestSessionFollowsThePassword(UiUserTestCase):
@@ -103,7 +103,7 @@ class TestSessionFollowsThePassword(UiUserTestCase):
         self.post_profile(changer, new_password=NEW_PASSWORD)
         response = other.get("/tests", follow_redirects=False)
         self.assertEqual(response.status_code, 200)
-        self.assertNotIn('id="machines-panel"', response.text)
+        self.assertNotIn('id="run-tables-poller"', response.text)
 
     def test_browser_that_changed_the_password_stays_logged_in(self):
         changer = self.logged_in_client()

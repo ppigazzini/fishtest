@@ -677,12 +677,17 @@ class TestHttpBoundary(unittest.TestCase):
             self.rundb.userdb.users.delete_many({"username": {"$in": usernames}})
             self.rundb.userdb.clear_cache()
 
-    def test_tests_finished_search_mode_anonymous_request_goes_to_login(self):
+    def test_tests_finished_search_page_opens_and_typed_search_goes_to_login(self):
         app = self._build_app(include_views=True)
         client = self.TestClient(app)
 
         response = client.get("/tests/finished?mode=search", follow_redirects=False)
+        self.assertEqual(response.status_code, 200)
 
+        response = client.get(
+            "/tests/finished?mode=search&text=abc",
+            follow_redirects=False,
+        )
         self.assertEqual(response.status_code, 302)
         self.assertTrue(response.headers["location"].startswith("/login?next="))
 

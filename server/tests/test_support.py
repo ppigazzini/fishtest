@@ -145,14 +145,23 @@ def clear_anonymous_lists() -> None:
     """Forget the anonymous list snapshots, as their expiry does."""
     from fishtest.views import (
         _anonymous_contributors_list,
+        _anonymous_contributors_rows,
         _anonymous_nns_list,
+        _anonymous_nns_rows,
         _anonymous_unfinished_runs,
     )
+    from fishtest.views_actions import _anonymous_actions, _anonymous_actions_page
     from fishtest.views_finished import _anonymous_finished_runs
+    from fishtest.views_machines import _anonymous_machine_rows
 
+    _anonymous_actions.cache_clear()
+    _anonymous_actions_page.cache_clear()
     _anonymous_contributors_list.cache_clear()
+    _anonymous_contributors_rows.cache_clear()
     _anonymous_finished_runs.cache_clear()
+    _anonymous_machine_rows.cache_clear()
     _anonymous_nns_list.cache_clear()
+    _anonymous_nns_rows.cache_clear()
     _anonymous_unfinished_runs.cache_clear()
 
 

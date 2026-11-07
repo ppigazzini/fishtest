@@ -16,13 +16,15 @@ from fishtest.lru_cache import lru_cache
 from fishtest.util import parse_page_number
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Collection, Mapping
 
 _TRUTHY_PARAM_VALUES = frozenset({"1", "true", "on", "yes"})
 _SORT_ORDER_VALUES = frozenset({"asc", "desc"})
 _PAGED_VIEW_VALUES = frozenset({"paged", "all"})
 
 _ANONYMOUS_RESULT_LIMIT_HARD = 5000
+# Every sort, order, and fixed filter of one list, so each choice keeps its snapshot.
+ANONYMOUS_SORTED_LISTS_MAX = 200
 _MONGO_INT64_MAX = 2**63 - 1
 _DEFAULT_TIME_SORT_FIELD = "time"
 _DEFAULT_SORT_ORDER = "desc"
@@ -58,25 +60,48 @@ def sanitize_quotation_marks(text: str) -> str:
     return text.translate(_QUOTATION_MARKS_TRANSLATION)
 
 
-def _login_beyond_first_page(request: Any) -> bool:  # noqa: ANN401
-    """Report whether a list request asks for more than its default first page.
+def _login_beyond_clicks(
+    request: Any,  # noqa: ANN401
+    *,
+    clicks: Mapping[str, Collection[str] | None] | None = None,
+    typed: Collection[str] = (),
+) -> bool:
+    """Report whether a list request asks for more than a visitor can click.
+
+    Every list follows one rule. A fixed choice works without a login: clicks maps
+    each such parameter to its values, or to None when the view normalizes any
+    value. A parameter in typed needs a login once it holds text. Later pages, the
+    view of all rows, and anything else need a login too. The choices stay fixed so
+    that a request cannot step around the shared reads.
 
     A live run-tables poll asks for no list: /tests and /tests/user/{username}
     answer it, and the other routes ignore the parameter.
     """
-    return any(
-        not (
-            (key == "page" and value in {"", "1"})
-            or (key == "live" and value == "run_tables")
-        )
-        for key, value in request.query_params.multi_items()
-    )
+    clicks = clicks or {}
+    for key, value in request.query_params.multi_items():
+        if (key == "page" and value in {"", "1"}) or (
+            key == "live" and value == "run_tables"
+        ):
+            continue
+        if key in typed and not value.strip():
+            continue
+        if key not in clicks:
+            return True
+        choices = clicks[key]
+        if choices is not None and value not in choices:
+            return True
+    return False
+
+
+def _login_beyond_first_page(request: Any) -> bool:  # noqa: ANN401
+    """Report whether a list with no choices is asked for more than its first page."""
+    return _login_beyond_clicks(request)
 
 
 def _serves_anonymous_snapshot(request: Any) -> bool:  # noqa: ANN401
-    """Report whether a shared snapshot can answer a list request.
+    """Report whether a shared snapshot can answer a request for a default list.
 
-    An anonymous request for a default first page sends no filter, so its list
+    An anonymous request for a default first page sends no choice, so its list
     is the same for every client. A logged-in user reads fresh data.
     """
     return not request.authenticated_userid and not _login_beyond_first_page(request)

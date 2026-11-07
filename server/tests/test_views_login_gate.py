@@ -1,7 +1,9 @@
 # ruff: noqa: ANN201, D100, D101, D102
 import json
+import re
 import unittest
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
@@ -9,11 +11,13 @@ import test_support
 from bson.objectid import ObjectId
 from ui_user_test_case import UiUserTestCase
 
+from fishtest import views as views_module
 from fishtest.api import ACTIONS_BODY_MAX
 from fishtest.http.settings import ANONYMOUS_RUN_MAX_AGE_DAYS
 from fishtest.http.ui_cookies import MACHINES_QUERY_COOKIE_NAME
 from fishtest.schemas import ACTION_QUERY_CLAUSE_MAX
 from fishtest.util import is_old_run_id, parse_page_number
+from fishtest.views_actions import _ACTION_FILTER_VALUES
 
 
 def _run_id_created_days_ago(days):
@@ -82,7 +86,6 @@ class TestAnonymousPages(_GateTestCase):
         for path in (
             f"/tests/tasks/{run_id}",
             f"/tests/stats/{run_id}",
-            "/tests/machines",
         ):
             with self.subTest(path=path):
                 self.assert_sent_to_login(path)
@@ -137,7 +140,7 @@ class TestAnonymousPages(_GateTestCase):
         ):
             with self.subTest(current_url=current_url):
                 response = self.get(
-                    "/tests/machines",
+                    "/tests/machines?q=abc",
                     headers={"HX-Request": "true", "HX-Current-URL": current_url},
                 )
                 self.assertEqual(response.status_code, 204)
@@ -196,20 +199,73 @@ class TestAnonymousPages(_GateTestCase):
                 self.assert_served(path)
                 self.assert_served(f"{path}?page=1")
                 self.assert_sent_to_login(f"{path}?page=2")
-                self.assert_sent_to_login(f"{path}?sort=time")
+                self.assert_sent_to_login(f"{path}?unknown=1")
 
-    def test_homepage_hides_the_workers_panel_and_ignores_its_cookies(self):
+    def test_homepage_shows_the_workers_panel_as_saved(self):
+        opened = 'id="machines-panel" class="collapse show"'
+        response = self.assert_served("/tests")
+        self.assertIn('id="machines-button"', response.text)
+        self.assertIn('id="machines-panel"', response.text)
+        self.assertNotIn(opened, response.text)
         self.client.cookies.set("machines_state", "Hide")
-        # The cookie that makes a logged-in homepage count the filtered workers.
-        self.client.cookies.set(MACHINES_QUERY_COOKIE_NAME, "x")
+        self.assertIn(opened, self.assert_served("/tests").text)
+
+    def test_homepage_applies_no_saved_search(self):
+        # Applied, it would send the panel's first request to the login page.
+        self.client.cookies.set(MACHINES_QUERY_COOKIE_NAME, "saved-search")
+        self.client.cookies.set("machines_my_workers", "1")
+        self.client.cookies.set("machines_page", "3")
         with patch(
             "fishtest.views._filtered_machine_count",
             side_effect=AssertionError,
         ):
             response = self.assert_served("/tests")
-        self.assertIn('id="workers-count"', response.text)
-        self.assertNotIn('id="machines-button"', response.text)
-        self.assertNotIn('id="machines-panel"', response.text)
+        self.assertNotIn("saved-search", response.text)
+        self.assertNotIn('id="machines_my_workers"', response.text)
+        self.assertIn('id="machines_page" name="page" value="1"', response.text)
+
+    def test_workers_table_is_public_and_only_its_search_needs_a_login(self):
+        for path in (
+            "/tests/machines",
+            "/tests/machines?q=",
+            "/tests/machines?q=%20",
+            "/tests/machines?sort=machine&order=asc&page=1&q=",
+            "/tests/machines?my_workers=1",
+        ):
+            with self.subTest(path=path):
+                self.assert_served(path, headers=HX_FRAGMENT)
+        self.assert_sent_to_login("/tests/machines?q=abc")
+        self.assert_sent_to_login("/tests/machines?page=2")
+        response = self.get("/tests/machines?q=abc", headers=HX_FRAGMENT)
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(
+            response.headers["hx-redirect"],
+            "/login?next=%2Ftests%3Fpage%3D1",
+        )
+
+    def test_workers_table_leaves_the_saved_search_alone(self):
+        self.client.cookies.set(MACHINES_QUERY_COOKIE_NAME, "saved-search")
+        self.client.cookies.set("machines_my_workers", "1")
+        self.client.cookies.set("machines_page", "3")
+        response = self.assert_served(
+            "/tests/machines?sort=machine&order=asc",
+            headers=HX_FRAGMENT,
+        )
+        written = " ".join(response.headers.get_list("set-cookie"))
+        self.assertIn("machines_sort=machine", written)
+        self.assertNotIn(f"{MACHINES_QUERY_COOKIE_NAME}=", written)
+        self.assertNotIn("machines_my_workers=", written)
+        self.assertNotIn("machines_page=", written)
+        self.assertEqual(
+            self.client.cookies.get(MACHINES_QUERY_COOKIE_NAME),
+            "saved-search",
+        )
+
+    def test_refused_search_writes_no_preference(self):
+        self.client.cookies.set(MACHINES_QUERY_COOKIE_NAME, "saved-search")
+        response = self.get("/tests/machines?q=other", headers=HX_FRAGMENT)
+        written = " ".join(response.headers.get_list("set-cookie"))
+        self.assertNotIn(f"{MACHINES_QUERY_COOKIE_NAME}=", written)
 
     def test_pages_render_no_login_only_poller(self):
         for path in ("/tests", f"/tests/user/{self.username}"):
@@ -239,6 +295,100 @@ class TestAnonymousPages(_GateTestCase):
             self.assert_served("/tests")
 
 
+class TestAnonymousControls(_GateTestCase):
+    """Every table follows one rule: a click works, typing or paging needs a login."""
+
+    username = "TestGateControlsUser"
+
+    def clicks(self):
+        form = "network_name=&user=&master_only=0&view=paged&sort=time&order=desc"
+        return (
+            "/nns?sort=name&order=asc&view=paged",
+            "/nns?sort=downloads&order=desc",
+            "/nns?master_only=1",
+            f"/nns?{form}&master_only=1",
+            "/contributors?sort=games&order=desc&view=paged",
+            "/contributors?search=&view=paged&sort=cpu_hours&order=desc",
+            "/contributors/monthly?sort=tests&order=asc&view=paged",
+            "/actions?sort=event&order=asc",
+            "/actions?action=new_run",
+            "/actions?action=&user=&text=&max_count=5000&sort=time&order=desc",
+            "/tests/finished?success_only=1",
+            "/tests/finished?yellow_only=1&sort=time&order=desc",
+            "/tests/finished?ltc_only=1",
+            "/tests/finished?mode=search",
+            "/tests/finished?mode=search&max_count=1000&sort=time&order=desc&text=&user=",
+            f"/tests/user/{self.username}?success_only=1&sort=time&order=desc",
+            "/tests/machines?sort=machine&order=asc&page=1&q=",
+        )
+
+    def login_needed(self):
+        return (
+            # What a visitor types.
+            "/nns?network_name=abc",
+            "/nns?user=abc",
+            "/contributors?search=abc",
+            "/actions?user=abc",
+            "/actions?text=abc",
+            "/tests/finished?text=abc",
+            "/tests/finished?user=abc",
+            "/tests/machines?q=abc",
+            # Later pages.
+            "/tests?page=2",
+            "/tests/finished?page=2",
+            "/tests/finished?success_only=1&page=2",
+            f"/tests/user/{self.username}?page=2",
+            "/nns?page=2",
+            "/nns?sort=name&page=2",
+            "/contributors?page=2",
+            "/contributors/monthly?page=2",
+            "/actions?page=2",
+            "/actions?action=new_run&page=2",
+            "/tests/machines?page=2",
+            "/tests/machines?sort=machine&page=2",
+            # All rows.
+            "/nns?view=all",
+            "/contributors?view=all",
+            "/contributors/monthly?view=all",
+            # Values with no fixed choice, which would step around the shared reads.
+            "/actions?action=unknown",
+            "/actions?max_count=7",
+            "/actions?run_id=abc",
+            "/tests/finished?success_only=abc",
+            "/tests/finished?max_count=7",
+            "/nns?unknown=1",
+        )
+
+    def test_a_click_works_without_a_login(self):
+        for path in self.clicks():
+            with self.subTest(path=path):
+                self.assert_served(path)
+                self.assert_served(path, headers=HX_FRAGMENT)
+
+    def test_typing_later_pages_and_all_rows_need_a_login(self):
+        for path in self.login_needed():
+            with self.subTest(path=path):
+                self.assert_sent_to_login(path)
+                response = self.get(path, headers=HX_FRAGMENT)
+                self.assertEqual(response.status_code, 204)
+                self.assertIn("hx-redirect", response.headers)
+
+    def test_a_logged_in_user_is_never_sent_to_login(self):
+        self._login_user()
+        # A logged-in text search on /actions needs a text index the test database
+        # does not build.
+        paths = [p for p in self.login_needed() if p != "/actions?text=abc"]
+        for path in (*self.clicks(), *paths):
+            with self.subTest(path=path):
+                response = self.get(path)
+                self.assertNotIn("/login", response.headers.get("location", ""))
+
+    def test_the_event_list_offers_only_choices_the_gate_accepts(self):
+        template = Path(views_module.__file__).parent / "templates/actions.html.j2"
+        offered = set(re.findall(r'<option value="([^"]*)"', template.read_text()))
+        self.assertEqual(offered, set(_ACTION_FILTER_VALUES))
+
+
 class TestAuthenticatedPages(_GateTestCase):
     username = "TestGateAuthUser"
 
@@ -261,6 +411,13 @@ class TestAuthenticatedPages(_GateTestCase):
         ):
             with self.subTest(path=path):
                 self.assert_served(path)
+
+    def test_workers_panel_follows_the_saved_state(self):
+        opened = 'id="machines-panel" class="collapse show"'
+        self.client.cookies.set("machines_state", "Hide")
+        self.assertIn(opened, self.client.get("/tests").text)
+        self.client.cookies.set("machines_state", "Show")
+        self.assertNotIn(opened, self.client.get("/tests").text)
 
     def test_page_keeps_the_login_only_panels_and_pollers(self):
         response = self.client.get("/tests")

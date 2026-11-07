@@ -19,6 +19,8 @@ from fishtest.views_helpers import (
     _DEFAULT_SORT_ORDER,
     _DEFAULT_TIME_SORT_FIELD,
     _MONGO_INT64_MAX,
+    ANONYMOUS_SORTED_LISTS_MAX,
+    _anonymous_list_snapshot,
     _build_query_string,
     _effective_result_limit,
     _float_param,
@@ -35,6 +37,29 @@ from fishtest.views_helpers import (
 _ACTIONS_DEFAULT_MAX_COUNT_AUTH = 50000
 _ACTIONS_SORT_SCOPE_MAX_AUTH = _ACTIONS_DEFAULT_MAX_COUNT_AUTH
 _ACTIONS_SORT_SCOPE_MAX_ANON = _ANONYMOUS_RESULT_LIMIT_HARD
+# The choices of the event list in actions.html.j2.
+_ACTION_FILTER_VALUES = frozenset(
+    {
+        "",
+        "new_run",
+        "approve_run",
+        "modify_run",
+        "stop_run",
+        "delete_run",
+        "purge_run",
+        "finished_run",
+        "block_user",
+        "block_worker",
+        "accept_user",
+        "upload_nn",
+        "failed_task",
+        "crash_or_time",
+        "log_message",
+        "worker_log",
+        "dead_task",
+        "system_event",
+    },
+)
 _ACTIONS_SORT_LABELS = {
     "time": "Time",
     "event": "Event",
@@ -324,6 +349,62 @@ def _matching_action_usernames(
     return matches
 
 
+class _AnonymousViewer:
+    """Stand in for the request in a row that every anonymous client shares."""
+
+    @staticmethod
+    def has_permission(_permission: str) -> bool:
+        return False
+
+
+# Two reads per event choice: one page, and the scope that a sort orders.
+@_anonymous_list_snapshot(maxsize=2 * len(_ACTION_FILTER_VALUES))
+def _anonymous_actions(actiondb: Any, **query: Any) -> tuple[list[Any], int]:  # noqa: ANN401
+    actions, count = actiondb.get_actions(**query)
+    return list(actions), count
+
+
+@_anonymous_list_snapshot(maxsize=ANONYMOUS_SORTED_LISTS_MAX)
+def _anonymous_actions_page(  # noqa: PLR0913
+    actiondb: Any,  # noqa: ANN401
+    *,
+    search_action: str,
+    sort_param: str,
+    order_param: str,
+    page_size: int,
+    max_count: int | None,
+    sort_scope_max_count: int,
+) -> tuple[list[dict[str, Any]], int]:
+    """Return one sorted first page, from the read every sort of an event shares."""
+    is_default_sort = (
+        sort_param == _DEFAULT_TIME_SORT_FIELD and order_param == _DEFAULT_SORT_ORDER
+    )
+    raw_actions, num_actions = _anonymous_actions(
+        actiondb,
+        action=search_action,
+        skip=0,
+        limit=page_size if is_default_sort else sort_scope_max_count,
+        max_count=max_count if is_default_sort else sort_scope_max_count,
+    )
+    rows = [
+        _build_action_row(
+            action,
+            _AnonymousViewer,
+            search_action=search_action,
+            username="",
+            text="",
+            run_id="",
+            sort_param=sort_param,
+            order_param=order_param,
+        )
+        for action in raw_actions
+    ]
+    if is_default_sort:
+        return rows, num_actions
+    _sort_action_rows(rows, sort_param=sort_param, order_param=order_param)
+    return rows[:page_size], len(rows)
+
+
 def actions(  # noqa: PLR0915
     request: Any,  # noqa: ANN401
     *,
@@ -371,7 +452,24 @@ def actions(  # noqa: PLR0915
         else None
     )
 
-    if username and not matched_usernames:
+    if (
+        not is_authenticated
+        and not username
+        and not text
+        and before is None
+        and not run_id
+        and page_idx == 0
+    ):
+        actions_rows, num_actions = _anonymous_actions_page(
+            request.actiondb,
+            search_action=search_action,
+            sort_param=sort_param,
+            order_param=order_param,
+            page_size=page_size,
+            max_count=max_count,
+            sort_scope_max_count=sort_scope_max_count,
+        )
+    elif username and not matched_usernames:
         raw_actions = []
         num_actions = 0
         actions_rows = []

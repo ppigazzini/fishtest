@@ -31,7 +31,6 @@ from fishtest.views_helpers import (
     _path_url,
     _positive_int_param,
     _ranked_multi_username_merge,
-    _serves_anonymous_snapshot,
     _sort_matched_usernames,
     _username_priority_map,
     pagination,
@@ -42,7 +41,8 @@ _FINISHED_MAX_COUNT_QUERY_PARAM = "max_count"
 _FINISHED_SEARCH_MODE = "search"
 
 
-@_anonymous_list_snapshot()
+# All, the three tabs and their combinations, and the empty search.
+@_anonymous_list_snapshot(maxsize=9)
 def _anonymous_finished_runs(rundb: Any, **query: Any) -> Any:  # noqa: ANN401
     return rundb.get_finished_runs(**query)
 
@@ -403,7 +403,11 @@ def get_paginated_finished_runs(  # noqa: C901, PLR0912, PLR0915
     else:
         read_finished_runs = (
             partial(_anonymous_finished_runs, request.rundb)
-            if not username and _serves_anonymous_snapshot(request)
+            if not is_authenticated
+            and not username
+            and not username_query
+            and not text
+            and page_idx == 0
             else request.rundb.get_finished_runs
         )
         finished_runs, num_finished_runs = read_finished_runs(

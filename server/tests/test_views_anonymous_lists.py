@@ -18,25 +18,41 @@ from fishtest.http.ui_cookies import (
 from fishtest.lru_cache import LRUCache
 from fishtest.views import (
     _anonymous_contributors_list,
+    _anonymous_contributors_rows,
     _anonymous_nns_list,
+    _anonymous_nns_rows,
     _anonymous_unfinished_runs,
 )
+from fishtest.views_actions import _anonymous_actions, _anonymous_actions_page
 from fishtest.views_finished import _anonymous_finished_runs
+from fishtest.views_machines import _anonymous_machine_rows
 
 NET_PREFIX = "nn-anonymous-list-"
 USER_PREFIX = "AnonymousListUser"
 SNAPSHOTS = (
+    _anonymous_actions,
+    _anonymous_actions_page,
     _anonymous_contributors_list,
+    _anonymous_contributors_rows,
     _anonymous_finished_runs,
+    _anonymous_machine_rows,
     _anonymous_nns_list,
+    _anonymous_nns_rows,
     _anonymous_unfinished_runs,
 )
 LIST_PAGES = (
     "/tests",
     "/tests/finished",
+    "/tests/machines",
     "/nns",
     "/contributors",
     "/contributors/monthly",
+    "/actions",
+    "/nns?sort=name&order=asc",
+    "/contributors?sort=games",
+    "/actions?sort=event",
+    "/actions?action=new_run",
+    "/tests/finished?success_only=1",
 )
 HX_FRAGMENT = {"HX-Request": "true"}
 
@@ -87,9 +103,11 @@ class _AnonymousListTestCase(UiUserTestCase):
             ("/tests", self.rundb, "aggregate_unfinished_runs"),
             ("/tests", self.rundb, "get_finished_runs"),
             ("/tests/finished", self.rundb, "get_finished_runs"),
+            ("/tests/machines", self.rundb, "get_machines"),
             ("/nns", self.rundb, "get_nns"),
             ("/contributors", userdb.user_cache, "find"),
             ("/contributors/monthly", userdb.top_month, "find"),
+            ("/actions", self.rundb.actiondb, "get_actions"),
         )
 
     def count_reads(self, client, paths, target, method):
@@ -122,6 +140,58 @@ class TestSharedRead(_AnonymousListTestCase):
                     method,
                 )
                 self.assertEqual(reads, 3)
+
+    def test_every_sort_shares_one_read(self):
+        userdb = self.rundb.userdb
+        for paths, target, method in (
+            (
+                (
+                    "/nns",
+                    "/nns?sort=name&order=asc",
+                    "/nns?sort=downloads",
+                    "/nns?sort=x",
+                ),
+                self.rundb,
+                "get_nns",
+            ),
+            (
+                ("/contributors", "/contributors?sort=games", "/contributors?sort=x"),
+                userdb.user_cache,
+                "find",
+            ),
+            (
+                ("/actions?sort=event", "/actions?sort=source&order=desc"),
+                self.rundb.actiondb,
+                "get_actions",
+            ),
+        ):
+            with self.subTest(paths=paths):
+                self.assertEqual(
+                    self.count_reads(self.client, paths, target, method), 1
+                )
+
+    def test_each_tab_has_one_read(self):
+        paths = (
+            "/tests/finished?success_only=1",
+            "/tests/finished?success_only=1&sort=time&order=desc",
+            "/tests/finished?ltc_only=1",
+            "/tests/finished?ltc_only=1",
+        )
+        reads = self.count_reads(self.client, paths, self.rundb, "get_finished_runs")
+        self.assertEqual(reads, 2)
+
+    def test_a_later_sort_does_not_change_the_summary(self):
+        self.add_net("summary-a", is_master=True)
+        self.add_net("summary-b")
+        first = _anonymous_nns_list(self.rundb, master_only=False)
+        other = _anonymous_nns_list(
+            self.rundb,
+            master_only=False,
+            sort_param="name",
+            order_param="asc",
+        )
+        self.assertEqual(first["nns_summary"], other["nns_summary"])
+        self.assertEqual(first["num_nns"], other["num_nns"])
 
     def test_ended_session_counts_as_anonymous(self):
         test_support.set_session(self.client, {"user": self.username})
@@ -182,8 +252,9 @@ class TestSnapshotAge(_AnonymousListTestCase):
                 self.assertFalse(snapshot.cache.refresh)
 
     def test_anonymous_page_shows_a_write_once_the_snapshot_expires(self):
-        cache = _anonymous_nns_list.cache
-        self.addCleanup(setattr, cache, "expiration", ANONYMOUS_LIST_TTL_S)
+        caches = (_anonymous_nns_list.cache, _anonymous_nns_rows.cache)
+        for cache in caches:
+            self.addCleanup(setattr, cache, "expiration", ANONYMOUS_LIST_TTL_S)
         first = self.add_net("first")
         self.assertIn(first, self.client.get("/nns").text)
 
@@ -191,7 +262,8 @@ class TestSnapshotAge(_AnonymousListTestCase):
         self.assertNotIn(second, self.client.get("/nns").text)
         self.assertIn(second, self.logged_in.get("/nns").text)
 
-        cache.expiration = 0.01
+        for cache in caches:
+            cache.expiration = 0.01
         time.sleep(0.02)
         self.assertIn(second, self.client.get("/nns").text)
 
@@ -254,6 +326,18 @@ class TestSnapshotContent(_AnonymousListTestCase):
             self.rundb.userdb.top_month.delete_many,
             {"username": f"{USER_PREFIX}Month"},
         )
+        self.rundb.db["actions"].insert_one(
+            {
+                "action": "new_run",
+                "username": f"{USER_PREFIX}Action",
+                "run_id": "653db116cc309ae839563103",
+                "time": datetime.now(UTC).timestamp(),
+            },
+        )
+        self.addCleanup(
+            self.rundb.db["actions"].delete_many,
+            {"username": f"{USER_PREFIX}Action"},
+        )
         active_id = self._create_run()
         finished_id = self._create_run()
         runs = self.rundb.runs
@@ -296,7 +380,15 @@ class TestSnapshotContent(_AnonymousListTestCase):
         self.add_net("same-a", is_master=True)
         self.add_net("same-b")
         self.add_contributors(3)
-        for path in ("/tests/finished", "/nns", "/contributors"):
+        for path in (
+            "/tests/finished",
+            "/tests/finished?success_only=1",
+            "/nns",
+            "/nns?sort=name&order=asc",
+            "/nns?master_only=1",
+            "/contributors",
+            "/contributors?sort=games&order=asc",
+        ):
             with self.subTest(path=path):
                 anonymous = self.client.get(path, headers=HX_FRAGMENT).text
                 logged_in = self.logged_in.get(path, headers=HX_FRAGMENT).text

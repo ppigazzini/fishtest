@@ -160,8 +160,7 @@ Current examples:
 - `tests.html.j2` -> `static/js/tests_homepage.js`
 - `user.html.j2` (profile mode) -> `static/js/user_profile.js`
 
-For a logged-in user, `tests_homepage.js` owns the homepage Workers panel cookie
-state and triggers
+`tests_homepage.js` owns the homepage Workers panel cookie state and triggers
 an immediate `machines:load` refresh whenever Bootstrap reports that the panel
 has been opened.
 
@@ -215,7 +214,7 @@ determine their filter form and state-persistence behavior:
 | Pattern | Pages | Filters | Cookie persistence | Polling |
 |---------|-------|---------|-------------------|---------|
 | **A** (standalone) | contributors, actions, workers, user_management, nns | `form-control` (full-size) | 0-1 client-side cookies | none |
-| **B** (embedded panel, logged-in only) | machines, tasks | `form-control-sm` | 4-6 server-side cookies | 60 s |
+| **B** (embedded panel) | machines, tasks | `form-control-sm` | 4-6 server-side cookies | 60 s |
 
 Design rules:
 

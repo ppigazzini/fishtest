@@ -14,7 +14,7 @@ import hashlib
 import logging
 import os
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, TypedDict
@@ -62,6 +62,7 @@ from fishtest.http.settings import (
     ACTIONS_PAGE_SIZE,
     CONTRIBUTORS_MAX_ALL,
     CONTRIBUTORS_PAGE_SIZE,
+    FINISHED_FILTER_MAX_COUNT_ANON,
     NNS_MAX_ALL,
     NNS_PAGE_SIZE,
     SESSION_REMEMBER_ME_MAX_AGE_SECONDS,
@@ -137,10 +138,13 @@ from fishtest.util import (
     supported_compilers,
     tests_repo,
 )
+from fishtest.views_actions import _ACTION_FILTER_VALUES
 from fishtest.views_actions import actions as _actions_impl
 from fishtest.views_finished import get_paginated_finished_runs
 from fishtest.views_helpers import (
+    _ANONYMOUS_RESULT_LIMIT_HARD,
     _SORT_ORDER_VALUES,
+    ANONYMOUS_SORTED_LISTS_MAX,
     FRAGMENT_REQUEST_HEADERS,
     _anonymous_list_snapshot,
     _append_no_store_headers,
@@ -152,6 +156,7 @@ from fishtest.views_helpers import (
     _host_url,
     _is_hx_request,
     _is_truthy_param,
+    _login_beyond_clicks,
     _login_beyond_first_page,
     _normalize_sort_order,
     _normalize_view_mode,
@@ -690,6 +695,68 @@ def _login_gate_response(request: _ViewContext) -> Response:
 
 def _login_always(_request: _ViewContext) -> bool:
     return True
+
+
+_SORT_CLICKS: dict[str, Collection[str] | None] = {"sort": None, "order": None}
+_RUN_TAB_CLICKS: dict[str, Collection[str] | None] = {
+    **_SORT_CLICKS,
+    "success_only": ("1",),
+    "yellow_only": ("1",),
+    "ltc_only": ("1",),
+}
+_PAGED_VIEW: tuple[str, ...] = ("", "paged")
+
+
+def _login_for_nns(request: _ViewContext) -> bool:
+    return _login_beyond_clicks(
+        request,
+        clicks={**_SORT_CLICKS, "view": _PAGED_VIEW, "master_only": None},
+        typed=("network_name", "user"),
+    )
+
+
+def _login_for_contributors(request: _ViewContext) -> bool:
+    return _login_beyond_clicks(
+        request,
+        clicks={**_SORT_CLICKS, "view": _PAGED_VIEW},
+        typed=("search", "highlight", "findme"),
+    )
+
+
+def _login_for_actions(request: _ViewContext) -> bool:
+    return _login_beyond_clicks(
+        request,
+        clicks={
+            **_SORT_CLICKS,
+            "action": _ACTION_FILTER_VALUES,
+            "max_count": (str(_ANONYMOUS_RESULT_LIMIT_HARD),),
+        },
+        typed=("user", "text", "run_id", "before"),
+    )
+
+
+def _login_for_finished_runs(request: _ViewContext) -> bool:
+    return _login_beyond_clicks(
+        request,
+        clicks={
+            **_RUN_TAB_CLICKS,
+            "mode": ("", "search"),
+            "max_count": (str(FINISHED_FILTER_MAX_COUNT_ANON),),
+        },
+        typed=("user", "text", "info_regex"),
+    )
+
+
+def _login_for_user_runs(request: _ViewContext) -> bool:
+    return _login_beyond_clicks(request, clicks=_RUN_TAB_CLICKS)
+
+
+def _login_for_workers(request: _ViewContext) -> bool:
+    return _login_beyond_clicks(
+        request,
+        clicks={**_SORT_CLICKS, "my_workers": None},
+        typed=("q",),
+    )
 
 
 def _login_for_old_run(request: _ViewContext) -> bool:
@@ -1387,21 +1454,14 @@ class _NnsList(TypedDict):
     is_truncated: bool
 
 
-def _read_nns_list(  # noqa: PLR0913
+def _read_nns_rows(
     rundb: Any,  # noqa: ANN401
     *,
     master_only: bool,
     user: str = "",
     network_name: str = "",
-    sort_param: str = "time",
-    order_param: str = "desc",
-    view_param: str = "paged",
-    page_idx: int = 0,
-) -> _NnsList:
-    """Read the catalog, then summarize, sort, page, and format it."""
-    page_size = NNS_PAGE_SIZE
-    max_all = NNS_MAX_ALL
-
+) -> tuple[list[dict[str, Any]], dict[str, int], int]:
+    """Read the catalog and summarize it."""
     nns, num_nns = rundb.get_nns(
         user=user,
         network_name=network_name,
@@ -1416,6 +1476,21 @@ def _read_nns_list(  # noqa: PLR0913
         "contributors": len({nn.get("user") for nn in nns if nn.get("user")}),
         "downloads": sum(int(nn.get("downloads", 0)) for nn in nns),
     }
+    return nns, nns_summary, num_nns
+
+
+def _nns_list(
+    rows: tuple[list[dict[str, Any]], dict[str, int], int],
+    *,
+    sort_param: str,
+    order_param: str,
+    view_param: str,
+    page_idx: int,
+) -> _NnsList:
+    """Sort, page, and format what the catalog read returned."""
+    page_size = NNS_PAGE_SIZE
+    max_all = NNS_MAX_ALL
+    all_nns, nns_summary, num_nns = rows
 
     def _first_test_date(nn: dict[str, Any]) -> datetime:
         return (nn.get("first_test") or {}).get("date") or datetime.min.replace(
@@ -1439,7 +1514,7 @@ def _read_nns_list(  # noqa: PLR0913
         # Deterministic tie-break to avoid row jitter between requests.
         return (key_map[sort_param], nn.get("name", "").lower())
 
-    nns.sort(key=_sort_key, reverse=(order_param == "desc"))
+    nns = sorted(all_nns, key=_sort_key, reverse=(order_param == "desc"))
 
     if view_param == "paged":
         start = page_idx * page_size
@@ -1493,12 +1568,30 @@ def _read_nns_list(  # noqa: PLR0913
 
 
 @_anonymous_list_snapshot(maxsize=2)
+def _anonymous_nns_rows(
+    rundb: Any,  # noqa: ANN401
+    *,
+    master_only: bool,
+) -> tuple[list[dict[str, Any]], dict[str, int], int]:
+    return _read_nns_rows(rundb, master_only=master_only)
+
+
+@_anonymous_list_snapshot(maxsize=ANONYMOUS_SORTED_LISTS_MAX)
 def _anonymous_nns_list(
     rundb: Any,  # noqa: ANN401
     *,
     master_only: bool,
+    sort_param: str = "time",
+    order_param: str = "desc",
 ) -> _NnsList:
-    return _read_nns_list(rundb, master_only=master_only)
+    """Return one sorted first page, from the read every sort shares."""
+    return _nns_list(
+        _anonymous_nns_rows(rundb, master_only=master_only),
+        sort_param=sort_param,
+        order_param=order_param,
+        view_param="paged",
+        page_idx=0,
+    )
 
 
 def nns(request: _ViewContext) -> dict[str, Any] | Response:  # noqa: C901, PLR0912
@@ -1544,20 +1637,32 @@ def nns(request: _ViewContext) -> dict[str, Any] | Response:  # noqa: C901, PLR0
     if view_param == "paged":
         page_idx = _page_index_from_params(request.params)
 
-    nns_list = (
-        _anonymous_nns_list(request.rundb, master_only=master_only)
-        if _serves_anonymous_snapshot(request)
-        else _read_nns_list(
+    if (
+        not request.authenticated_userid
+        and not user
+        and not network_name
+        and view_param == "paged"
+        and page_idx == 0
+    ):
+        nns_list = _anonymous_nns_list(
             request.rundb,
             master_only=master_only,
-            user=user,
-            network_name=network_name,
+            sort_param=sort_param,
+            order_param=order_param,
+        )
+    else:
+        nns_list = _nns_list(
+            _read_nns_rows(
+                request.rundb,
+                master_only=master_only,
+                user=user,
+                network_name=network_name,
+            ),
             sort_param=sort_param,
             order_param=order_param,
             view_param=view_param,
             page_idx=page_idx,
         )
-    )
     num_nns = nns_list["num_nns"]
 
     query_dict = {
@@ -2048,6 +2153,25 @@ def _contributors_sort_value(user: dict[str, Any], sort_key: str) -> Any:  # noq
         return 0
 
 
+def _sorted_contributors(
+    users: list[dict[str, Any]],
+    *,
+    sort_key: str,
+    reverse: bool,
+) -> list[dict[str, Any]]:
+    # Stable two-pass sort: enforce username asc tie-breaker, then primary key.
+    ordered = sorted(users, key=lambda u: str(u.get("username", "")).lower())
+    ordered.sort(
+        key=lambda u: _contributors_sort_value(u, sort_key),
+        reverse=reverse,
+    )
+    return ordered
+
+
+def _ranked_contributors(users: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{**user, "_rank": idx} for idx, user in enumerate(users, start=1)]
+
+
 def _read_contributors_list(
     collection: Any,  # noqa: ANN401
     *,
@@ -2055,33 +2179,31 @@ def _read_contributors_list(
     reverse: bool,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Return every user, sorted and ranked, and the summary of all of them."""
-    users_list = list(collection.find())
-
-    # Stable two-pass sort: enforce username asc tie-breaker, then primary key.
-    users_list.sort(key=lambda u: str(u.get("username", "")).lower())
-    users_list.sort(
-        key=lambda u: _contributors_sort_value(u, sort_key),
-        reverse=reverse,
-    )
-
-    for idx, user in enumerate(users_list, start=1):
-        user["_rank"] = idx
-
-    return users_list, build_contributors_summary(users_list)
+    users = list(collection.find())
+    ordered = _sorted_contributors(users, sort_key=sort_key, reverse=reverse)
+    return _ranked_contributors(ordered), build_contributors_summary(users)
 
 
 @_anonymous_list_snapshot(maxsize=2)
+def _anonymous_contributors_rows(
+    collection: Any,  # noqa: ANN401
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    users = list(collection.find())
+    return users, build_contributors_summary(users)
+
+
+@_anonymous_list_snapshot(maxsize=ANONYMOUS_SORTED_LISTS_MAX)
 def _anonymous_contributors_list(
     collection: Any,  # noqa: ANN401
+    *,
+    sort_key: str = _CONTRIBUTORS_SORT_MAP[_CONTRIBUTORS_DEFAULT_SORT][0],
+    reverse: bool = _CONTRIBUTORS_SORT_MAP[_CONTRIBUTORS_DEFAULT_SORT][1],
 ) -> tuple[list[dict[str, Any]], dict[str, Any], int]:
-    """Return the default first page, the summary, and the number of users."""
-    sort_key, reverse = _CONTRIBUTORS_SORT_MAP[_CONTRIBUTORS_DEFAULT_SORT]
-    users_list, summary = _read_contributors_list(
-        collection,
-        sort_key=sort_key,
-        reverse=reverse,
-    )
-    return users_list[:_CONTRIBUTORS_PAGE_SIZE], summary, len(users_list)
+    """Return one sorted first page, from the read every sort shares."""
+    users, summary = _anonymous_contributors_rows(collection)
+    ordered = _sorted_contributors(users, sort_key=sort_key, reverse=reverse)
+    page = _ranked_contributors(ordered[:_CONTRIBUTORS_PAGE_SIZE])
+    return page, summary, len(users)
 
 
 def _contributors_common(  # noqa: C901, PLR0912, PLR0915
@@ -2109,8 +2231,18 @@ def _contributors_common(  # noqa: C901, PLR0912, PLR0915
 
     view_param = _normalize_view_mode(view_param)
 
-    if _serves_anonymous_snapshot(request):
-        users_list, summary, num_users = _anonymous_contributors_list(collection)
+    if (
+        not request.authenticated_userid
+        and not search
+        and not highlight
+        and view_param == "paged"
+        and page_idx == 0
+    ):
+        users_list, summary, num_users = _anonymous_contributors_list(
+            collection,
+            sort_key=sort_key,
+            reverse=reverse,
+        )
     else:
         users_list, summary = _read_contributors_list(
             collection,
@@ -2588,10 +2720,6 @@ def tests(request: _ViewContext) -> dict[str, Any] | Response:
         return last_tests
 
     authenticated_user = request.authenticated_userid
-    if not authenticated_user:
-        # The workers panel is login-only, so its state is not read.
-        return {**last_tests, "has_authenticated_user": False}
-
     machines_sort = read_cookie_text(request, MACHINES_SORT_COOKIE_NAME).lower()
     if machines_sort not in _MACHINES_SORT_MAP:
         machines_sort = _MACHINES_DEFAULT_SORT
@@ -2601,19 +2729,21 @@ def tests(request: _ViewContext) -> dict[str, Any] | Response:
     if machines_order not in {"asc", "desc"}:
         machines_order = "desc" if machines_default_reverse else "asc"
 
-    machines_q = read_cookie_text(request, MACHINES_QUERY_COOKIE_NAME)
+    # A search and a later page need a login, so what a user saved applies only then.
+    filter_cookies = request.cookies if authenticated_user else {}
+    machines_q = read_cookie_text(filter_cookies, MACHINES_QUERY_COOKIE_NAME)
 
-    machines_page_raw = read_cookie_text(request, MACHINES_PAGE_COOKIE_NAME)
+    machines_page_raw = read_cookie_text(filter_cookies, MACHINES_PAGE_COOKIE_NAME)
     if machines_page_raw.isdigit() and int(machines_page_raw) >= 1:
         machines_page = int(machines_page_raw)
     else:
         machines_page = 1
 
     machines_my_workers = _is_truthy_param(
-        read_cookie_text(request, MACHINES_MY_WORKERS_COOKIE_NAME),
+        read_cookie_text(filter_cookies, MACHINES_MY_WORKERS_COOKIE_NAME),
     )
     machine_filters = _machine_filter_state(
-        request.cookies,
+        filter_cookies,
         authenticated_username=authenticated_user,
         use_cookies=True,
         query_key="machines_q",
@@ -2649,7 +2779,7 @@ def tests(request: _ViewContext) -> dict[str, Any] | Response:
         "machines_q": machines_q,
         "machines_page": machines_page,
         "machines_my_workers": machines_my_workers,
-        "has_authenticated_user": True,
+        "has_authenticated_user": bool(authenticated_user),
     }
 
 
@@ -4019,7 +4149,7 @@ _VIEW_ROUTES: list[_ViewRoute] = [
     (
         nns,
         "/nns",
-        {"renderer": "nns.html.j2", "login_required": _login_beyond_first_page},
+        {"renderer": "nns.html.j2", "login_required": _login_for_nns},
     ),
     (sprt_calc, "/sprt_calc", {"renderer": "sprt_calc.html.j2"}),
     (rate_limits, "/rate_limits", {"renderer": "rate_limits.html.j2"}),
@@ -4032,7 +4162,7 @@ _VIEW_ROUTES: list[_ViewRoute] = [
     (
         actions,
         "/actions",
-        {"renderer": "actions.html.j2", "login_required": _login_beyond_first_page},
+        {"renderer": "actions.html.j2", "login_required": _login_for_actions},
     ),
     (user_management, "/user_management", {"renderer": "user_management.html.j2"}),
     (
@@ -4058,7 +4188,7 @@ _VIEW_ROUTES: list[_ViewRoute] = [
         "/contributors",
         {
             "renderer": "contributors.html.j2",
-            "login_required": _login_beyond_first_page,
+            "login_required": _login_for_contributors,
         },
     ),
     (
@@ -4066,7 +4196,7 @@ _VIEW_ROUTES: list[_ViewRoute] = [
         "/contributors/monthly",
         {
             "renderer": "contributors.html.j2",
-            "login_required": _login_beyond_first_page,
+            "login_required": _login_for_contributors,
         },
     ),
     (
@@ -4138,7 +4268,7 @@ _VIEW_ROUTES: list[_ViewRoute] = [
         {
             "renderer": "machines_fragment.html.j2",
             "http_cache": 10,
-            "login_required": _login_always,
+            "login_required": _login_for_workers,
         },
     ),
     (
@@ -4154,13 +4284,13 @@ _VIEW_ROUTES: list[_ViewRoute] = [
         "/tests/finished",
         {
             "renderer": "tests_finished.html.j2",
-            "login_required": _login_beyond_first_page,
+            "login_required": _login_for_finished_runs,
         },
     ),
     (
         tests_user,
         "/tests/user/{username}",
-        {"renderer": "tests_user.html.j2", "login_required": _login_beyond_first_page},
+        {"renderer": "tests_user.html.j2", "login_required": _login_for_user_runs},
     ),
     (
         tests,

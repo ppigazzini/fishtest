@@ -294,7 +294,7 @@ class TestApiTokenRequests(_TokenTestCase):
     def test_token_does_not_open_pages(self):
         headers = self.bearer(self.userdb.create_api_token(self.username))
         response = self.client.get(
-            "/tests/machines",
+            "/tests/machines?q=abc",
             headers=headers,
             follow_redirects=False,
         )
