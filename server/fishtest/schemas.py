@@ -11,11 +11,13 @@
 # element is a compiled validator they also spell the homogeneous shapes, `[v]`
 # for `list[v]` and `{str: v}` for `dict[str, v]`, because a type checker
 # refuses a variable inside a typing subscript; a constant set held in a
-# sequence is `union(*values)` for the same reason. Where no native form exists
-# -- a set, a tuple, a list under `Annotated` -- the element is written
-# `Annotated[object, v]`, which is `v` itself. `union`, `intersection` and
-# `complement` compose all of it into a Boolean lattice, and the recipes below
-# are the standard compositions over that lattice.
+# sequence is `union(*values)` for the same reason. A mapping whose keys a
+# pattern or a length narrows is keyed by that validator, `{run_id: v}`, and a
+# relation reads its keys. Where no native form exists -- a set, a tuple, a
+# list under `Annotated` -- the element is written `Annotated[object, v]`,
+# which is `v` itself. `union`, `intersection` and `complement` compose all of
+# it into a Boolean lattice, and the recipes below are the standard
+# compositions over that lattice.
 #
 # See https://ppigazzini.github.io/valgebra/ for the schema language, the
 # algebra, and the error model.
@@ -23,8 +25,8 @@
 # Every schema here is compiled once, at import, into a Validator; a boundary
 # calls `.validate(document)` on it. A `Predicate` is the one constraint that
 # leaves Rust for Python, so it appears only where no marker denotes the set —
-# a record's cross-field arithmetic, a mapping's key shape, an address, a
-# mailbox, a signature.
+# a record's cross-field arithmetic, an address and the keys of a mapping keyed
+# by one, a mailbox, a signature.
 #
 # A predicate refines the base it reads: `Annotated[base, at.Predicate(rule)]`
 # checks the base first and runs the rule only on its members. So a rule over a
@@ -125,12 +127,12 @@ def one_of(*names):
 def keys_in(key_schema, *fields):
     """A mapping whose every undeclared key belongs to `key_schema`.
 
-    A clause's key names a whole *type*, so a key narrowed by a constraint is
-    refused where it is written. The keys are checked beside the mapping
-    instead: meet this with the mapping's own shape, which stays in the algebra
-    while the key constraint rides a predicate that no relation reads. `fields`
-    names the record's declared keys, which its fields govern and its clauses
-    do not.
+    A clause's key is a type, a `Literal`, or a `str` narrowed by a pattern or
+    a length, so a key narrowed any other way, by a predicate, is refused where
+    it is written. Such keys are checked beside the mapping instead: meet this
+    with the mapping's own shape, which stays in the algebra while the key
+    constraint rides a predicate that no relation reads. `fields` names the
+    record's declared keys, which its fields govern and its clauses do not.
     """
     declared = frozenset(fields)
     return Validator(
@@ -1241,26 +1243,23 @@ cache_entry_schema = Validator(
     }
 )
 
-cache_schema = intersection({str: cache_entry_schema}, keys_in(run_id))
+cache_schema = Validator({run_id: cache_entry_schema})
 
-wtt_map_schema = intersection(
-    {str: tuple[Annotated[object, run_id], Annotated[object, task_id]]},
-    keys_in(short_worker_name),
+wtt_map_schema = Validator(
+    {short_worker_name: tuple[Annotated[object, run_id], Annotated[object, task_id]]}
 )
 
+# A predicate checks an address, and no clause is keyed by a predicate, so the
+# key shape stands beside the mapping.
 connections_counter_schema = intersection({str: suint}, keys_in(ip_address))
 
 unfinished_runs_schema = Validator(set[Annotated[object, run_id]])
 
 # A record with a typed catch-all: "last_run" names a run, and every other key
 # is itself a run the worker has taken part in.
-worker_runs_entry_schema = intersection(
-    {"last_run": run_id, str: True}, keys_in(run_id, "last_run")
-)
+worker_runs_entry_schema = Validator({"last_run": run_id, run_id: True})
 
-worker_runs_schema = intersection(
-    {str: worker_runs_entry_schema}, keys_in(short_worker_name)
-)
+worker_runs_schema = Validator({short_worker_name: worker_runs_entry_schema})
 
 
 def total_is_white_plus_black(book_doc):
@@ -1285,10 +1284,10 @@ book_schema = Validator(
     ]
 )
 
-books_schema = intersection({str: book_schema}, keys_in(book))
+books_schema = Validator({book: book_schema})
 
 # books.json as the books repository serves it. A book there may describe more
-# than this server reads, so the download is the stored shape opened, and the
-# stored copy is the download projected onto `book_fields`. Opening the mapping
-# also frees the keys beside `str`, which the key rule refuses.
-books_download_schema = books_schema.open()
+# than this server reads, so the download opens each book record, and the stored
+# copy is the download projected onto `book_fields`. The keys stay book names:
+# opening the mapping itself would free every key its clause leaves.
+books_download_schema = Validator({book: book_schema.open()})

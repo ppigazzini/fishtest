@@ -145,10 +145,14 @@ Core rules:
 - Pass `fail_fast=True` where the structure is unbounded (a run document, the
     caches) so one bad field does not produce a report per element; let the
     small documents aggregate every failure.
-- A mapping clause's key names a whole type, so a key narrowed by a constraint
-    is refused where it is written. Write `dict[str, V]` and check the key shape
-    beside the mapping with the `keys_in` recipe; the mapping stays in the
-    algebra and only the key constraint is opaque to a relation.
+- A mapping clause's key is a type, a `Literal`, or a `str` narrowed by a
+    pattern or a length. Key a mapping of run ids by the pattern itself,
+    `{run_id: V}`, and a relation reads its keys. A key narrowed any other way,
+    such as an address a predicate checks, is refused where it is written:
+    write `{str: V}` and check the key shape beside the mapping with the
+    `keys_in` recipe, where only the key constraint is opaque to a relation.
+- Opening a keyed mapping frees every key its clauses leave. Where a tolerant
+    reader must keep the keys, open the values instead: `{book: V.open()}`.
 - `Regex` matches the whole string on the Rust engine, whose dialect is close
     to `re`'s but not equal to it. `\d`, `\w` and `\s` are Unicode-aware, so
     write `[0-9]` where the value is parsed as a number afterwards, and check a

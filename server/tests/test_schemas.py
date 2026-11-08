@@ -343,20 +343,34 @@ class TestAlgebraRecipes(unittest.TestCase):
         self.assertTrue(schema.is_valid({"inner": {"x": 1}, "extra": "ok"}))
         self.assertFalse(schema.is_valid({"inner": {"x": 1, "extra": "no"}}))
 
-    def test_keys_in_constrains_the_keys_beside_the_mapping(self):
-        # A clause's key names a whole type, so `dict[run_id, V]` is refused
-        # where it is written; the key shape rides a predicate instead.
-        keyed = intersection(dict[str, int], s.keys_in(s.run_id))
+    def test_a_key_narrowed_by_a_pattern_keys_a_clause(self):
+        # A `str` narrowed by a pattern names a language of keys, so the mapping
+        # is keyed by it, and a relation reads the keys.
+        keyed = Validator({s.run_id: int})
         self.assertTrue(keyed.is_valid({RUN_ID: 1}))
         self.assertFalse(keyed.is_valid({"not-a-run-id": 1}))
         self.assertFalse(keyed.is_valid({RUN_ID: "not an int"}))
-        # A declared field is governed by the field, not by the clause, so it is
-        # exempt from the key shape.
-        record = intersection({"last": str, str: int}, s.keys_in(s.run_id, "last"))
+        self.assertEqual(keyed.relation_to(dict[str, int]), "subset")
+        self.assertEqual(Validator(dict[str, int]).relation_to(keyed), "not_subset")
+        # A declared field is governed by the field, not by the clause.
+        record = Validator({"last": str, s.run_id: int})
         self.assertTrue(record.is_valid({"last": "x", RUN_ID: 1}))
         self.assertFalse(record.is_valid({"last": "x", "other": 1}))
+
+    def test_keys_in_constrains_the_keys_beside_the_mapping(self):
+        # A key narrowed by a predicate is refused where it is written; the key
+        # shape rides a predicate beside the mapping instead.
         with self.assertRaises(NotImplementedError):
-            Validator(dict[s.run_id, int])
+            Validator({s.ip_address: int})
+        keyed = intersection(dict[str, int], s.keys_in(s.ip_address))
+        self.assertTrue(keyed.is_valid({"1.2.3.4": 1}))
+        self.assertFalse(keyed.is_valid({"not-an-ip": 1}))
+        self.assertFalse(keyed.is_valid({"1.2.3.4": "not an int"}))
+        # A declared field is governed by the field, not by the clause, so it is
+        # exempt from the key shape.
+        record = intersection({"last": str, str: int}, s.keys_in(s.ip_address, "last"))
+        self.assertTrue(record.is_valid({"last": "x", "1.2.3.4": 1}))
+        self.assertFalse(record.is_valid({"last": "x", "other": 1}))
 
 
 class TestDocuments(unittest.TestCase):
@@ -743,9 +757,10 @@ class TestInternalStructures(unittest.TestCase):
             {"UHO.epd": {**downloaded["UHO.epd"], "total": 11}},
             s.books_download_schema,
         )
-        # Opening the mapping frees the keys beside `str`, and the key rule
-        # refuses them.
+        # The download opens the book records and not the mapping, so its keys
+        # stay book names.
         self.assertNotIn({1: book}, s.books_download_schema)
+        self.assertNotIn({"README.md": book}, s.books_download_schema)
 
     def test_legacy_usernames(self):
         self.assertEqual(s.legacy_usernames_schema.ensure(["a", "b"]), ["a", "b"])
@@ -842,8 +857,7 @@ class TestInternalStructures(unittest.TestCase):
         }
         s.books_schema.validate({"UHO.epd": book})
         self.assertFalse(s.books_schema.is_valid({"UHO.epd": {**book, "total": 11}}))
-        # A key narrowed by a constraint is refused where it is written, so the
-        # key shape is checked beside the mapping; this is what makes it bite.
+        # The clause is keyed by book names, so no other key is admitted.
         self.assertFalse(s.books_schema.is_valid({"UHO.txt": book}))
 
 
