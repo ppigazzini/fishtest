@@ -18,7 +18,9 @@ from typing import Any
 
 from mcp import types
 from mcp.server.lowlevel import Server
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.concurrency import run_in_threadpool
+from starlette.routing import BaseRoute
 from valgebra_planning.proxy import Gate
 
 from fishtest.mcp_contracts import CONTRACTS, TOOLS
@@ -86,3 +88,23 @@ def build_server(rundb: Callable[[], Any]) -> Server[Any]:
         on_list_tools=list_tools,
         on_call_tool=call_tool,
     )
+
+
+def streamable_http_route(server: Server[Any], path: str) -> BaseRoute:
+    """Return the route that serves `server` at `path` over Streamable HTTP.
+
+    Stateless and answering in JSON, so any instance behind the proxy answers
+    any request and no session lives in one process. DNS-rebinding protection
+    is off: nginx owns the `Host` header, and the endpoint reads no cookie.
+    The app's lifespan runs `server.session_manager`.
+    """
+    app = server.streamable_http_app(
+        streamable_http_path=path,
+        stateless_http=True,
+        json_response=True,
+        transport_security=TransportSecuritySettings(
+            enable_dns_rebinding_protection=False
+        ),
+    )
+    (route,) = app.routes
+    return route

@@ -214,5 +214,94 @@ class TestHttpApp(unittest.TestCase):
         self.assertEqual(started_with, set())
 
 
+class _McpRunDbStub(_RunDbStub):
+    def get_run(self, run_id):
+        from test_schemas import RUN, RUN_ID
+
+        return dict(RUN) if run_id == RUN_ID else None
+
+
+class TestMcpEndpoint(unittest.TestCase):
+    """The MCP endpoint is served where MCP_PATH names it, and nowhere else."""
+
+    META = {
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientCapabilities": {},
+    }
+
+    def _post(self, mcp_path, method, params, *, era="2026-07-28"):
+        import fishtest.app as app_module
+        from fishtest.http.settings import AppSettings
+
+        _FastAPI, TestClient = test_support.require_fastapi()
+
+        async def _fake_run_in_threadpool(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        settings = AppSettings(
+            port=8002, primary_port=8000, is_primary_instance=False, mcp_path=mcp_path
+        )
+        headers = {"Accept": "application/json, text/event-stream"}
+        if era == "2026-07-28":
+            # What an SDK client sends on its own: the version, the method and
+            # the tool's name as headers, and the version again in `_meta`.
+            headers |= {"MCP-Protocol-Version": era, "Mcp-Method": method}
+            if method == "tools/call":
+                headers["Mcp-Name"] = params["name"]
+            params = {**params, "_meta": self.META}
+        body = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+        with mock.patch.dict("os.environ", {"FISHTEST_INSECURE_DEV": "1"}, clear=False):
+            with (
+                mock.patch.object(app_module, "RunDb", _McpRunDbStub),
+                mock.patch.object(
+                    app_module, "run_in_threadpool", _fake_run_in_threadpool
+                ),
+                mock.patch.object(
+                    app_module.AppSettings, "from_env", return_value=settings
+                ),
+                mock.patch.object(app_module.gh, "init"),
+            ):
+                app = app_module.create_app()
+                with TestClient(app) as client:
+                    return client.post("/mcp", json=body, headers=headers)
+
+    def test_no_endpoint_without_mcp_path(self):
+        response = self._post(None, "tools/list", {})
+        self.assertEqual(response.status_code, 404)
+
+    def test_the_endpoint_lists_the_tools(self):
+        from fishtest.mcp_contracts import TOOLS
+
+        response = self._post("/mcp", "tools/list", {})
+        self.assertEqual(response.status_code, 200)
+        listed = [tool["name"] for tool in response.json()["result"]["tools"]]
+        self.assertEqual(listed, [tool["name"] for tool in TOOLS])
+        self.assertNotIn("set-cookie", response.headers)
+
+    def test_the_endpoint_answers_a_call_in_either_protocol_era(self):
+        from test_schemas import RUN_ID
+
+        for era in ("2026-07-28", "2025-11-25"):
+            response = self._post(
+                "/mcp",
+                "tools/call",
+                {"name": "get_run", "arguments": {"run_id": RUN_ID}},
+                era=era,
+            )
+            self.assertEqual(response.status_code, 200, era)
+            result = response.json()["result"]
+            self.assertFalse(result["isError"], era)
+            self.assertEqual(result["structuredContent"]["run_id"], RUN_ID, era)
+
+    def test_a_refused_call_is_a_tool_error_over_http(self):
+        response = self._post(
+            "/mcp", "tools/call", {"name": "get_run", "arguments": {"run_id": "x"}}
+        )
+        self.assertEqual(response.status_code, 200)
+        result = response.json()["result"]
+        self.assertTrue(result["isError"])
+        self.assertIn("get_run refuses its arguments", result["content"][0]["text"])
+
+
 if __name__ == "__main__":
     unittest.main()
