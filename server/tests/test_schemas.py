@@ -11,6 +11,7 @@ import json
 import math
 import unittest
 from datetime import UTC, datetime
+from itertools import combinations
 
 from bson.objectid import ObjectId
 from valgebra import ValidationError, Validator, anything, intersection, nothing, union
@@ -1018,11 +1019,19 @@ class TestSchemaAlgebra(unittest.TestCase):
         guard = s.open_record({"action": s.action_name})
         self.assertTrue(s.action_schema.is_subtype_of(guard))
 
+    def test_the_action_branches_are_pairwise_disjoint(self):
+        # Each branch pins its own "action", so no document is in two of them.
+        # A `True` from is_empty() is a proof, so this holds for every value,
+        # not only for the documents the suite writes.
+        branches = [Validator(branch) for branch in s.action_branches]
+        for left, right in combinations(branches, 2):
+            self.assertTrue(intersection(left, right).is_empty(), f"{left!r}")
+
     def test_the_discriminant_selects_the_shape(self):
-        # The branches are disjoint by construction: each pins its own "action",
-        # and a document carries one. What is worth checking is that the name
-        # decides which fields are required, so a document wearing the wrong
-        # name is rejected on the fields the new name demands.
+        # The branches are disjoint (see above): each pins its own "action",
+        # and a document carries one. What this checks is that the name decides
+        # which fields are required, so a document wearing the wrong name is
+        # rejected on the fields the new name demands.
         #
         # Note this is not "no other name is accepted": two actions can require
         # the same fields, and then relabelling produces a document that really
