@@ -670,21 +670,27 @@ action_query_comparison = Validator(
 # A field is matched against a constant, or against a document of comparisons.
 action_query_term = action_query_constant | action_query_comparison
 
+# The fields a filter may match, the ones an action document declares. The MCP
+# contract for the event log publishes the same tuple.
+ACTION_QUERY_FIELDS = (
+    "action",
+    "username",
+    "worker",
+    "run_id",
+    "run",
+    "task_id",
+    "time",
+    "message",
+    "nn",
+    "user",
+)
+
 # The boolean operators take filters of the same shape, which is a fixpoint:
 # `recursive` ties it, and the reference sits under a list, so membership stays
 # decidable. A filter nested past the walk's own bound is refused as one.
 action_query_schema = recursive(
     lambda query: {
-        "action?": action_query_term,
-        "username?": action_query_term,
-        "worker?": action_query_term,
-        "run_id?": action_query_term,
-        "run?": action_query_term,
-        "task_id?": action_query_term,
-        "time?": action_query_term,
-        "message?": action_query_term,
-        "nn?": action_query_term,
-        "user?": action_query_term,
+        **{f"{field}?": action_query_term for field in ACTION_QUERY_FIELDS},
         # MongoDB refuses an empty clause list, so this does, with a message
         # that says which field rather than an OperationFailure.
         "$and?": Annotated[
