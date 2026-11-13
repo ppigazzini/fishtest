@@ -582,6 +582,25 @@ class TestHttpApi(unittest.TestCase):
                 contains="Invalid task_id",
             )
 
+    def test_task_endpoints_refuse_a_task_id_that_is_no_index(self):
+        # The request schema states a task_id is a non-negative integer, and a
+        # bool is not one, so the schema refuses both, naming the field, before
+        # the run's task list is read.
+        run_id, _task_id = self._create_run_with_task()
+        for task_id in (-1, True):
+            payload = {
+                **self._payload(password=self.password),
+                "run_id": run_id,
+                "task_id": task_id,
+            }
+            response = self.client.post("/api/beat", json=payload)
+            self._assert_worker_error_response(
+                response,
+                status_code=400,
+                path="/api/beat",
+                contains="at task_id:",
+            )
+
     def test_task_endpoints_mismatched_worker_info_is_error(self):
         run_id, task_id = self._create_run_with_task()
         endpoints = [

@@ -143,7 +143,7 @@ class WorkerApi(GenericApi):
         if "task_id" in self.request_body:
             task_id = self.request_body["task_id"]
 
-            if task_id < 0 or task_id >= len(run["tasks"]):
+            if task_id >= len(run["tasks"]):
                 self.handle_error(
                     f"Invalid task_id {task_id} for run_id {run_id}",
                 )
