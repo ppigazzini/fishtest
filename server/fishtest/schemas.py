@@ -162,12 +162,18 @@ def open_record(fields):
 
 # Scalars.
 
-uint = Validator(Annotated[int, at.Ge(0)])
-suint = Validator(Annotated[int, at.Gt(0)])
+# `bool` subclasses `int`, so a bare `int` admits `True` and `False`. No count,
+# index or priority here is a truth value, so every integer is met with the
+# complement of `bool`. A float needs no such guard: `float` and `bool` are
+# disjoint.
+not_bool = complement(bool)
+integer = Validator(Annotated[int, not_bool])
+uint = Validator(Annotated[int, not_bool, at.Ge(0)])
+suint = Validator(Annotated[int, not_bool, at.Gt(0)])
 ufloat = Validator(Annotated[float, at.Ge(0.0)])
 sfloat = Validator(Annotated[float, at.Gt(0.0)])
 # A match is played in pairs, so a game count is even.
-game_count = Validator(Annotated[int, at.Ge(0), at.MultipleOf(2)])
+game_count = Validator(Annotated[int, not_bool, at.Ge(0), at.MultipleOf(2)])
 
 task_id = uint
 timestamp = ufloat
@@ -1108,7 +1114,7 @@ run_args_schema = intersection(
         "auto_purge": bool,
         "throughput": uint,  # a percentage
         "itp": ufloat,  # throughput after the scheduler's adjustments
-        "priority": int,
+        "priority": integer,
         "adjudication": bool,
         "arch_filter?": regex_pattern,
         "compiler?": compiler,
@@ -1239,7 +1245,7 @@ cache_entry_schema = Validator(
         "is_changed": bool,  # Indicates if the run has changed since last_sync_time.
         "last_sync_time": timestamp,  # Last sync time (reading from or writing to db). If never synced then creation time.
         "last_access_time": timestamp,  # Last time the cache entry was touched (via buffer() or get_run()).
-        "priority": int,  # Entries with higher priority are synced first.
+        "priority": integer,  # Entries with higher priority are synced first.
     }
 )
 

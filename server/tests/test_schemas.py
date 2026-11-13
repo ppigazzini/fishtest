@@ -470,6 +470,13 @@ class TestDocuments(unittest.TestCase):
         )
         # the access check reads the same body, and admits the extra keys
         s.api_access_schema.validate(request)
+        # a bool is an int to Python, and no index or count is one
+        self.assertFalse(s.api_schema.is_valid({**request, "task_id": True}))
+        self.assertFalse(
+            s.api_schema.is_valid(
+                {**request, "worker_info": {**WORKER_INFO_API, "concurrency": True}}
+            )
+        )
 
     def test_a_worker_message_is_narrowed_to_what_an_action_holds(self):
         # The API accepts any string and an action caps it, so the server
@@ -984,6 +991,21 @@ class TestSchemaAlgebra(unittest.TestCase):
         ]:
             self.assertEqual(left.relation_to(right), "not_subset", f"{left!r}")
 
+    def test_an_integer_field_refuses_a_bool(self):
+        # `bool` subclasses `int`, so a bare `int` admits `True`; the integer
+        # scalars are met with the complement of `bool`.
+        self.assertIn(True, Validator(int))
+        for schema, member in (
+            (s.integer, -1),
+            (s.uint, 0),
+            (s.suint, 1),
+            (s.game_count, 2),
+        ):
+            self.assertIn(member, schema)
+            self.assertNotIn(True, schema)
+            self.assertNotIn(False, schema)
+            self.assertTrue(intersection(schema, bool).is_empty(), f"{schema!r}")
+
     def test_an_int_field_and_a_float_field_share_no_value(self):
         # The two are disjoint sets, which is what lets a field state which one
         # it stores.
@@ -1111,7 +1133,7 @@ class TestSchemaAlgebra(unittest.TestCase):
             intersection(s.book_fields, s.total_is_white_plus_black)
 
     def test_a_schema_prints_back_as_its_annotation(self):
-        self.assertEqual(repr(s.uint), "Annotated[int, Ge(0)]")
+        self.assertEqual(repr(s.ufloat), "Annotated[float, Ge(0.0)]")
         self.assertEqual(repr(s.run_id), "Annotated[str, Regex('[a-f0-9]{24}')]")
 
 

@@ -133,6 +133,9 @@ Core rules:
     and a literal admits only values of its constant's type, so a field
     declared `float` rejects `0` and a field declared `0.0` rejects `0`. Where a writer disagrees with
     the schema, fix the writer: the schema is the statement of intent.
+- `bool` subclasses `int`, so a bare `int` admits `True` and `False`. Declare an
+    integer field with `integer`, `uint`, `suint` or `game_count`, which meet
+    `int` with `complement(bool)`.
 - Name a rule the algebra can state (`implies`, `has`, `one_of`) and intersect
     it with the record. A document then belongs to the record and to every
     rule, and a relation between schemas reads each rule.
