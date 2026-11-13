@@ -224,7 +224,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.34.2" },
     { name = "scipy", specifier = ">=1.18.1" },
     { name = "uvicorn", specifier = ">=0.54.0" },
-    { name = "valgebra", specifier = ">=0.0.25,<0.1.0" },
+    { name = "valgebra", specifier = ">=0.0.25,<0.0.26" },
     { name = "zxcvbn", specifier = ">=4.5.0" },
 ]
 

@@ -112,6 +112,11 @@ uv lock
 After any dependency change, commit both the modified `pyproject.toml` and
 the updated `uv.lock`.
 
+`server/pyproject.toml` holds valgebra below its next minor release. A 0.0.x
+minor of valgebra can change which schemas build, so
+`uv lock --upgrade-package valgebra` stays within the current minor, and taking
+the next one raises both bounds and runs the server tests on it.
+
 ### Pre-commit hooks
 
 The `.pre-commit-config.yaml` runs on every commit:
