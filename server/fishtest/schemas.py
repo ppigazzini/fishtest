@@ -647,8 +647,10 @@ ACTION_QUERY_LIST_MAX = 1000
 ACTION_QUERY_CLAUSE_MAX = 16
 
 # A constant an action field is compared against. The values arrive from JSON,
-# so these are the kinds JSON has.
-action_query_constant = union(str, int, float, bool, None)
+# so these are the kinds JSON has, and its numbers are every float but NaN,
+# which JSON cannot write (RFC 8259, section 6). An infinity is one: `1e400`
+# reads as one.
+action_query_constant = union(str, int, Annotated[float, at.Ge(-math.inf)], bool, None)
 action_query_list = Validator(
     Annotated[
         list[Annotated[object, action_query_constant]],
