@@ -377,6 +377,15 @@ class TestMcpEndpoint(unittest.TestCase):
             self.assertNotIn("result", response.json(), era)
             self.assertEqual(response.json()["error"]["code"], -32602, era)
 
+    def test_a_body_past_the_api_actions_cap_is_refused(self):
+        from fishtest.api import ACTIONS_BODY_MAX
+
+        query = {"filter": {"username": "x" * ACTIONS_BODY_MAX}}
+        response = self._post(
+            "/mcp", "tools/call", {"name": "search_actions", "arguments": query}
+        )
+        self.assertEqual(response.status_code, 413)
+
     def test_a_refused_call_is_a_tool_error_over_http(self):
         response = self._post(
             "/mcp", "tools/call", {"name": "get_run", "arguments": {"run_id": "x"}}

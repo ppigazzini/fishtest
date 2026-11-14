@@ -1,7 +1,9 @@
 """The MCP tools: their contracts, and the server driven through an MCP client."""
 
+import math
 import unittest
 from datetime import UTC, datetime
+from unittest import mock
 
 import test_support
 from bson.objectid import ObjectId
@@ -200,6 +202,33 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
                 await client.call_tool("nope", {})
         self.assertEqual(caught.exception.code, INVALID_PARAMS)
         self.assertEqual(caught.exception.message, "Unknown tool: nope")
+
+    async def test_a_result_json_cannot_write_is_refused(self):
+        estimate = {
+            "run_id": self.run_id,
+            "elo_model": "normalized",
+            "elo0": -2.0,
+            "elo1": 2.0,
+            "LLR": 0.0,
+            "lower_bound": -2.9,
+            "upper_bound": 2.9,
+            "elo": 0.0,
+            "ci": [-1.0, 1.0],
+            "LOS": 0.5,
+        }
+        for value in (math.inf, -math.inf, math.nan):
+            tool = {
+                "get_elo": lambda _rundb, _arguments, v=value: {**estimate, "LLR": v}
+            }
+            with (
+                mock.patch.dict(mcp_tools.TOOL_FUNCTIONS, tool),
+                self.assertLogs("fishtest.mcp_server", "ERROR"),
+            ):
+                result = await self._call("get_elo", {"run_id": self.run_id})
+            self.assertTrue(result.is_error, value)
+            self.assertEqual(
+                result.content[0].text, "get_elo could not answer within its contract"
+            )
 
     async def test_a_run_the_database_does_not_hold_is_a_tool_error(self):
         result = await self._call("get_run", {"run_id": "f" * 24})

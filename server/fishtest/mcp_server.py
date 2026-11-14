@@ -26,6 +26,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.routing import Route
 from valgebra_planning.proxy import Gate
 
+from fishtest.api import ACTIONS_BODY_MAX
 from fishtest.mcp_contracts import CONTRACTS, TOOLS
 from fishtest.mcp_tools import TOOL_FUNCTIONS, ToolRefusal
 
@@ -81,13 +82,20 @@ def build_server(rundb: Callable[[], Any]) -> Server[Any]:
         except ToolRefusal as e:
             return _tool_error(str(e))
         refused = gate.after(name, result)
+        if refused is None:
+            # A JSON number reads as an infinity, so the contract admits one,
+            # and JSON writes neither an infinity nor NaN.
+            try:
+                text = json.dumps(result, allow_nan=False)
+            except ValueError:
+                refused = f"{name} returned a number JSON cannot write"
         if refused is not None:
             # A result outside its contract is this server's fault; the log
             # keeps the value, the client gets the tool's name alone.
             logger.error("MCP tool result refused: %s", refused)
             return _tool_error(f"{name} could not answer within its contract")
-        text = types.TextContent(type="text", text=json.dumps(result))
-        return types.CallToolResult(content=[text], structured_content=result)
+        content = types.TextContent(type="text", text=text)
+        return types.CallToolResult(content=[content], structured_content=result)
 
     return Server(
         "fishtest",
@@ -131,16 +139,18 @@ def streamable_http_route(
 
     Stateless and answering in JSON, so any instance behind the proxy answers
     any request and no session lives in one process. Each request's `Host` and
-    `Origin` are checked against `transport_security(public_url)`. The route
-    takes POST alone: a stateless server sends nothing a client did not ask
-    for, so it opens no event stream for a GET and ends no session for a
-    DELETE, and either is answered 405. The app's lifespan runs
-    `server.session_manager`.
+    `Origin` are checked against `transport_security(public_url)`, and a body
+    is held to the size `/api/actions` reads, the largest any tool needs; a
+    larger one is answered 413. The route takes POST alone: a stateless server
+    sends nothing a client did not ask for, so it opens no event stream for a
+    GET and ends no session for a DELETE, and either is answered 405. The
+    app's lifespan runs `server.session_manager`.
     """
     app = server.streamable_http_app(
         streamable_http_path=path,
         stateless_http=True,
         json_response=True,
+        max_request_body_size=ACTIONS_BODY_MAX,
         transport_security=transport_security(public_url),
     )
     (route,) = app.routes
