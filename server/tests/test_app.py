@@ -304,6 +304,16 @@ class TestMcpEndpoint(unittest.TestCase):
         self.assertEqual(listed, [tool["name"] for tool in TOOLS])
         self.assertNotIn("set-cookie", response.headers)
 
+    def test_the_listing_is_public_for_an_hour_and_names_its_version(self):
+        from fishtest.mcp_contracts import TOOLS_DIGEST
+
+        for method in ("tools/list", "server/discover"):
+            result = self._post("/mcp", method, {}).json()["result"]
+            self.assertEqual(result["ttlMs"], 60 * 60 * 1000, method)
+            self.assertEqual(result["cacheScope"], "public", method)
+            info = result["_meta"]["io.modelcontextprotocol/serverInfo"]
+            self.assertEqual(info["version"], TOOLS_DIGEST, method)
+
     def test_the_endpoint_answers_a_call_in_either_protocol_era(self):
         from test_schemas import RUN_ID
 

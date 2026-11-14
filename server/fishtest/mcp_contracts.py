@@ -16,6 +16,8 @@ leave through it.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 from valgebra_planning.contracts import Contract, read_contract
@@ -321,3 +323,10 @@ TOOLS: list[dict[str, Any]] = [
 
 # Each tool's contract, read once at import.
 CONTRACTS: dict[str, Contract] = {tool["name"]: read_contract(tool) for tool in TOOLS}
+
+# The listing's version, the server names it: a digest of every tool's complete
+# definition, annotations included, so any change to what a client reads is a
+# new version.
+TOOLS_DIGEST = hashlib.sha256(
+    json.dumps(TOOLS, sort_keys=True, separators=(",", ":")).encode()
+).hexdigest()[:16]

@@ -19,6 +19,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from mcp import types
+from mcp.server import CacheHint
 from mcp.server.lowlevel import Server
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
@@ -29,7 +30,7 @@ from valgebra_planning.contracts import Contract
 from valgebra_planning.proxy import Gate
 
 from fishtest.api import ACTIONS_BODY_MAX
-from fishtest.mcp_contracts import CONTRACTS, TOOLS
+from fishtest.mcp_contracts import CONTRACTS, TOOLS, TOOLS_DIGEST
 from fishtest.mcp_tools import TOOL_FUNCTIONS, ToolRefusal
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,10 @@ INSTRUCTIONS = (
     "Read-only access to fishtest, the Stockfish testing framework: test runs,"
     " their results and SPRT verdicts, and the event log."
 )
+
+# The listing and the server's description change only with a deployment, and
+# hold nothing private, so any client or shared cache may keep them an hour.
+LISTING_CACHE = CacheHint(ttl_ms=60 * 60 * 1000, scope="public")
 
 LISTING = [
     types.Tool(
@@ -115,8 +120,10 @@ def build_server(rundb: Callable[[], Any]) -> Server[Any]:
 
     return Server(
         "fishtest",
+        version=TOOLS_DIGEST,
         title="Fishtest",
         instructions=INSTRUCTIONS,
+        cache_hints={"tools/list": LISTING_CACHE, "server/discover": LISTING_CACHE},
         on_list_tools=list_tools,
         on_call_tool=call_tool,
     )
