@@ -23,7 +23,7 @@
 | `FISHTEST_INSECURE_DEV` | No | -- | Set to `1` for development mode (insecure secret) |
 | `FISHTEST_JINJA_TEMPLATES_DIR` | No | auto | Override Jinja2 templates directory |
 | `OPENAPI_URL` | No | (empty) | Set to `/openapi.json` to enable `/docs` and `/redoc` (development-only) |
-| `MCP_PATH` | No | (empty) | Set to a path such as `/mcp` to serve the read-only MCP endpoint there |
+| `MCP_PATH` | No | (empty) | Set to a path such as `/mcp` to serve the read-only MCP endpoint there, for requests naming a local host or the host of `FISHTEST_URL` |
 | `UVICORN_WORKERS` | No | -- | Must be `1` on primary (enforced at startup) |
 | `WEB_CONCURRENCY` | No | -- | Fallback for `UVICORN_WORKERS` (checked if unset) |
 

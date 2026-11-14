@@ -251,9 +251,12 @@ def create_app() -> FastAPI:
         )
 
         mcp_server = build_server(lambda: app.state.rundb)
-        app.router.routes.append(
-            streamable_http_route(mcp_server, bootstrap_settings.mcp_path)
+        mcp_route = streamable_http_route(
+            mcp_server,
+            bootstrap_settings.mcp_path,
+            bootstrap_settings.public_url,
         )
+        app.router.routes.append(mcp_route)
 
     return app
 

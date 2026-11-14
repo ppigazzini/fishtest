@@ -95,6 +95,7 @@ class AppSettings:
     is_primary_instance: bool
     openapi_url: str | None = None
     mcp_path: str | None = None
+    public_url: str | None = None
 
     @classmethod
     def from_env(cls) -> AppSettings:
@@ -119,10 +120,16 @@ class AppSettings:
         mcp_path_raw = os.environ.get("MCP_PATH", "").strip()
         mcp_path: str | None = mcp_path_raw or None
 
+        # The public URL, such as https://tests.stockfishchess.org; unset in a
+        # development instance served on a local address.
+        public_url_raw = os.environ.get("FISHTEST_URL", "").strip()
+        public_url: str | None = public_url_raw.rstrip("/") or None
+
         return cls(
             port=port,
             primary_port=primary_port,
             is_primary_instance=is_primary_instance,
             openapi_url=openapi_url,
             mcp_path=mcp_path,
+            public_url=public_url,
         )

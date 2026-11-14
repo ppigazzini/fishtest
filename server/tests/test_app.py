@@ -229,7 +229,38 @@ class TestMcpEndpoint(unittest.TestCase):
         "io.modelcontextprotocol/clientCapabilities": {},
     }
 
-    def _post(self, mcp_path, method, params, *, era="2026-07-28"):
+    def _post(
+        self,
+        mcp_path,
+        method,
+        params,
+        *,
+        era="2026-07-28",
+        host="localhost:8002",
+        headers=None,
+        public_url=None,
+    ):
+        headers = {"Accept": "application/json, text/event-stream", **(headers or {})}
+        if era == "2026-07-28":
+            # What an SDK client sends on its own: the version, the method and
+            # the tool's name as headers, and the version again in `_meta`.
+            headers |= {"MCP-Protocol-Version": era, "Mcp-Method": method}
+            if method == "tools/call":
+                headers["Mcp-Name"] = params["name"]
+            params = {**params, "_meta": self.META}
+        body = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+        return self._request(
+            mcp_path,
+            "POST",
+            host=host,
+            public_url=public_url,
+            json=body,
+            headers=headers,
+        )
+
+    def _request(
+        self, mcp_path, verb, *, host="localhost:8002", public_url=None, **kwargs
+    ):
         import fishtest.app as app_module
         from fishtest.http.settings import AppSettings
 
@@ -239,17 +270,12 @@ class TestMcpEndpoint(unittest.TestCase):
             return func(*args, **kwargs)
 
         settings = AppSettings(
-            port=8002, primary_port=8000, is_primary_instance=False, mcp_path=mcp_path
+            port=8002,
+            primary_port=8000,
+            is_primary_instance=False,
+            mcp_path=mcp_path,
+            public_url=public_url,
         )
-        headers = {"Accept": "application/json, text/event-stream"}
-        if era == "2026-07-28":
-            # What an SDK client sends on its own: the version, the method and
-            # the tool's name as headers, and the version again in `_meta`.
-            headers |= {"MCP-Protocol-Version": era, "Mcp-Method": method}
-            if method == "tools/call":
-                headers["Mcp-Name"] = params["name"]
-            params = {**params, "_meta": self.META}
-        body = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
         with mock.patch.dict("os.environ", {"FISHTEST_INSECURE_DEV": "1"}, clear=False):
             with (
                 mock.patch.object(app_module, "RunDb", _McpRunDbStub),
@@ -262,8 +288,8 @@ class TestMcpEndpoint(unittest.TestCase):
                 mock.patch.object(app_module.gh, "init"),
             ):
                 app = app_module.create_app()
-                with TestClient(app) as client:
-                    return client.post("/mcp", json=body, headers=headers)
+                with TestClient(app, base_url=f"http://{host}") as client:
+                    return client.request(verb, "/mcp", **kwargs)
 
     def test_no_endpoint_without_mcp_path(self):
         response = self._post(None, "tools/list", {})
@@ -292,6 +318,40 @@ class TestMcpEndpoint(unittest.TestCase):
             result = response.json()["result"]
             self.assertFalse(result["isError"], era)
             self.assertEqual(result["structuredContent"]["run_id"], RUN_ID, era)
+
+    def test_a_request_from_another_origin_is_refused(self):
+        response = self._post(
+            "/mcp", "tools/list", {}, headers={"Origin": "https://evil.example"}
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_a_request_naming_another_host_is_refused(self):
+        # A page that rebinds its own name to a local address sends that name.
+        response = self._post("/mcp", "tools/list", {}, host="evil.example")
+        self.assertEqual(response.status_code, 421)
+
+    def test_the_local_and_the_public_host_and_origin_are_served(self):
+        public = "https://tests.example.org"
+        for host, origin in (
+            ("localhost:8002", None),
+            ("127.0.0.1:8002", "http://127.0.0.1:8002"),
+            ("tests.example.org", None),
+            ("tests.example.org", public),
+        ):
+            headers = {"Origin": origin} if origin else {}
+            response = self._post(
+                "/mcp",
+                "tools/list",
+                {},
+                host=host,
+                headers=headers,
+                public_url=public,
+            )
+            self.assertEqual(response.status_code, 200, (host, origin))
+
+    def test_the_public_host_is_refused_without_a_public_url(self):
+        response = self._post("/mcp", "tools/list", {}, host="tests.example.org")
+        self.assertEqual(response.status_code, 421)
 
     def test_a_refused_call_is_a_tool_error_over_http(self):
         response = self._post(

@@ -15,6 +15,7 @@ import json
 import logging
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlsplit
 
 from mcp import types
 from mcp.server.lowlevel import Server
@@ -90,21 +91,47 @@ def build_server(rundb: Callable[[], Any]) -> Server[Any]:
     )
 
 
-def streamable_http_route(server: Server[Any], path: str) -> BaseRoute:
+# A local address on any port: what a development instance is reached at.
+LOCAL_HOSTS = ("127.0.0.1", "localhost", "[::1]")
+
+
+def transport_security(public_url: str | None) -> TransportSecuritySettings:
+    """Return the hosts and origins the endpoint serves.
+
+    A local host, and the host of `public_url` when one is set. A request
+    naming another host is refused 421, which stops a page that rebinds its
+    own name to a local address; a request from another origin is refused 403.
+    A request without an `Origin`, which is every client but a browser, is
+    served.
+    """
+    hosts = [host for local in LOCAL_HOSTS for host in (local, f"{local}:*")]
+    origins = [f"http://{host}" for host in hosts]
+    if public_url is not None:
+        parts = urlsplit(public_url)
+        hosts.append(parts.netloc)
+        origins.append(f"{parts.scheme}://{parts.netloc}")
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=hosts,
+        allowed_origins=origins,
+    )
+
+
+def streamable_http_route(
+    server: Server[Any], path: str, public_url: str | None
+) -> BaseRoute:
     """Return the route that serves `server` at `path` over Streamable HTTP.
 
     Stateless and answering in JSON, so any instance behind the proxy answers
-    any request and no session lives in one process. DNS-rebinding protection
-    is off: nginx owns the `Host` header, and the endpoint reads no cookie.
-    The app's lifespan runs `server.session_manager`.
+    any request and no session lives in one process. Each request's `Host` and
+    `Origin` are checked against `transport_security(public_url)`. The app's
+    lifespan runs `server.session_manager`.
     """
     app = server.streamable_http_app(
         streamable_http_path=path,
         stateless_http=True,
         json_response=True,
-        transport_security=TransportSecuritySettings(
-            enable_dns_rebinding_protection=False
-        ),
+        transport_security=transport_security(public_url),
     )
     (route,) = app.routes
     return route
