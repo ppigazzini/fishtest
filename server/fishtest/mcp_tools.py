@@ -16,10 +16,8 @@ from __future__ import annotations
 from typing import Any
 
 from pymongo import DESCENDING
-from valgebra import ValidationError
 
 from fishtest.mcp_contracts import ACTIONS_LIMIT_MAX, FINISHED_RUNS_PAGE_SIZE
-from fishtest.schemas import action_query_schema
 from fishtest.stats.stat_util import SPRT_elo
 
 
@@ -152,15 +150,10 @@ def get_elo(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 def search_actions(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
+    # The filter the contract admits is one `action_query_schema` accepts: the
+    # two are proven equal, so the database is handed only what `/api/actions`
+    # would hand it.
     query = arguments["filter"]
-    # valgebra 0.0.25 proves that the contract admits every filter
-    # `action_query_schema` accepts, and declines the converse, so the database
-    # is handed only a filter `/api/actions` would hand it.
-    try:
-        action_query_schema.validate(query, fail_fast=True)
-    except ValidationError as e:
-        msg = "The filter is not one /api/actions accepts"
-        raise ToolRefusal(msg) from e
     limit = int(arguments.get("limit", ACTIONS_LIMIT_MAX))
     actions = (
         rundb.db["actions"]

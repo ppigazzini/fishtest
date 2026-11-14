@@ -35,7 +35,7 @@ dependencies = [
     "requests>=2.34.2",
     "scipy>=1.18.1",
     "uvicorn>=0.54.0",
-    "valgebra>=0.0.25,<0.0.26",
+    "valgebra>=0.0.26,<0.0.27",
     "valgebra-jsonschema>=0.0.1,<0.0.2",
     "valgebra-planning[mcp]>=0.0.1,<0.0.2",
     "zxcvbn>=4.5.0",
@@ -68,5 +68,5 @@ select = ["E4", "E7", "E9", "F"]
 extend-select = ["I"]
 
 [tool.uv.sources]
-valgebra-jsonschema = { git = "https://github.com/ppigazzini/valgebra-jsonschema", rev = "f9ee61df512ce89adbc6c24c97051aac698a161b" }
-valgebra-planning = { git = "https://github.com/ppigazzini/valgebra-planning", rev = "2123d25b4a2513070f796b541406d7af3b3ff60d" }
+valgebra-jsonschema = { git = "https://github.com/ppigazzini/valgebra-jsonschema", rev = "c42ea07cd8fc28b892757eb33ac1bceec3cc08d4" }
+valgebra-planning = { git = "https://github.com/ppigazzini/valgebra-planning", rev = "2194244bb568c6513491ac7e490573bd2659752b" }

@@ -1,5 +1,6 @@
 """Test FastAPI application creation and lifecycle wiring."""
 
+import json
 import unittest
 from unittest import mock
 
@@ -395,6 +396,36 @@ class TestMcpEndpoint(unittest.TestCase):
             "/mcp", "tools/call", {"name": "search_actions", "arguments": query}
         )
         self.assertEqual(response.status_code, 413)
+
+    def test_a_nan_token_is_refused_before_any_tool_runs(self):
+        # The SDK reads the tokens NaN and Infinity, which JSON forbids; the
+        # gate refuses NaN in any argument, and an infinity is a JSON number.
+        from fishtest import mcp_tools
+
+        headers = {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            "MCP-Protocol-Version": "2026-07-28",
+            "Mcp-Method": "tools/call",
+            "Mcp-Name": "search_actions",
+        }
+        meta = json.dumps(self.META)
+        for token, refused in (("NaN", True), ("Infinity", False), ("1e400", False)):
+            body = (
+                '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params":'
+                ' {"name": "search_actions", "arguments": {"filter": {"time": %s}},'
+                ' "_meta": %s}}' % (token, meta)
+            )
+            tool = mock.Mock(return_value={"actions": []})
+            with mock.patch.dict(mcp_tools.TOOL_FUNCTIONS, {"search_actions": tool}):
+                response = self._request(
+                    "/mcp", "POST", content=body.encode(), headers=headers
+                )
+            result = response.json()["result"]
+            self.assertEqual(result["isError"], refused, token)
+            self.assertEqual(tool.called, not refused, token)
+            if refused:
+                self.assertIn("at filter.time", result["content"][0]["text"])
 
     def test_a_refused_call_is_a_tool_error_over_http(self):
         response = self._post(

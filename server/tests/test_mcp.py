@@ -1,6 +1,7 @@
 """The MCP tools: their contracts, and the server driven through an MCP client."""
 
 import math
+import random
 import unittest
 from datetime import UTC, datetime
 from unittest import mock
@@ -16,7 +17,12 @@ from valgebra_jsonschema import compile_schema
 from fishtest import mcp_contracts, mcp_tools
 from fishtest.mcp_server import build_server
 from fishtest.run_cache import Prio
-from fishtest.schemas import action_query_schema
+from fishtest.schemas import (
+    ACTION_QUERY_CLAUSE_MAX,
+    ACTION_QUERY_FIELDS,
+    ACTION_QUERY_LIST_MAX,
+    action_query_schema,
+)
 
 # The search_actions filter on its own, as the contract publishes it.
 FILTER = compile_schema(
@@ -32,18 +38,56 @@ class TestMcpContracts(unittest.TestCase):
         self.assertEqual(names, list(CONTRACTS))
         self.assertEqual(set(names), set(mcp_tools.TOOL_FUNCTIONS))
 
-    def test_the_filter_contract_admits_every_filter_the_api_accepts(self):
-        # A proof: no filter /api/actions serves is refused by the contract.
-        self.assertTrue(action_query_schema.is_subtype_of(FILTER))
-
-    @unittest.expectedFailure
-    def test_the_filter_contract_admits_only_filters_the_api_accepts(self):
-        # valgebra 0.0.25 answers `undecided`: a closed object with a property
-        # that is an array under `maxItems` is not related to the matching
-        # record, though the array alone is. Until this is proven,
-        # search_actions hands the database only what action_query_schema
-        # accepts.
+    def test_the_filter_contract_is_the_api_filter_language(self):
+        # A proof both ways: the contract admits every filter /api/actions
+        # serves, and only those, so search_actions hands the database what the
+        # gate admitted and nothing /api/actions would refuse.
+        self.assertEqual(action_query_schema.relation_to(FILTER), "subset")
         self.assertEqual(FILTER.relation_to(action_query_schema), "subset")
+
+    def test_the_filter_contract_and_the_api_agree_on_generated_filters(self):
+        # Beside the proof, membership on filters drawn with a fixed seed, near
+        # and past each bound and with keys neither side admits.
+        rng = random.Random(20261114)
+        operators = ["$eq", "$ne", "$gt", "$gte", "$lt", "$lte", "$in", "$nin"]
+        operators += ["$regex", "$where", "$exists"]
+        keys = [*ACTION_QUERY_FIELDS, "$and", "$or", "$nor", "$where", "other"]
+        constants = ["x", "", 0, 1, 1.5, True, None, [1], {"a": 1}, 2**70]
+        constants += [math.inf, math.nan]
+        sizes = [0, 1, 2, ACTION_QUERY_LIST_MAX, ACTION_QUERY_LIST_MAX + 1]
+        clauses = [0, 1, 2, ACTION_QUERY_CLAUSE_MAX, ACTION_QUERY_CLAUSE_MAX + 1]
+
+        def term():
+            if rng.random() < 0.5:
+                return rng.choice(constants)
+            return {
+                rng.choice(operators): (
+                    [rng.choice(constants) for _ in range(rng.choice(sizes))]
+                    if rng.random() < 0.3
+                    else rng.choice(constants)
+                )
+                for _ in range(rng.randint(0, 3))
+            }
+
+        def query(depth=0):
+            filter_ = {}
+            for key in rng.choices(keys, k=rng.randint(0, 3)):
+                if key in ("$and", "$or", "$nor"):
+                    count = rng.choice(clauses) if depth < 2 else 0
+                    filter_[key] = [query(depth + 1) for _ in range(count)]
+                else:
+                    filter_[key] = term()
+            return filter_
+
+        accepted = 0
+        for _ in range(2000):
+            filter_ = query()
+            served = filter_ in action_query_schema
+            self.assertEqual(filter_ in FILTER, served, repr(filter_)[:200])
+            accepted += served
+        # The draw reaches both answers.
+        self.assertGreater(accepted, 200)
+        self.assertLess(accepted, 1800)
 
     def test_the_filter_contract_and_the_api_agree_on_filters(self):
         filters = [
