@@ -353,6 +353,20 @@ class TestMcpEndpoint(unittest.TestCase):
         response = self._post("/mcp", "tools/list", {}, host="tests.example.org")
         self.assertEqual(response.status_code, 421)
 
+    def test_the_endpoint_takes_post_alone(self):
+        # Without the 2026-07-28 header, a GET asks for the event stream of
+        # protocol 2025-11-25; a stateless server holds none open.
+        stream = {"Accept": "text/event-stream"}
+        for verb, headers in (
+            ("GET", stream),
+            ("GET", {**stream, "MCP-Protocol-Version": "2026-07-28"}),
+            ("DELETE", {}),
+            ("PUT", {}),
+        ):
+            response = self._request("/mcp", verb, headers=headers)
+            self.assertEqual(response.status_code, 405, (verb, headers))
+            self.assertEqual(response.headers["allow"], "POST", verb)
+
     def test_a_refused_call_is_a_tool_error_over_http(self):
         response = self._post(
             "/mcp", "tools/call", {"name": "get_run", "arguments": {"run_id": "x"}}

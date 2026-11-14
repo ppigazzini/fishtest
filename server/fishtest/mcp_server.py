@@ -21,7 +21,7 @@ from mcp import types
 from mcp.server.lowlevel import Server
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.concurrency import run_in_threadpool
-from starlette.routing import BaseRoute
+from starlette.routing import Route
 from valgebra_planning.proxy import Gate
 
 from fishtest.mcp_contracts import CONTRACTS, TOOLS
@@ -119,13 +119,16 @@ def transport_security(public_url: str | None) -> TransportSecuritySettings:
 
 def streamable_http_route(
     server: Server[Any], path: str, public_url: str | None
-) -> BaseRoute:
+) -> Route:
     """Return the route that serves `server` at `path` over Streamable HTTP.
 
     Stateless and answering in JSON, so any instance behind the proxy answers
     any request and no session lives in one process. Each request's `Host` and
-    `Origin` are checked against `transport_security(public_url)`. The app's
-    lifespan runs `server.session_manager`.
+    `Origin` are checked against `transport_security(public_url)`. The route
+    takes POST alone: a stateless server sends nothing a client did not ask
+    for, so it opens no event stream for a GET and ends no session for a
+    DELETE, and either is answered 405. The app's lifespan runs
+    `server.session_manager`.
     """
     app = server.streamable_http_app(
         streamable_http_path=path,
@@ -134,4 +137,7 @@ def streamable_http_route(
         transport_security=transport_security(public_url),
     )
     (route,) = app.routes
-    return route
+    if not isinstance(route, Route):
+        msg = f"the SDK serves {path} through {type(route).__name__}, not a Route"
+        raise TypeError(msg)
+    return Route(path, endpoint=route.endpoint, methods=["POST"])
