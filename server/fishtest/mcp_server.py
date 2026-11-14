@@ -6,7 +6,8 @@ contract, the tool reads the run database in the threadpool, the gate checks
 the result against the contract, and the result goes back as structured content
 beside its JSON text. A refusal at either check, or a call that names a run the
 database does not hold, is a tool error the client can read, so nothing a
-contract refuses reaches the database or the client.
+contract refuses reaches the database or the client. A call naming a tool the
+server does not list is a JSON-RPC error, `-32602`.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from urllib.parse import urlsplit
 from mcp import types
 from mcp.server.lowlevel import Server
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared.exceptions import MCPError
 from starlette.concurrency import run_in_threadpool
 from starlette.routing import Route
 from valgebra_planning.proxy import Gate
@@ -65,6 +67,11 @@ def build_server(rundb: Callable[[], Any]) -> Server[Any]:
         _ctx: Any, params: types.CallToolRequestParams
     ) -> types.CallToolResult:
         name = params.name
+        if name not in CONTRACTS:
+            # A protocol error, as the tools specification states: no tool
+            # result names a tool this server does not list.
+            message = f"Unknown tool: {name:.128}"
+            raise MCPError(code=types.INVALID_PARAMS, message=message)
         arguments = dict(params.arguments or {})
         refused = gate.before(name, arguments)
         if refused is not None:

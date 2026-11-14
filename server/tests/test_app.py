@@ -367,6 +367,16 @@ class TestMcpEndpoint(unittest.TestCase):
             self.assertEqual(response.status_code, 405, (verb, headers))
             self.assertEqual(response.headers["allow"], "POST", verb)
 
+    def test_an_unknown_tool_is_a_json_rpc_error_over_http(self):
+        # Protocol 2026-07-28 carries the error's class in the HTTP status too.
+        for era, status in (("2026-07-28", 400), ("2025-11-25", 200)):
+            response = self._post(
+                "/mcp", "tools/call", {"name": "nope", "arguments": {}}, era=era
+            )
+            self.assertEqual(response.status_code, status, era)
+            self.assertNotIn("result", response.json(), era)
+            self.assertEqual(response.json()["error"]["code"], -32602, era)
+
     def test_a_refused_call_is_a_tool_error_over_http(self):
         response = self._post(
             "/mcp", "tools/call", {"name": "get_run", "arguments": {"run_id": "x"}}

@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 import test_support
 from bson.objectid import ObjectId
 from mcp import Client
+from mcp.shared.exceptions import MCPError
+from mcp.types import INVALID_PARAMS
 from test_schemas import RUN
 from valgebra_jsonschema import compile_schema
 
@@ -191,6 +193,13 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             result = await self._call("get_run", arguments)
             self.assertTrue(result.is_error, repr(arguments))
             self.assertIn("get_run refuses its arguments", result.content[0].text)
+
+    async def test_an_unknown_tool_is_a_protocol_error(self):
+        async with Client(self.server, raise_exceptions=True) as client:
+            with self.assertRaises(MCPError) as caught:
+                await client.call_tool("nope", {})
+        self.assertEqual(caught.exception.code, INVALID_PARAMS)
+        self.assertEqual(caught.exception.message, "Unknown tool: nope")
 
     async def test_a_run_the_database_does_not_hold_is_a_tool_error(self):
         result = await self._call("get_run", {"run_id": "f" * 24})
