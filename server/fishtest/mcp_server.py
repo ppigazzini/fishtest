@@ -24,6 +24,8 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from starlette.concurrency import run_in_threadpool
 from starlette.routing import Route
+from valgebra import ValidationError
+from valgebra_planning.contracts import Contract
 from valgebra_planning.proxy import Gate
 
 from fishtest.api import ACTIONS_BODY_MAX
@@ -55,6 +57,21 @@ def _tool_error(message: str) -> types.CallToolResult:
     return types.CallToolResult(content=[text], is_error=True)
 
 
+def _refusal(name: str, contract: Contract, arguments: dict[str, Any]) -> str:
+    # The contract's first failure, by path and expectation: what a client
+    # changes to be served, without the value it sent, and read no further than
+    # the first failure, as /api/actions reads a refused filter.
+    try:
+        contract.accepts.validate(arguments, fail_fast=True)
+    except ValidationError as e:
+        where = ".".join(map(str, e.path)) or "the arguments"
+        return (
+            f"{name} refuses its arguments: at {where}: expected {e.expected}"
+            f" [{e.code}]"
+        )
+    return f"{name} refuses its arguments"
+
+
 def build_server(rundb: Callable[[], Any]) -> Server[Any]:
     """Return the MCP server; `rundb` returns the run database a call reads."""
     # No policy and no flow rule: every tool reads public data, so the gate
@@ -74,9 +91,8 @@ def build_server(rundb: Callable[[], Any]) -> Server[Any]:
             message = f"Unknown tool: {name:.128}"
             raise MCPError(code=types.INVALID_PARAMS, message=message)
         arguments = dict(params.arguments or {})
-        refused = gate.before(name, arguments)
-        if refused is not None:
-            return _tool_error(refused)
+        if gate.before(name, arguments) is not None:
+            return _tool_error(_refusal(name, CONTRACTS[name], arguments))
         try:
             result = await run_in_threadpool(TOOL_FUNCTIONS[name], rundb(), arguments)
         except ToolRefusal as e:

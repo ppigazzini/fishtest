@@ -191,10 +191,18 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         self.assertIn("is not an SPRT test", result.content[0].text)
 
     async def test_an_argument_outside_the_contract_is_a_tool_error(self):
-        for arguments in ({"run_id": "nope"}, {"run_id": self.run_id, "x": 1}, {}):
+        # The refusal names where the arguments fail and what is expected
+        # there, and never the value sent.
+        for arguments, where in (
+            ({"run_id": "a-sent-value"}, "at run_id: expected a string matching"),
+            ({"run_id": self.run_id, "x": 1}, "at x: expected no unexpected key"),
+            ({}, "at run_id: expected required key 'run_id' [missing_key]"),
+        ):
             result = await self._call("get_run", arguments)
             self.assertTrue(result.is_error, repr(arguments))
-            self.assertIn("get_run refuses its arguments", result.content[0].text)
+            text = result.content[0].text
+            self.assertTrue(text.startswith(f"get_run refuses its arguments: {where}"))
+            self.assertNotIn("a-sent-value", text)
 
     async def test_an_unknown_tool_is_a_protocol_error(self):
         async with Client(self.server, raise_exceptions=True) as client:
