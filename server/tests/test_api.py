@@ -1042,6 +1042,31 @@ class TestHttpApi(unittest.TestCase):
         self.assertEqual(response.status_code, 413)
         self.assertIn("error", response.json())
 
+    def test_actions_stops_a_filter_past_its_time_bound(self):
+        from unittest import mock
+
+        from pymongo.errors import ExecutionTimeout
+
+        from fishtest.api import ACTIONS_QUERY_TIME_MAX_MS
+
+        cursor = mock.MagicMock()
+        cursor.sort.return_value = cursor
+        cursor.limit.return_value = cursor
+        cursor.__iter__.side_effect = ExecutionTimeout("time limit exceeded")
+        db = mock.MagicMock()
+        db.__getitem__.return_value.find.return_value = cursor
+        with mock.patch.object(self.rundb, "db", db):
+            response = self.client.post("/api/actions", json={"message": "x"})
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.json()["error"],
+            f"/api/actions: the filter took longer than {ACTIONS_QUERY_TIME_MAX_MS} ms",
+        )
+        db.__getitem__.assert_called_once_with("actions")
+        db["actions"].find.assert_called_once_with(
+            {"message": "x"}, max_time_ms=ACTIONS_QUERY_TIME_MAX_MS
+        )
+
     def test_actions_answers_the_largest_client_query(self):
         # The widest filter static/js/notifications.js builds: every run id the
         # client's LRU holds, which the list cap bounds.

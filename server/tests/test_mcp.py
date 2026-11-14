@@ -313,6 +313,20 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         messages = [a["message"] for a in result.structured_content["actions"]]
         self.assertEqual(messages, [marker])
 
+    async def test_search_actions_stops_a_filter_past_its_time_bound(self):
+        from pymongo.errors import ExecutionTimeout
+
+        cursor = mock.MagicMock()
+        cursor.sort.return_value = cursor
+        cursor.limit.return_value = cursor
+        cursor.__iter__.side_effect = ExecutionTimeout("time limit exceeded")
+        db = mock.MagicMock()
+        db.__getitem__.return_value.find.return_value = cursor
+        with mock.patch.object(self.rundb, "db", db):
+            result = await self._call("search_actions", {"filter": {"message": "x"}})
+        self.assertTrue(result.is_error)
+        self.assertIn("The filter took longer than", result.content[0].text)
+
     async def test_search_actions_refuses_code_on_the_database(self):
         result = await self._call("search_actions", {"filter": {"$where": "1"}})
         self.assertTrue(result.is_error)

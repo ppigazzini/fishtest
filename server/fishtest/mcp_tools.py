@@ -16,7 +16,9 @@ from __future__ import annotations
 from typing import Any
 
 from pymongo import DESCENDING
+from pymongo.errors import ExecutionTimeout
 
+from fishtest.api import ACTIONS_QUERY_TIME_MAX_MS
 from fishtest.mcp_contracts import ACTIONS_LIMIT_MAX, FINISHED_RUNS_PAGE_SIZE
 from fishtest.stats.stat_util import SPRT_elo
 
@@ -157,11 +159,19 @@ def search_actions(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
     limit = int(arguments.get("limit", ACTIONS_LIMIT_MAX))
     actions = (
         rundb.db["actions"]
-        .find(query)
+        .find(query, max_time_ms=ACTIONS_QUERY_TIME_MAX_MS)
         .sort([("time", DESCENDING), ("_id", DESCENDING)])
         .limit(limit)
     )
-    return {"actions": [{**action, "_id": str(action["_id"])} for action in actions]}
+    try:
+        found = [{**action, "_id": str(action["_id"])} for action in actions]
+    except ExecutionTimeout as e:
+        msg = (
+            f"The filter took longer than {ACTIONS_QUERY_TIME_MAX_MS} ms; a filter"
+            " on action, username or run_id is read from an index"
+        )
+        raise ToolRefusal(msg) from e
+    return {"actions": found}
 
 
 TOOL_FUNCTIONS = {

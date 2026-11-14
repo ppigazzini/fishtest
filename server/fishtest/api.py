@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException
 from pymongo import DESCENDING
+from pymongo.errors import ExecutionTimeout
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, StreamingResponse
@@ -31,6 +32,9 @@ WORKER_VERSION = 331
 # The largest filter the notifications client sends, an `$in` over the run ids
 # its LRU holds, is about 30 KB at the schema's list cap.
 ACTIONS_BODY_MAX = 64 * 1024
+# The time MongoDB may spend on one event-log filter. A filter over a field no
+# index covers reads the whole collection; past this bound it is stopped.
+ACTIONS_QUERY_TIME_MAX_MS = 2000
 
 WORKER_API_PATHS = {
     "/api/request_version",
@@ -428,14 +432,20 @@ class UserApi(GenericApi):
         # Newest first, the order the `actions_time_id` index keeps.
         actions = (
             self.request.rundb.db["actions"]
-            .find(query)
+            .find(query, max_time_ms=ACTIONS_QUERY_TIME_MAX_MS)
             .sort([("time", DESCENDING), ("_id", DESCENDING)])
             .limit(200)
         )
         ret = []
-        for action in actions:
-            action["_id"] = str(action["_id"])
-            ret.append(action)
+        try:
+            for action in actions:
+                action["_id"] = str(action["_id"])
+                ret.append(action)
+        except ExecutionTimeout:
+            self.handle_error(
+                f"the filter took longer than {ACTIONS_QUERY_TIME_MAX_MS} ms",
+                status_code=503,
+            )
         self.request.response.headers["access-control-allow-origin"] = "*"
         self.request.response.headers["access-control-allow-headers"] = "content-type"
         return ret
