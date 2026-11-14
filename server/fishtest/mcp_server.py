@@ -30,6 +30,7 @@ from valgebra_planning.contracts import Contract
 from valgebra_planning.proxy import Gate
 
 from fishtest.api import ACTIONS_BODY_MAX
+from fishtest.http.settings import MCP_CALLS_MAX
 from fishtest.mcp_contracts import CONTRACTS, TOOLS, TOOLS_DIGEST
 from fishtest.mcp_tools import TOOL_FUNCTIONS, ToolRefusal
 
@@ -77,11 +78,23 @@ def _refusal(name: str, contract: Contract, arguments: dict[str, Any]) -> str:
     return f"{name} refuses its arguments"
 
 
-def build_server(rundb: Callable[[], Any]) -> Server[Any]:
-    """Return the MCP server; `rundb` returns the run database a call reads."""
+BUSY = "fishtest is answering as many tool calls as it takes at once; retry in a moment"
+
+
+def build_server(
+    rundb: Callable[[], Any], *, calls_max: int = MCP_CALLS_MAX
+) -> Server[Any]:
+    """Return the MCP server; `rundb` returns the run database a call reads.
+
+    At most `calls_max` calls read at once. A call past the cap does not wait
+    for a token: it is a tool error asking the client to retry, so a burst
+    of calls cannot hold the threadpool the instance's other routes share.
+    """
     # No policy and no flow rule: every tool reads public data, so the gate
     # holds each call to its contract alone.
     gate = Gate(CONTRACTS, [], [])
+    # Read and written on the event loop alone, so no lock guards it.
+    reading = 0
 
     async def list_tools(_ctx: Any, _params: Any) -> types.ListToolsResult:
         return types.ListToolsResult(tools=LISTING)
@@ -89,6 +102,7 @@ def build_server(rundb: Callable[[], Any]) -> Server[Any]:
     async def call_tool(
         _ctx: Any, params: types.CallToolRequestParams
     ) -> types.CallToolResult:
+        nonlocal reading
         name = params.name
         if name not in CONTRACTS:
             # A protocol error, as the tools specification states: no tool
@@ -98,10 +112,15 @@ def build_server(rundb: Callable[[], Any]) -> Server[Any]:
         arguments = dict(params.arguments or {})
         if gate.before(name, arguments) is not None:
             return _tool_error(_refusal(name, CONTRACTS[name], arguments))
+        if reading >= calls_max:
+            return _tool_error(BUSY)
+        reading += 1
         try:
             result = await run_in_threadpool(TOOL_FUNCTIONS[name], rundb(), arguments)
         except ToolRefusal as e:
             return _tool_error(str(e))
+        finally:
+            reading -= 1
         refused = gate.after(name, result)
         if refused is None:
             # A JSON number reads as an infinity, so the contract admits one,

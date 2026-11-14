@@ -16,9 +16,15 @@ from pathlib import Path
 # Invariant: TASK_SEMAPHORE_SIZE << THREADPOOL_TOKENS to avoid starving
 # /api/beat and /api/update_task during reconnection bursts.
 # Details: docs/2-threading-model.md (section: "Task scheduling throttle").
+# MCP_CALLS_MAX: Max concurrent MCP tool calls an instance serves, each holding
+# one token while it reads MongoDB.
+# Invariant: MCP_CALLS_MAX << THREADPOOL_TOKENS, so tool calls cannot starve
+# the pages and API routes the same instance serves.
+# Details: docs/2-threading-model.md (section: "MCP tool-call cap").
 
 THREADPOOL_TOKENS: int = 200
 TASK_SEMAPHORE_SIZE: int = 5
+MCP_CALLS_MAX: int = 8
 
 # htmx polling intervals (seconds), used via Jinja2 global `poll`.
 POLL_MACHINES_HOMEPAGE_S: int = 60

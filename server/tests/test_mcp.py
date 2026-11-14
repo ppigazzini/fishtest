@@ -1,7 +1,9 @@
 """The MCP tools: their contracts, and the server driven through an MCP client."""
 
+import asyncio
 import math
 import random
+import threading
 import unittest
 from datetime import UTC, datetime
 from unittest import mock
@@ -281,6 +283,29 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 result.content[0].text, "get_elo could not answer within its contract"
             )
+
+    async def test_a_call_past_the_cap_is_a_tool_error_and_does_not_wait(self):
+        entered, release = threading.Event(), threading.Event()
+
+        def held(_rundb, _arguments):
+            entered.set()
+            release.wait(10)
+            return {"runs": []}
+
+        server = build_server(lambda: self.rundb, calls_max=1)
+        tools = {"list_active_runs": held}
+        with mock.patch.dict(mcp_tools.TOOL_FUNCTIONS, tools):
+            async with Client(server, raise_exceptions=True) as client:
+                first = asyncio.ensure_future(client.call_tool("list_active_runs", {}))
+                self.assertTrue(await asyncio.to_thread(entered.wait, 10))
+                second = await client.call_tool("list_active_runs", {})
+                release.set()
+                self.assertFalse((await first).is_error)
+                third = await client.call_tool("list_active_runs", {})
+        self.assertTrue(second.is_error)
+        self.assertIn("retry in a moment", second.content[0].text)
+        # The cap counts calls being read, so it frees as each one ends.
+        self.assertFalse(third.is_error)
 
     async def test_a_run_the_database_does_not_hold_is_a_tool_error(self):
         result = await self._call("get_run", {"run_id": "f" * 24})

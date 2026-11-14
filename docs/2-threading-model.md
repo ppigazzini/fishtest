@@ -255,7 +255,19 @@ for beat/update_task.
 
 ### Where the constants live
 
-Both `THREADPOOL_TOKENS` and `TASK_SEMAPHORE_SIZE` are defined in
+`THREADPOOL_TOKENS`, `TASK_SEMAPHORE_SIZE` and `MCP_CALLS_MAX` are defined in
 `fishtest/http/settings.py` -- a dependency-free module that neither
 `app.py` nor `rundb.py` imports from each other, avoiding circular
 imports.
+
+## MCP tool-call cap
+
+An instance that serves the MCP endpoint (`MCP_PATH`) reads at most
+`MCP_CALLS_MAX` (8) tool calls at once, each in one threadpool token. The
+gate is non-blocking, as the `task_semaphore` gate is: a call past the cap
+does not wait for a token, and the client gets a tool error asking it to
+retry. Tool calls therefore hold at most 8 of the 200 tokens, and the pages
+and API routes the same instance serves keep the rest.
+
+The cap is per instance, not per client. Per-client limits belong to the
+reverse proxy, which sees the client address first.
