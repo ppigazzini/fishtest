@@ -167,6 +167,52 @@ class TestHttpApp(unittest.TestCase):
         self.assertTrue(payload["paths"])
         self.assertIn("/api/request_version", payload["paths"])
 
+    def _start_with_legacy_usernames(self, stored):
+        import fishtest.app as app_module
+        from fishtest import schemas
+        from fishtest.http.settings import AppSettings
+
+        _FastAPI, TestClient = test_support.require_fastapi()
+
+        async def _fake_run_in_threadpool(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        rundb = _RunDbStub()
+        rundb.kvstore["legacy_usernames"] = stored
+        settings = AppSettings(port=8001, primary_port=8000, is_primary_instance=False)
+        self.addCleanup(setattr, schemas, "legacy_usernames", schemas.legacy_usernames)
+
+        with mock.patch.dict("os.environ", {"FISHTEST_INSECURE_DEV": "1"}, clear=False):
+            with (
+                mock.patch.object(app_module, "RunDb", lambda **kwargs: rundb),
+                mock.patch.object(
+                    app_module,
+                    "run_in_threadpool",
+                    _fake_run_in_threadpool,
+                ),
+                mock.patch.object(
+                    app_module.AppSettings,
+                    "from_env",
+                    return_value=settings,
+                ),
+                mock.patch.object(app_module.gh, "init"),
+            ):
+                app = app_module.create_app()
+
+                with TestClient(app) as client:
+                    response = client.get("/", follow_redirects=False)
+
+        self.assertEqual(response.status_code, 302)
+        return schemas.legacy_usernames
+
+    def test_startup_keeps_the_stored_legacy_usernames_that_are_names(self):
+        started_with = self._start_with_legacy_usernames(["Old User", 7, None])
+        self.assertEqual(started_with, {"Old User"})
+
+    def test_startup_survives_stored_legacy_usernames_that_are_not_a_list(self):
+        started_with = self._start_with_legacy_usernames({"Old User": 1})
+        self.assertEqual(started_with, set())
+
 
 if __name__ == "__main__":
     unittest.main()
