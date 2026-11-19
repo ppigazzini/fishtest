@@ -43,3 +43,27 @@ jobs:
         run: uv run python -m unittest discover -vb -s tests
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  audit:
+    # Every locked server dependency, of each group, against the PyPI advisory
+    # database. pip-audit reads the lock as a PEP 751 file and installs
+    # nothing; --strict fails the job on a package it cannot audit.
+    runs-on: ubuntu-26.04
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      - name: Audit the locked dependencies
+        run: |
+          mkdir "$RUNNER_TEMP/audit"
+          uv export --locked --format pylock.toml --no-emit-project \
+            --all-groups -o "$RUNNER_TEMP/audit/pylock.toml" > /dev/null
+          uvx pip-audit==2.10.1 --strict --locked "$RUNNER_TEMP/audit"
