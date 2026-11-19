@@ -186,6 +186,19 @@ sets, and nginx routes `/mcp` to 8002 (see below). Before enabling it, run the
 stored document audit with `--mcp`. Removing the override and restarting 8002
 takes the endpoint down; every other route is unchanged.
 
+Once 8002 serves it, check it through nginx from the deployed checkout:
+
+```bash
+cd server
+uv run python utils/mcp_smoke.py https://SERVER_NAME/mcp
+```
+
+The smoke test only reads. It connects once in each protocol era, checks that
+the instance serves the checkout's tool listing, calls each tool with the
+instance's own runs, and checks that a refused call is a tool error and an
+unknown tool a JSON-RPC error. It prints one line per check and exits `1` when
+one fails.
+
 ### Uvicorn flags
 
 **`--backlog 16384`** -- Sets the kernel TCP listen queue size. This absorbs
