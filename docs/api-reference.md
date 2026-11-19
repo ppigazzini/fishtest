@@ -19,6 +19,7 @@ web UI and external tools, which need no account.
     refused `stop_run`.
   - 404: a run, task, network or PGN a read-only endpoint cannot find.
   - 413: an `/api/actions` body over its size limit.
+  - 503: an `/api/actions` filter MongoDB does not answer in time.
 - An outcome the run database decides returns HTTP 200 with a status flag:
   `"task_waiting": false` from `request_task`, `"task_alive": false` from
   `update_task`, `beat`, `request_spsa` and `failed_task`. An `info` or
@@ -315,8 +316,10 @@ Returns up to 200 event-log entries matching the JSON query body, newest
 first. The body is a MongoDB filter, validated against `action_query_schema`
 before the database is handed it. A body over the size limit is a `413`. A
 body that is not JSON, or a filter outside the table below, is a `400` with a
-fixed error that does not name the part that failed. The response allows any
-origin.
+fixed error that does not name the part that failed. A filter MongoDB does not
+answer within 2000 ms is a `503`: a filter on `action`, `username`, `run_id` or
+`time` is read from an index, one on another field alone reads the whole
+collection. The response allows any origin.
 
 What a filter may say:
 
