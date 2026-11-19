@@ -2,8 +2,9 @@
 
 import io
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import UTC
+from unittest import mock
 
 from bson.codec_options import CodecOptions
 from bson.objectid import ObjectId
@@ -100,6 +101,37 @@ class AuditTest(unittest.TestCase):
         self.assertEqual(
             tally.failures[("kvstore legacy_usernames", "[*]", "string_type")], 1
         )
+
+    def test_the_mcp_audit_reads_every_run_as_the_endpoint_publishes_it(self):
+        import copy
+
+        from test_schemas import RUN
+
+        run = copy.deepcopy(RUN)
+        old = {"_id": ObjectId(), "version": 1, "args": {"sprt": {"elo0": 0.0}}}
+        self.db["runs"].insert_many([run, old])
+        self.assertNotIn("mcp get_run v1", audit(self.db, 0).checked)
+
+        import utils.validate_documents as validate_documents
+
+        progress = io.StringIO()
+        with (
+            mock.patch.object(validate_documents, "PROGRESS_EVERY", 1),
+            redirect_stderr(progress),
+        ):
+            tally = audit(self.db, 0, mcp=True)
+        # A full database takes minutes, so the audit says how far it is.
+        self.assertIn("mcp: reading 2 runs", progress.getvalue())
+        self.assertIn("mcp: 2 of 2 runs", progress.getvalue())
+        version = run.get("version", "?")
+        self.assertEqual(tally.checked[f"mcp get_run v{version}"], 1)
+        self.assertEqual(tally.failing[f"mcp get_run v{version}"], 0)
+        self.assertEqual(tally.failing[f"mcp get_elo v{version}"], 0)
+        # A run missing what the reader expects is counted, not raised.
+        self.assertEqual(tally.failing["mcp get_run v1"], 1)
+        self.assertEqual(tally.failing["mcp get_elo v1"], 1)
+        raised = [code for group, _, code in tally.failures if group.endswith("v1")]
+        self.assertTrue(all(code.startswith("raises KeyError") for code in raised))
 
 
 if __name__ == "__main__":

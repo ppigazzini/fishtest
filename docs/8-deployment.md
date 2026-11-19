@@ -182,8 +182,9 @@ Environment="MCP_PATH=/mcp"
 ```
 
 The endpoint answers requests for the host of `FISHTEST_URL`, which the unit
-sets, and nginx routes `/mcp` to 8002 (see below). Removing the override and
-restarting 8002 takes the endpoint down; every other route is unchanged.
+sets, and nginx routes `/mcp` to 8002 (see below). Before enabling it, run the
+stored document audit with `--mcp`. Removing the override and restarting 8002
+takes the endpoint down; every other route is unchanged.
 
 ### Uvicorn flags
 
@@ -845,6 +846,14 @@ It checks every unfinished run, user, worker and net, and the `books`,
 database (default `fishtest_new`), and `--limit` caps the documents read from
 each collection.
 
+`--mcp` also reads every run, finished or not, as the MCP endpoint publishes
+it: the `get_run` summary of each run and the `get_elo` estimate of each SPRT
+run, each through its tool's result contract. Run it before setting
+`MCP_PATH`. An estimate takes milliseconds, so on a full database the audit
+takes minutes; it prints its progress to stderr every 10,000 runs. Once the
+endpoint serves, a result its contract refuses is logged as an error naming the
+tool, the call's arguments, and the path and code of the first failure.
+
 The report gives the documents checked and failing per group, then each failure
 by group, path and code, with the `_id` of the first document that has it. A
 list index prints as `[*]`, so one field failing across many tasks counts under
@@ -861,6 +870,7 @@ What a failure costs depends on where the server validates the document:
 | `kvstore books` | every 15 minutes, with the other internal structures | logged to the event log |
 | `kvstore legacy_usernames` | at startup | the entries that fail are dropped and logged |
 | `kvstore github_api_cache` | at startup | the server starts with an empty cache and logs it |
+| `mcp get_run vN`, `mcp get_elo vN` | each MCP tool call that reads the run | the call is a tool error; a run missing a field the tool reads is a JSON-RPC internal error |
 
 A failing user, worker or net must be corrected before the deploy. A failing
 run is only logged, and stops being checked when it finishes.
