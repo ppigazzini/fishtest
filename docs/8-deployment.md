@@ -607,6 +607,11 @@ fs.file-max = 120000
 # each proxied request consumes an ephemeral port; default range (~28k) is too narrow
 net.ipv4.ip_local_port_range = 1024 65535
 
+# the range above holds the instance ports and MongoDB's: reserve them, or an
+# outbound connection takes one as its source port while its server restarts,
+# and the server then fails to bind it ("address already in use")
+net.ipv4.ip_local_reserved_ports = 8000-8003,27017
+
 # fast socket recycling under high connection churn
 net.ipv4.tcp_tw_reuse = 1
 
@@ -688,6 +693,13 @@ range=$((port_high - port_low))
 [[ "${range}" -ge 40000 ]] \
     && pass "${range} (${port_low}-${port_high})" \
     || fail "${range} too narrow"
+
+# kernel: the ports the servers bind are kept out of the ephemeral range
+printf "  %-25s " "reserved ports:"
+reserved=$(cat /proc/sys/net/ipv4/ip_local_reserved_ports)
+[[ "${reserved}" == *8000-8003* && "${reserved}" == *27017* ]] \
+    && pass "${reserved}" \
+    || fail "${reserved:-none}: reserve 8000-8003,27017"
 
 # nginx: total capacity must handle client + upstream connections
 printf "  %-25s " "nginx capacity:"
