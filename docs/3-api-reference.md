@@ -368,7 +368,10 @@ Returns up to 200 actions matching the JSON query body, newest first. The body
 is a MongoDB filter, validated against `action_query_schema` before the
 database is handed it. A body over the size limit is a `413`. A body that is
 not JSON, or a filter outside the table below, is a `400` with a fixed error
-that does not name the part that failed.
+that does not name the part that failed. A filter MongoDB does not answer
+within 2000 ms is a `503`: a filter on `action`, `username`, `run_id` or
+`time` is read from an index, one on another field alone reads the whole
+collection.
 
 What a filter may say:
 
