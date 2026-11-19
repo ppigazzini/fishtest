@@ -436,27 +436,27 @@ nn_schema = Validator(
     ]
 )
 
-action_name = Validator(
-    Literal[
-        "failed_task",
-        "crash_or_time",
-        "dead_task",
-        "system_event",
-        "new_run",
-        "upload_nn",
-        "modify_run",
-        "delete_run",
-        "stop_run",
-        "finished_run",
-        "approve_run",
-        "purge_run",
-        "block_user",
-        "accept_user",
-        "block_worker",
-        "log_message",
-        "worker_log",
-    ]
+# Every kind of event the log holds.
+ACTION_NAMES = (
+    "failed_task",
+    "crash_or_time",
+    "dead_task",
+    "system_event",
+    "new_run",
+    "upload_nn",
+    "modify_run",
+    "delete_run",
+    "stop_run",
+    "finished_run",
+    "approve_run",
+    "purge_run",
+    "block_user",
+    "accept_user",
+    "block_worker",
+    "log_message",
+    "worker_log",
 )
+action_name = Validator(Literal[ACTION_NAMES])
 
 # The action documents are a tagged union: every branch pins its own "action"
 # literal, so the branches are pairwise disjoint and a document can satisfy at
@@ -647,8 +647,10 @@ ACTION_QUERY_LIST_MAX = 1000
 ACTION_QUERY_CLAUSE_MAX = 16
 
 # A constant an action field is compared against. The values arrive from JSON,
-# so these are the kinds JSON has.
-action_query_constant = union(str, int, float, bool, None)
+# so these are the kinds JSON has, and its numbers are every float but NaN,
+# which JSON cannot write (RFC 8259, section 6). An infinity is one: `1e400`
+# reads as one.
+action_query_constant = union(str, int, Annotated[float, at.Ge(-math.inf)], bool, None)
 action_query_list = Validator(
     Annotated[
         list[Annotated[object, action_query_constant]],
@@ -670,21 +672,27 @@ action_query_comparison = Validator(
 # A field is matched against a constant, or against a document of comparisons.
 action_query_term = action_query_constant | action_query_comparison
 
+# The fields a filter may match, the ones an action document declares. The MCP
+# contract for the event log publishes the same tuple.
+ACTION_QUERY_FIELDS = (
+    "action",
+    "username",
+    "worker",
+    "run_id",
+    "run",
+    "task_id",
+    "time",
+    "message",
+    "nn",
+    "user",
+)
+
 # The boolean operators take filters of the same shape, which is a fixpoint:
 # `recursive` ties it, and the reference sits under a list, so membership stays
 # decidable. A filter nested past the walk's own bound is refused as one.
 action_query_schema = recursive(
     lambda query: {
-        "action?": action_query_term,
-        "username?": action_query_term,
-        "worker?": action_query_term,
-        "run_id?": action_query_term,
-        "run?": action_query_term,
-        "task_id?": action_query_term,
-        "time?": action_query_term,
-        "message?": action_query_term,
-        "nn?": action_query_term,
-        "user?": action_query_term,
+        **{f"{field}?": action_query_term for field in ACTION_QUERY_FIELDS},
         # MongoDB refuses an empty clause list, so this does, with a message
         # that says which field rather than an OperationFailure.
         "$and?": Annotated[

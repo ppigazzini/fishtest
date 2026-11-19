@@ -27,6 +27,7 @@ dependencies = [
     "fastapi>=0.162.2",
     "itsdangerous>=2.2.0",
     "jinja2>=3.1.6",
+    "mcp>=2.3.0,<3",
     "numpy>=2.5.4",
     "pymongo>=4.19.0",
     "python-multipart>=0.0.33",
@@ -35,6 +36,8 @@ dependencies = [
     "scipy>=1.18.1",
     "uvicorn>=0.54.0",
     "valgebra>=0.0.30,<0.0.31",
+    "valgebra-jsonschema>=0.0.3,<0.0.4",
+    "valgebra-planning[mcp]>=0.0.4,<0.0.5",
     "zxcvbn>=4.5.0",
 ]
 

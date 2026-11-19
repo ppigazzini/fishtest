@@ -36,3 +36,7 @@ supported_arches = [
     "x86-64-vnni512",
     "x86-64-avx512icl",
 ]
+
+# The shortest base time control, in seconds, of a long time control run:
+# the bound RunDb filters and indexes LTC runs by, as its ltc_lower_bound.
+LTC_LOWER_BOUND = 40

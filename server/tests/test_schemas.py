@@ -546,6 +546,20 @@ class TestDocuments(unittest.TestCase):
         ):
             self.assertFalse(s.action_query_schema.is_valid(query), repr(query))
 
+    def test_action_query_numbers_are_json_numbers(self):
+        # NaN is no JSON number, at the top or in a list; an infinity is one.
+        for query in (
+            {"time": math.nan},
+            {"time": {"$gt": math.nan}},
+            {"time": {"$in": [1.0, math.nan]}},
+        ):
+            self.assertFalse(s.action_query_schema.is_valid(query), repr(query))
+        for query in ({"time": math.inf}, {"time": {"$lt": -math.inf}}):
+            self.assertTrue(s.action_query_schema.is_valid(query), repr(query))
+        self.assertEqual(
+            s.action_query_schema.load(b'{"time": 1e400}'), {"time": math.inf}
+        )
+
     def test_action_query_names_the_key_it_refused(self):
         with self.assertRaises(ValidationError) as caught:
             s.action_query_schema.validate({"$where": "x"}, fail_fast=True)
