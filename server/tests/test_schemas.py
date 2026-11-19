@@ -705,6 +705,56 @@ class TestInternalStructures(unittest.TestCase):
             )
         )
 
+    def test_github_commit_payloads_state_what_a_reader_needs(self):
+        head = {
+            "sha": "a" * 40,
+            "commit": {
+                "message": "Title\nBench 1234567",
+                "committer": {"date": "2026-02-24T12:00:00Z"},
+            },
+        }
+        s.github_commits.validate([head])
+        self.assertFalse(s.github_commits.is_valid([]))
+        self.assertFalse(s.github_commits.is_valid({"message": "rate limit"}))
+        s.github_commit_head.validate(head)
+        s.github_commit_sha.validate(head)
+        # Open records, so a payload that grows a key still validates.
+        s.github_commit_head.validate({**head, "url": "https://example.invalid"})
+        # A sha the caller cannot use is not a sha.
+        self.assertFalse(s.github_commit_sha.is_valid({**head, "sha": ""}))
+        self.assertFalse(s.github_commit_sha.is_valid({"commit": head["commit"]}))
+        # The message reader is the tolerant one: no date needed.
+        s.github_commit_message.validate({"commit": {"message": "m"}})
+        self.assertFalse(s.github_commit_message.is_valid({"commit": {}}))
+        self.assertFalse(
+            s.github_commit_message.is_valid({"commit": {"message": None}})
+        )
+        self.assertFalse(s.github_commit_message.is_valid({}))
+        # The date is the format strptime is given.
+        self.assertFalse(
+            s.github_commit_head.is_valid(
+                {**head, "commit": {**head["commit"], "committer": {"date": "today"}}}
+            )
+        )
+
+    def test_github_api_cache_is_a_version_and_a_list_of_pairs(self):
+        entry = [["normalize_repo", "https://github.com/a/b"], "https://github.com/a/b"]
+        s.github_api_cache_schema.validate({"version": 2, "lru_cache": [entry]})
+        # A BSON round trip returns a tuple as a list, so both spellings pass.
+        s.github_api_cache_schema.validate(
+            {"version": 2, "lru_cache": [(("normalize_repo",), "x")]}
+        )
+        s.github_api_cache_schema.validate({"version": 2, "lru_cache": []})
+        for bad in (
+            {"version": 2},
+            {"version": 2, "lru_cache": "not a list"},
+            {"version": 2, "lru_cache": [["only-one-element"]]},
+            {"version": 2, "lru_cache": [["not-a-key-sequence", "v"]]},
+            {"version": -1, "lru_cache": []},
+            "not a document",
+        ):
+            self.assertFalse(s.github_api_cache_schema.is_valid(bad), repr(bad))
+
     def test_books(self):
         book = {
             "total": 10,
@@ -805,6 +855,7 @@ class TestSchemaAlgebra(unittest.TestCase):
             s.github_repo_input,
             s.tests_repo,
             s.tests_repo_input,
+            s.github_commit_date,
             s.unix_timestamp_param,
             s.option_list,
             s.sprt_overshoot,
@@ -972,6 +1023,15 @@ class TestSchemaAlgebra(unittest.TestCase):
             self.assertTrue(s.github_repo_input.is_valid(repo))
             self.assertTrue(s.github_repo_input.is_valid(repo + "/"))
             self.assertFalse(s.github_repo.is_valid(repo + "/"))
+
+    def test_the_head_commit_is_below_the_message_reader(self):
+        # The head schema is the meet of the message reader and a date, so every
+        # payload the head accepts the tolerant loop accepts too. Stating it as
+        # a meet is what makes that a proof rather than two shapes to keep in
+        # step by hand.
+        self.assertEqual(
+            s.github_commit_head.relation_to(s.github_commit_message), "subset"
+        )
 
     def test_a_bare_callable_is_refused_where_a_schema_goes(self):
         # A callable is a predicate as `Annotated` metadata only. A rule met

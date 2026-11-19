@@ -418,6 +418,10 @@ or coerced. Schemas are used in:
 - API endpoints (request body validation).
 - Domain adapters (run, user, action document validation before MongoDB writes).
 - Form input validation (username format, worker name format).
+- Third-party payloads (the GitHub commit and books documents), where the schema
+  states the shape a read depends on instead of probing it field by field.
+- Documents read back out of storage (the kvstore entries, the GitHub API cache)
+  and the signed session cookie, each parsed and checked in one pass.
 
 When raw form input and persisted document data intentionally have different
 contracts, fishtest uses different schemas for those boundaries.

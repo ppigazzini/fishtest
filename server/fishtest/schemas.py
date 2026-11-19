@@ -287,6 +287,35 @@ unix_timestamp_param = Validator(Annotated[str, Regex(r"[0-9]{10}(\.[0-9]+)?")])
 # The machines view addresses one worker or the whole list.
 worker_name_or_show = short_worker_name | Literal["show"]
 
+# The GitHub commit payloads, as much of each as a reader here depends on. A
+# third party writes them, so the shape a read needs is stated once and the read
+# happens only where it holds. Each is an open record — "at least this" — which
+# is what a reader tolerant of the fields it does not touch means, and what
+# keeps a payload gaining a key from failing.
+github_commits = Validator(Annotated[list, at.MinLen(1)])
+github_commit_sha = Validator(open_record({"sha": Annotated[str, at.MinLen(1)]}))
+github_commit_message = Validator(
+    open_record({"commit": open_record({"message": str})})
+)
+# The format `datetime.strptime` is given, stated rather than discovered by the
+# raise. An out-of-range date still parses as this shape, so the call keeps its
+# own guard.
+github_commit_date = Validator(
+    Annotated[str, Regex(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")]
+)
+# The head commit is one the message reader accepts and carries a date besides,
+# so it is the meet of the two rather than a third shape repeating the first.
+github_commit_head = intersection(
+    github_commit_message,
+    open_record(
+        {
+            "commit": open_record(
+                {"committer": open_record({"date": github_commit_date})}
+            )
+        }
+    ),
+)
+
 # An engine option is `Name=Value`, space separated: printable ASCII with no
 # space and no second `=`.
 OPTION_CHAR = r"[\x21-\x3c\x3e-\x7e]"
@@ -337,6 +366,21 @@ kvstore_schema = Validator(
         # a choice of spelling — the one a reader of the annotation expects.
         "value": Any,
     }
+)
+
+# The GitHub API cache as the kvstore holds it: a version tag and the LRU
+# entries as [key, value] pairs, where a key is the argument tuple the cache was
+# keyed by. A bare `list` and a bare `tuple` each name their kind's whole set,
+# and both spellings of a pair are admitted because a BSON round trip returns a
+# tuple as a list. The version is checked where the constant lives, by meeting
+# this with a record pinning it.
+github_api_cache_key = Validator(list) | tuple
+github_api_cache_entry = union(
+    [github_api_cache_key, anything],
+    tuple[Annotated[object, github_api_cache_key], object],
+)
+github_api_cache_schema = Validator(
+    open_record({"version": uint, "lru_cache": [github_api_cache_entry]})
 )
 
 worker_schema = Validator(
