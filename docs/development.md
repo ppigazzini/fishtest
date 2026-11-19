@@ -74,6 +74,7 @@ The following subset is relevant during development:
 | `FISHTEST_AUTHENTICATION_SECRET` | -- | The cookie signing secret, in place of the insecure fallback |
 | `FISHTEST_CAPTCHA_SECRET` | -- | reCAPTCHA secret key; `/signup` refuses every signup without it |
 | `OPENAPI_URL` | (empty) | Set to `/openapi.json` to enable `/docs` and `/redoc` |
+| `MCP_PATH` | (empty) | Set to a path such as `/mcp` to serve the read-only MCP endpoint there, for requests naming a local host or the host of `FISHTEST_URL` |
 | `FISHTEST_PORT` | `-1` | Defaults to primary when unset |
 | `FISHTEST_PRIMARY_PORT` | `-1` | Defaults to primary when unset |
 | `FISHTEST_JINJA_TEMPLATES_DIR` | auto | Override Jinja2 templates directory |

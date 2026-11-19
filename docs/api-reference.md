@@ -290,7 +290,8 @@ server can check that the worker holds that task.
 
 ## Read-only endpoints
 
-These endpoints need no authentication.
+These endpoints need no authentication. The MCP endpoint serves the same data
+to Model Context Protocol clients; see [MCP endpoint](mcp.md).
 
 ### GET /api/active_runs
 

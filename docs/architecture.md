@@ -45,6 +45,7 @@ server/
 |   |-- constants.py         -- Shared constants (supported compilers and architectures)
 |   |-- __init__.py          -- Minimal package init
 |   |-- http/                -- HTTP support modules
+|   |-- mcp/                 -- MCP endpoint (served where MCP_PATH is set)
 |   |-- templates/           -- Jinja2 templates (54 files, .html.j2)
 |   |-- static/              -- Static assets (JS, CSS, images)
 |   `-- stats/               -- Statistical computation modules
@@ -87,6 +88,22 @@ http/
 |-- ui_errors.py             -- HTML error page rendering (404, 403)
 `-- ui_pipeline.py           -- HTTP cache header application
 ```
+
+### MCP endpoint modules (`server/fishtest/mcp/`)
+
+```
+mcp/
+|-- __init__.py              -- Package init; imports nothing
+|-- contracts.py             -- Tool listing: each tool's schemas, contract and the listing digest
+|-- refusals.py              -- Wording of a refused call, log line of a refused result
+|-- server.py                -- MCP server: gate, call cap, call path
+|-- tools.py                 -- One function per tool over RunDb; result strings cleared
+`-- transport.py             -- Streamable HTTP route, Host and Origin checks, server card
+```
+
+`app.py` imports `mcp/server.py` and `mcp/transport.py` only when `MCP_PATH`
+is set, so an instance that serves no endpoint loads no MCP code. [MCP endpoint](mcp.md) describes the
+tools.
 
 ### Statistical modules (`server/fishtest/stats/`)
 

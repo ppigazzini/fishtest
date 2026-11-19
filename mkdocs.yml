@@ -46,6 +46,7 @@ nav:
       - Worker API: api-reference.md
       - UI routes: ui-reference.md
       - Templates: templates.md
+      - MCP endpoint: mcp.md
       - External references: references.md
 
 # Every check the builder makes on a link and on the nav, raised to a warning so
@@ -122,4 +123,5 @@ plugins:
           - api-reference.md: The worker API endpoints, the protocol invariants, and the error shapes.
           - ui-reference.md: The UI routes, the view dispatch pipeline, htmx fragment dispatch, and session, CSRF and auth.
           - templates.md: The Jinja2 environment, the page and fragment template catalog, and each template's context contract.
+          - mcp.md: The read-only MCP endpoint, its tools, limits and errors, and the user-written text it returns.
           - references.md: The FastAPI, Starlette, Jinja2, htmx, Python, MongoDB and tooling references the code relies on.

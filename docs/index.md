@@ -23,6 +23,7 @@ system is shaped, and reference tables to look a fact up in.
 | Reference | [Worker API reference](api-reference.md) | Worker and integration developers | Worker API endpoints, protocol invariants, error shapes |
 | Reference | [UI routes](ui-reference.md) | UI contributors | UI routes, view dispatch pipeline, htmx fragment dispatch, session/CSRF/auth |
 | Reference | [Templates](templates.md) | UI contributors | Jinja2 environment, template catalog (page + fragment), context contracts |
+| Reference | [MCP endpoint](mcp.md) | Integration developers | MCP endpoint: tools, limits, errors, user-written text |
 | Reference | [External references](references.md) | All developers | FastAPI, Starlette, Jinja2, htmx, Python, MongoDB, and tooling references |
 
 The site serves [`llms.txt`](https://official-stockfish.github.io/fishtest/llms.txt),
