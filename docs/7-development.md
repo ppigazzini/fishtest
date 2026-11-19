@@ -154,6 +154,8 @@ Core rules:
     such as an address a predicate checks, is refused where it is written:
     write `{str: V}` and check the key shape beside the mapping with the
     `keys_in` recipe, where only the key constraint is opaque to a relation.
+- Opening a keyed mapping frees every key its clauses leave. Where a tolerant
+    reader must keep the keys, open the values instead: `{book: V.open()}`.
 - `Regex` matches the whole string on the Rust engine, whose dialect is close
     to `re`'s but not equal to it. `\d`, `\w` and `\s` are Unicode-aware, so
     write `[0-9]` where the value is parsed as a number afterwards, and check a

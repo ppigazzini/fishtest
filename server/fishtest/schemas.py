@@ -1293,3 +1293,9 @@ book_schema = Validator(
 )
 
 books_schema = Validator({book: book_schema})
+
+# books.json as the books repository serves it. A book there may describe more
+# than this server reads, so the download opens each book record, and the stored
+# copy is the download projected onto `book_fields`. The keys stay book names:
+# opening the mapping itself would free every key its clause leaves.
+books_download_schema = Validator({book: book_schema.open()})
