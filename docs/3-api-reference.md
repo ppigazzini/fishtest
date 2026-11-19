@@ -422,6 +422,11 @@ Request bodies are validated against the valgebra schemas defined in
 
 Schema validation failures produce HTTP 400 responses.
 
+A worker request body is standard JSON (RFC 8259) in UTF-8. `NaN`, `Infinity`
+and `-Infinity`, an unpaired surrogate escape, a leading byte order mark, and
+nesting past the parser's depth limit are not, and a body with any of them is
+a `400` with the error `request is not json encoded`.
+
 ## Error shape
 
 All error responses from worker API endpoints follow this shape:

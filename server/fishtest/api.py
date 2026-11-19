@@ -15,6 +15,7 @@ from valgebra import ValidationError
 import fishtest.github_api as gh
 from fishtest.http.boundary import ApiRequestShim, get_request_shim
 from fishtest.schemas import (
+    ACTION_MESSAGE_SIZE,
     api_access_schema,
     api_schema,
     gzip_data,
@@ -85,19 +86,17 @@ class WorkerApi(GenericApi):
 
     def __init__(self, request):
         super().__init__(request)
-        # is the request valid json?
+        # Parse the document and check the shape every worker request shares in
+        # one pass on the Rust path. Every endpoint below validates before it
+        # reads the body, so a malformed request fails here.
         try:
-            self.request_body = request.json_body
-        except Exception:
-            self.handle_error("request is not json encoded")
-
-    def validate_username_password(self):
-        # Is the request syntactically correct?
-        try:
-            api_access_schema.validate(self.request_body)
+            self.request_body = api_access_schema.load(request.raw_body)
         except ValidationError as e:
+            if e.code == "json_invalid":
+                self.handle_error("request is not json encoded")
             self.handle_error(str(e))
 
+    def validate_username_password(self):
         # is the supplied password correct?
         token = self.request.userdb.authenticate(
             self.request_body["worker_info"]["username"],
@@ -138,7 +137,7 @@ class WorkerApi(GenericApi):
         if "task_id" in self.request_body:
             task_id = self.request_body["task_id"]
 
-            if task_id < 0 or task_id >= len(run["tasks"]):
+            if task_id >= len(run["tasks"]):
                 self.handle_error(
                     f"Invalid task_id {task_id} for run_id {run_id}",
                 )
@@ -202,7 +201,10 @@ class WorkerApi(GenericApi):
         return -1 if user is None else user["cpu_hours"]
 
     def message(self):
-        return self.request_body.get("message", "")
+        # The API accepts any string; an action caps it. Narrow it here, as
+        # ActionDb.log_message does, so a long report is trimmed rather than
+        # accepted and then dropped when the action fails to validate.
+        return self.request_body.get("message", "")[:ACTION_MESSAGE_SIZE]
 
     def stats(self):
         return self.request_body.get("stats", {})
