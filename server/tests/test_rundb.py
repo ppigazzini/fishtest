@@ -5,6 +5,7 @@ import random
 import sys
 import unittest
 from datetime import UTC, datetime, timedelta
+from unittest import mock
 
 import test_support
 from bson.objectid import ObjectId
@@ -12,6 +13,7 @@ from pymongo import DESCENDING
 
 from fishtest.api import WORKER_VERSION
 from fishtest.run_cache import Prio
+from fishtest.schemas import runs_schema
 from fishtest.spsa_handler import _pack_flips, _unpack_flips
 
 
@@ -370,6 +372,28 @@ class CreateRunDBTest(unittest.TestCase):
             {},
         )
         self.assertEqual(run, {"task_alive": False})
+
+    def test_21_the_run_writers_store_the_types_the_schema_states(self):
+        # A field states the type it stores, so the writers that fill a live
+        # run must store that type: the throughput and rate updates, the
+        # scheduler's itp, and the finishing write, whose zeros are float
+        # literals the finished-run rule pins. The helper's task is a stub no
+        # worker was given, so the run is checked as new_run wrote it.
+        run_id = self._create_test_run()
+        run = self.rundb.get_run(run_id)
+        run["tasks"] = []
+        self.rundb.buffer(run, priority=Prio.SAVE_NOW)
+        runs_schema.validate(run, fail_fast=True)
+
+        # The two updates walk every unfinished run, and the other tests leave
+        # runs with stub tasks behind, so they are pointed at this one.
+        with mock.patch.object(self.rundb, "unfinished_runs", {run_id}):
+            self.rundb.update_nps_gpm()
+            self.rundb.update_itp()
+        runs_schema.validate(self.rundb.get_run(run_id), fail_fast=True)
+
+        self.rundb.set_inactive_run(self.rundb.get_run(run_id))
+        runs_schema.validate(self.rundb.get_run(run_id), fail_fast=True)
 
     def test_30_finish(self):
         run_id = self._create_test_run()
