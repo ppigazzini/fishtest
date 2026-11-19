@@ -847,6 +847,15 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.is_error)
         self.assertIn("The filter took longer than", result.content[0].text)
 
+    async def test_the_smoke_test_passes_in_either_protocol_era(self):
+        from utils.mcp_smoke import ERAS, smoke
+
+        for mode in ERAS:
+            checks = await smoke(self.server, mode)
+            failed = [check for check in checks if check[1] is not True]
+            self.assertEqual(failed, [], mode)
+            self.assertEqual(len(checks), 9, mode)
+
     async def test_a_proven_program_runs_on_the_server(self):
         # A proven program breaks at run time only where a result leaves its
         # contract, and blame names whose break that is. Run on this server,
