@@ -158,4 +158,5 @@ The result carries the events as `structuredContent` and as JSON text in
 - [Worker API reference](api-reference.md): the read-only HTTP endpoints and
   the `POST /api/actions` filter language.
 - [Threading model](threading-model.md): the tool-call cap.
-- [Deployment](deployment.md): `MCP_PATH` and `FISHTEST_URL`.
+- [Deployment](deployment.md): `MCP_PATH`, `FISHTEST_URL`, and the
+  stored document audit with `--mcp`.
