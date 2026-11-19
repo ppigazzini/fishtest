@@ -23,6 +23,7 @@
 | `FISHTEST_INSECURE_DEV` | No | -- | Set to `1` for development mode (insecure secret) |
 | `FISHTEST_JINJA_TEMPLATES_DIR` | No | auto | Override Jinja2 templates directory |
 | `OPENAPI_URL` | No | (empty) | Set to `/openapi.json` to enable `/docs` and `/redoc` (development-only) |
+| `MCP_PATH` | No | (empty) | Set to a path such as `/mcp` to serve the read-only MCP endpoint there, for requests naming a local host or the host of `FISHTEST_URL` |
 | `UVICORN_WORKERS` | No | -- | Must be `1` on primary (enforced at startup) |
 | `WEB_CONCURRENCY` | No | -- | Fallback for `UVICORN_WORKERS` (checked if unset) |
 
@@ -41,7 +42,7 @@ backward compatibility.
 |----------|------|------------------|
 | Primary | 8000 | Scheduler, GitHub integration, aggregated data, cache flush, worker API |
 | Secondary | 8001 | UI traffic (`/tests` homepage) |
-| Secondary | 8002 | Read-only API, finished tests, contributors, static pages |
+| Secondary | 8002 | Read-only API, MCP endpoint, finished tests, contributors, static pages |
 | Secondary | 8003 | PGN uploads (`/api/upload_pgn`) -- 3 Uvicorn workers (production override) |
 
 Four systemd units (ports 8000-8003), six OS processes total. The primary
@@ -68,7 +69,7 @@ flowchart LR
     end
     nginx -->|Worker API| primary
     nginx -->|/tests| tests
-    nginx -->|Read-only UI and API| readonly
+    nginx -->|Read-only UI and API, /mcp| readonly
     nginx -->|/api/upload_pgn| pgn
 ```
 
@@ -169,6 +170,20 @@ Then reload and restart:
 sudo systemctl daemon-reload
 sudo systemctl restart fishtest@{8000..8003}
 ```
+
+### MCP endpoint override
+
+The MCP endpoint is served by 8002, with the read-only API. Create
+`/etc/systemd/system/fishtest@8002.service.d/mcp.conf`:
+
+```ini
+[Service]
+Environment="MCP_PATH=/mcp"
+```
+
+The endpoint answers requests for the host of `FISHTEST_URL`, which the unit
+sets, and nginx routes `/mcp` to 8002 (see below). Removing the override and
+restarting 8002 takes the endpoint down; every other route is unchanged.
 
 ### Uvicorn flags
 
@@ -306,6 +321,14 @@ map $uri $backends {
     default                                backend_8001;
 }
 
+# The MCP endpoint: a rate limit per client address and a log naming each
+# call's method and tool (see its location below).
+limit_req_zone $binary_remote_addr zone=mcp:10m rate=2r/s;
+
+log_format mcp '$remote_addr [$time_local] "$request" $status $body_bytes_sent '
+               '"$http_mcp_method" "$http_mcp_name" "$http_user_agent" '
+               '$upstream_response_time';
+
 server {
     listen      443 ssl;
     listen [::]:443 ssl;
@@ -358,6 +381,33 @@ server {
         root         /var/www/fishtest;
         gzip_static  always;
         gunzip       on;
+    }
+
+    # The MCP endpoint and its server card, on 8002. A location of their own,
+    # so a gate, limit or log on `location /` never applies to them, and
+    # nothing here changes what `location /` inherits: nginx inherits a
+    # `limit_req` or an `access_log` only on a level that sets none.
+    location ~ ^/mcp(/server-card)?$ {
+        limit_req                zone=mcp burst=20 nodelay;
+        limit_req_status         429;
+        access_log               /var/log/nginx/access.log main;
+        access_log               /var/log/nginx/mcp.log mcp;
+        client_max_body_size     64k;
+
+        proxy_set_header Host               $http_host;
+        proxy_set_header X-Real-IP          $remote_addr;
+        proxy_set_header X-Forwarded-For    $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto  $scheme;
+        proxy_set_header X-Forwarded-Host   $host;
+        proxy_set_header X-Forwarded-Port   $server_port;
+        proxy_set_header Connection         "";
+        proxy_http_version       1.1;
+        proxy_connect_timeout    2s;
+        proxy_send_timeout       30s;
+        proxy_read_timeout       60s;
+        proxy_redirect           off;
+
+        proxy_pass               http://backend_8002;
     }
 
     location / {

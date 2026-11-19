@@ -18,7 +18,7 @@ from mcp.shared.exceptions import MCPError
 from mcp.types import INVALID_PARAMS
 from pymongo import DESCENDING, TEXT
 from test_schemas import RUN
-from valgebra_jsonschema import compile_with_fallbacks
+from valgebra_jsonschema import compile_schema, compile_with_fallbacks
 from valgebra_planning.codemode import feedback, stubs
 from valgebra_planning.contracts import read_contract, read_task
 from valgebra_planning.critic import critique
@@ -306,6 +306,21 @@ return run
 def _verdict_task():
     goal = {"anyOf": [_output("get_elo"), mcp_contracts.RUN_SUMMARY]}
     return read_task("a run's verdict", {"run_id": mcp_contracts.RUN_ID}, goal)
+
+
+class TestMcpServerCard(unittest.TestCase):
+    def test_the_card_meets_the_published_schema(self):
+        # The Server Card schema of the MCP extension, at the snapshot SEP-2127
+        # accepted (experimental-ext-server-card 526201bb).
+        from fishtest.mcp.transport import server_card
+
+        schema = json.loads(
+            (pathlib.Path(__file__).parent / "mcp_server_card.schema.json").read_text()
+        )
+        card_schema = compile_schema({**schema, "$ref": "#/$defs/ServerCard"})
+        for public_url in ("https://tests.stockfishchess.org", None):
+            card = server_card("/mcp", public_url)
+            self.assertIn(card, card_schema, public_url)
 
 
 class TestMcpPlans(unittest.TestCase):

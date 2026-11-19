@@ -21,6 +21,7 @@ viewing results, and administering users and workers.
 | 7 | [7-development.md](7-development.md) | All developers | Dev setup, validation workflows, valgebra rules, OpenAPI |
 | 8 | [8-deployment.md](8-deployment.md) | Operators | systemd, nginx, kernel tuning, capacity audit, stored document audit, run float conversion |
 | 9 | [9-references.md](9-references.md) | All developers | FastAPI, Starlette, Jinja2, htmx, Python, MongoDB, and tooling references |
+| 10 | [10-mcp.md](10-mcp.md) | Integration developers | MCP endpoint: tools, limits, errors, user-written text |
 
 ## Quick start
 

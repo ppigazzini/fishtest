@@ -342,7 +342,8 @@ contract.
 ## Read-only endpoints (no authentication)
 
 These endpoints do not require worker authentication. They serve data to the
-web UI, external tools, and API consumers.
+web UI, external tools, and API consumers. The MCP endpoint serves the same
+data to Model Context Protocol clients; see [10-mcp.md](10-mcp.md).
 
 ### GET /api/active_runs
 

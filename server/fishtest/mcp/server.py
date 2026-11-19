@@ -9,7 +9,7 @@ its JSON text. A refusal at either check, or a call that names a run the
 database does not hold, is a tool error the client can read, so nothing a
 contract refuses reaches the database or the client. A call naming a tool the
 server does not list is a JSON-RPC error, `-32602`. `fishtest.mcp.refusals`
-words a refusal.
+words a refusal, and `fishtest.mcp.transport` serves the server over HTTP.
 """
 
 from __future__ import annotations

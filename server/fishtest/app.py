@@ -18,7 +18,7 @@ import faulthandler
 import logging
 import os
 import signal
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import TYPE_CHECKING, Protocol, cast
 
 from anyio.to_thread import current_default_thread_limiter
@@ -194,7 +194,10 @@ def create_app() -> FastAPI:
             await run_in_threadpool(rundb.schedule_tasks)
 
         try:
-            yield
+            async with AsyncExitStack() as stack:
+                if mcp_server is not None:
+                    await stack.enter_async_context(mcp_server.session_manager.run())
+                yield
         finally:
             await _shutdown_rundb(rundb)
 
@@ -236,6 +239,31 @@ def create_app() -> FastAPI:
 
     app.include_router(views_router)
     app.include_router(api_router)
+
+    # The MCP endpoint is served where MCP_PATH names it, with its server card
+    # beside it, and nowhere by default. Imported here, so an instance that
+    # serves none compiles no tool contract.
+    mcp_server = None
+    if bootstrap_settings.mcp_path is not None:
+        from fishtest.mcp.server import build_server  # noqa: PLC0415
+        from fishtest.mcp.transport import (  # noqa: PLC0415
+            server_card_route,
+            streamable_http_route,
+        )
+
+        mcp_server = build_server(lambda: app.state.rundb)
+        mcp_route = streamable_http_route(
+            mcp_server,
+            bootstrap_settings.mcp_path,
+            bootstrap_settings.public_url,
+        )
+        app.router.routes.append(mcp_route)
+        app.router.routes.append(
+            server_card_route(
+                bootstrap_settings.mcp_path,
+                bootstrap_settings.public_url,
+            ),
+        )
 
     return app
 

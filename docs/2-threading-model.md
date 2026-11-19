@@ -262,7 +262,7 @@ imports.
 
 ## MCP tool-call cap
 
-An instance that serves the MCP endpoint reads at most
+An instance that serves the MCP endpoint (`MCP_PATH`) reads at most
 `MCP_CALLS_MAX` (8) tool calls at once, each in one threadpool token. The
 gate is non-blocking, as the `task_semaphore` gate is: a call past the cap
 does not wait for a token, and the client gets a tool error asking it to
