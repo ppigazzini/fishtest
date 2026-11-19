@@ -364,7 +364,26 @@ Returns paginated finished runs. Query parameters:
 
 ### POST /api/actions
 
-Returns up to 200 recent actions matching the JSON query body.
+Returns up to 200 actions matching the JSON query body, newest first. The body
+is a MongoDB filter, validated against `action_query_schema` before the
+database is handed it. A body over the size limit is a `413`. A body that is
+not JSON, or a filter outside the table below, is a `400` with a fixed error
+that does not name the part that failed.
+
+What a filter may say:
+
+| Part | Accepted |
+|------|----------|
+| Fields | `action`, `username`, `worker`, `run_id`, `run`, `task_id`, `time`, `message`, `nn`, `user` |
+| Match | a JSON constant (equality), or a document of comparisons |
+| Comparisons | `$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`, `$in`, `$nin` |
+| Boolean | `$and`, `$or`, `$nor`, over filters of the same shape |
+| Sizes | a body of at most 64 KiB, at most 1000 terms in an `$in`/`$nin`, at most 16 clauses in a boolean |
+
+Anything else is refused, which is the point of listing rather than excluding:
+`$where`, `$expr`, `$function` and `$accumulator` each run a caller's code on
+the database server, and `$regex` backtracks. An empty body `{}` matches every
+action, so it returns the 200 most recent.
 
 ### GET /api/get_run/{id}
 
@@ -414,6 +433,8 @@ Returns GitHub API rate limit information.
 Request bodies are validated against the valgebra schemas defined in
 `schemas.py`:
 
+- `action_query_schema` -- validates the MongoDB filter `POST /api/actions`
+  takes, which states what a filter may ask rather than what a document is.
 - `api_access_schema` -- validates the authentication fields (`username`,
   `password`, `worker_info`).
 - `api_schema` -- validates the full request body structure for worker
@@ -422,8 +443,8 @@ Request bodies are validated against the valgebra schemas defined in
 
 Schema validation failures produce HTTP 400 responses.
 
-A worker request body is standard JSON (RFC 8259) in UTF-8. `NaN`, `Infinity`
-and `-Infinity`, an unpaired surrogate escape, a leading byte order mark, and
+A request body is standard JSON (RFC 8259) in UTF-8. `NaN`, `Infinity` and
+`-Infinity`, an unpaired surrogate escape, a leading byte order mark, and
 nesting past the parser's depth limit are not, and a body with any of them is
 a `400` with the error `request is not json encoded`.
 
