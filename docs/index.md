@@ -149,7 +149,7 @@ Install with: `uv run pre-commit install`
 | Workflow | File | Trigger | What it does |
 |----------|------|---------|-------------|
 | Lint | `lint.yaml` | push, PR, manual | ruff check, import sort and format; Prettier check of the static CSS, HTML and JS; zizmor security audit of the workflows |
-| Server | `server.yaml` | push, PR, manual | Server test suite (MongoDB required) |
+| Server | `server.yaml` | push, PR, manual | Server test suite (MongoDB required); the locked server dependencies audited against the PyPI advisory database |
 | Worker POSIX | `worker_posix.yaml` | push, PR, manual | Worker tests on Linux/macOS |
 | Worker MSYS2 | `worker_msys2.yaml` | push, PR, manual | Worker tests on Windows (MSYS2) |
 | Docs | `docs.yaml` | push, PR, manual | Build this site with `zensical build --strict`; a push to `master`, or on a fork to the branch named by the `DOCS_PAGES_BRANCH` variable, publishes it to GitHub Pages |
