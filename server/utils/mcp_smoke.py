@@ -54,6 +54,14 @@ async def smoke(target, mode):
             check(name, not result.is_error, f"{len(found)} runs")
             runs += found
 
+        result = await client.call_tool("list_active_workers", {})
+        found = result.structured_content or {}
+        check(
+            "list_active_workers",
+            not result.is_error,
+            f"{found.get('total', 0)} workers, {found.get('cores', 0)} cores",
+        )
+
         if runs:
             run_id = runs[0]["run_id"]
             result = await client.call_tool("get_run", {"run_id": run_id})

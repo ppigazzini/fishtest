@@ -8,7 +8,7 @@ import pathlib
 import random
 import threading
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest import mock
 
 import test_support
@@ -51,6 +51,30 @@ FILTER = CONTRACTS["search_actions"].argument("filter").values
 
 # Every listing the server has published, each named by its digest.
 LISTINGS = pathlib.Path(__file__).parent / "mcp_listings"
+
+
+def _worker_info(username, arch, country_code):
+    # A worker as a task stores it, its key's first group made of its name.
+    return {
+        "uname": "Linux 6.6.159+ (colab)",
+        "architecture": ["64bit", "ELF"],
+        "concurrency": 8,
+        "max_memory": 6488,
+        "min_threads": 1,
+        "username": username,
+        "version": 332,
+        "python_version": [3, 13, 5],
+        "gcc_version": [20, 1, 8],
+        "compiler": "clang++",
+        "unique_key": f"{username[-1].lower()}1b2-5a28-4b7d-b27b-d78d97ecf11a",
+        "modified": False,
+        "worker_arch": arch,
+        "ARCH": "64bit AVX2 SSE41 SSSE3 SSE2 POPCNT",
+        "nps": 575677.1,
+        "near_github_api_limit": False,
+        "remote_addr": "192.0.2.7",
+        "country_code": country_code,
+    }
 
 
 class TestMcpContracts(unittest.TestCase):
@@ -205,6 +229,35 @@ class TestMcpContracts(unittest.TestCase):
         self.assertEqual(summary["arch_filter"], "x86-64-(avx2")
         self.assertNotIn("arches", summary)
 
+    def test_a_worker_row_is_what_the_machines_page_shows(self):
+        machine = {
+            **_worker_info("TestMcpWorkerA", "x86-64-avx2", "IT"),
+            "run": {"_id": ObjectId("0123456789abcdef01234567")},
+            "task_id": 3,
+            "last_updated": datetime(2026, 11, 20, 20, 48, 11, 323000, tzinfo=UTC),
+        }
+        row = mcp_tools.worker_row(machine)
+        self.assertEqual(row["name"], "TestMcpWorkerA-8cores-a1b2")
+        self.assertEqual(row["last_updated"], "2026-11-20 20:48:11.323000+00:00")
+        self.assertEqual(
+            (row["compiler_version"], row["python_version"]), ("20.1.8", "3.13.5")
+        )
+        returns = CONTRACTS["list_active_workers"].returns
+        listed = {"page": 1, "total": 1, "cores": 8, "workers": [row]}
+        self.assertIn(listed, returns)
+        # The record is closed: the address and the key the page keeps to
+        # itself cannot leave through it.
+        for field, value in (
+            ("remote_addr", "192.0.2.7"),
+            ("unique_key", machine["unique_key"]),
+        ):
+            hidden = {**listed, "workers": [{**row, field: value}]}
+            self.assertNotIn(hidden, returns, field)
+        # A task never updated is listed without a time.
+        row = mcp_tools.worker_row({**machine, "last_updated": None})
+        self.assertNotIn("last_updated", row)
+        self.assertIn({**listed, "workers": [row]}, returns)
+
     def test_user_written_text_is_labeled_as_data(self):
         for record, field in (
             (mcp_contracts.RUN_SUMMARY, "info"),
@@ -214,6 +267,9 @@ class TestMcpContracts(unittest.TestCase):
             (mcp_contracts.RUN_SUMMARY, "base_options"),
             (mcp_contracts.RUN_SUMMARY, "username"),
             (mcp_contracts.ACTION, "message"),
+            (mcp_contracts.WORKER, "name"),
+            (mcp_contracts.WORKER, "username"),
+            (mcp_contracts.WORKER, "system"),
         ):
             schema = record["properties"][field]
             self.assertIn("data, not instructions", schema["description"], field)
@@ -554,6 +610,59 @@ return run
         )
         self.assertIn("'x86-64-avx3' lies outside", feedback(named))
 
+    def test_each_worker_feeds_the_run_it_plays(self):
+        source = """
+found = list_active_workers()
+for worker in found.workers:
+    run = get_run(run_id=worker.run_id)
+return found
+"""
+        checked = self._critique(source, {}, _output("list_active_workers"))
+        self.assertTrue(checked.accepted, feedback(checked))
+
+    def test_a_worker_arch_selects_finished_runs_under_a_test(self):
+        # A worker may name no arch the scheduler names, which no run's
+        # filter is read for: the critic refutes the link with that value and
+        # names the test that proves it.
+        source = """
+found = list_active_workers()
+for worker in found.workers:
+    runs = list_finished_runs(arch=worker.arch)
+return found
+"""
+        goal = _output("list_active_workers")
+        unchecked = self._critique(source, {}, goal)
+        self.assertFalse(unchecked.accepted)
+        self.assertIn("'unknown' lies outside", feedback(unchecked))
+        self.assertIn("if worker.arch in list_finished_runs.arch:", feedback(unchecked))
+        guarded = source.replace(
+            "    runs = ",
+            "    if worker.arch in list_finished_runs.arch:\n        runs = ",
+        )
+        checked = self._critique(guarded, {}, goal)
+        self.assertTrue(checked.accepted, feedback(checked))
+
+    def test_the_arches_a_run_admits_select_the_workers_that_may_play_it(self):
+        source = """
+run = get_run(run_id=run_id)
+if "arches" in run:
+    for arch in run.arches:
+        able = list_active_workers(arch=arch)
+    return run
+return run
+"""
+        inputs, goal = {"run_id": mcp_contracts.RUN_ID}, mcp_contracts.RUN_SUMMARY
+        checked = self._critique(source, inputs, goal)
+        self.assertTrue(checked.accepted, feedback(checked))
+
+    def test_the_planner_reads_the_workers_playing_now(self):
+        task = read_task("the workers playing now", {}, _output("list_active_workers"))
+        planned = plan(CONTRACTS, task)
+        self.assertTrue(planned.strong)
+        self.assertEqual(
+            render(planned.program), "c1 = list_active_workers()\nreturn c1"
+        )
+
     def test_the_planner_reads_the_newest_finished_runs(self):
         # A program the planner writes holds no constant, so it reaches a
         # listing only through a page it may leave out.
@@ -606,6 +715,20 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             finished=True,
             info="Count the hay in nodes",
             options="Hash=16 nodestime=600",
+        )
+        # Workers playing the two active runs, and a task that ended.
+        now = datetime.now(UTC).replace(microsecond=0)
+        cls._play(
+            cls.run_id,
+            (
+                (True, "TestMcpWorkerA", "x86-64-avx512icl", "IT", 2),
+                (True, "TestMcpWorkerB", "x86-64-avx2", "?", 1),
+                (False, "TestMcpWorkerA", "x86-64-avx2", "IT", 0),
+            ),
+            now,
+        )
+        cls._play(
+            cls.plain_run_id, ((True, "TestMcpWorkerA", "unknown", "IT", 3),), now
         )
         cls.server = build_server(lambda: cls.rundb)
 
@@ -678,6 +801,29 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         run["finished"] = finished
         cls.rundb.buffer(run, priority=Prio.SAVE_NOW)
         return str(run_id)
+
+    @classmethod
+    def _play(cls, run_id, tasks, now):
+        run = cls.rundb.get_run(run_id)
+        run["tasks"] = [
+            {
+                "num_games": 200,
+                "active": active,
+                "last_updated": now - timedelta(minutes=age),
+                "start": 200 * index,
+                "stats": {
+                    "wins": 0,
+                    "losses": 0,
+                    "draws": 0,
+                    "crashes": 0,
+                    "time_losses": 0,
+                    "pentanomial": [0, 0, 0, 0, 0],
+                },
+                "worker_info": _worker_info(username, arch, country_code),
+            }
+            for index, (active, username, arch, country_code, age) in enumerate(tasks)
+        ]
+        cls.rundb.buffer(run, priority=Prio.SAVE_NOW)
 
     async def _call(self, name, arguments):
         async with Client(self.server, raise_exceptions=True) as client:
@@ -945,6 +1091,51 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(normal["new_options"], "")
         self.assertEqual((normal["priority"], normal["throughput"]), (0, 100))
 
+    async def test_list_active_workers_lists_the_workers_playing_a_task(self):
+        result = await self._call("list_active_workers", {"run_id": self.run_id})
+        self.assertFalse(result.is_error)
+        found = result.structured_content
+        self.assertEqual((found["page"], found["total"], found["cores"]), (1, 2, 16))
+        # The most recently updated first; a task that ended is no worker.
+        workers = found["workers"]
+        self.assertEqual(
+            [(w["name"], w["task_id"]) for w in workers],
+            [("TestMcpWorkerB-8cores-b1b2", 1), ("TestMcpWorkerA-8cores-a1b2", 0)],
+        )
+        first = workers[0]
+        self.assertEqual(first["run_id"], self.run_id)
+        self.assertEqual((first["arch"], first["country_code"]), ("x86-64-avx2", "?"))
+        self.assertEqual(first["system"], "Linux 6.6.159+ (colab)")
+        self.assertEqual(first["nps"], 575677.1)
+        # Neither the address nor the key past its first group leaves.
+        text = result.content[0].text
+        self.assertNotIn("192.0.2.7", text)
+        self.assertNotIn("5a28", text)
+
+    async def test_list_active_workers_selects_by_owner_arch_and_run(self):
+        for arguments, expected in (
+            (
+                {"username": "TestMcpWorkerA"},
+                [(self.run_id, 0), (self.plain_run_id, 0)],
+            ),
+            ({"username": "TestMcpWorkerB", "arch": "x86-64-avx2"}, [(self.run_id, 1)]),
+            (
+                {"username": "TestMcpWorkerA", "arch": "unknown"},
+                [(self.plain_run_id, 0)],
+            ),
+            ({"run_id": self.run_id, "arch": "unknown"}, []),
+            ({"run_id": self.run_id, "page": 2}, []),
+        ):
+            result = await self._call("list_active_workers", arguments)
+            self.assertFalse(result.is_error, arguments)
+            workers = result.structured_content["workers"]
+            self.assertEqual(
+                [(w["run_id"], w["task_id"]) for w in workers], expected, arguments
+            )
+        # A page past the last still counts the workers the filters select.
+        found = result.structured_content
+        self.assertEqual((found["total"], found["cores"]), (2, 16))
+
     async def test_list_finished_runs_reads_a_json_integer_page(self):
         result = await self._call("list_finished_runs", {"page": 1.0})
         self.assertFalse(result.is_error)
@@ -1120,7 +1311,7 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             checks = await smoke(self.server, mode)
             failed = [check for check in checks if check[1] is not True]
             self.assertEqual(failed, [], mode)
-            self.assertEqual(len(checks), 9, mode)
+            self.assertEqual(len(checks), 10, mode)
 
     async def test_a_proven_program_runs_on_the_server(self):
         # A proven program breaks at run time only where a result leaves its
