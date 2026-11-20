@@ -83,6 +83,12 @@ _UNFINISHED_RUNS_STATS_PROJECTION = {
     "tasks.stats": 1,
 }
 
+# The time a run's arch filter may take to search a worker's arch: a bound
+# against a pattern that backtracks without end, which no legitimate arch
+# string reaches. A search past it gives the run to the worker.
+# See https://github.com/official-stockfish/fishtest/pull/2428#issuecomment-3715147268
+ARCH_SEARCH_TIMEOUT = 0.1
+
 
 class RunDb:
     def __init__(self, db_name=FISHTEST, port=-1, is_primary_instance=True):
@@ -1585,12 +1591,11 @@ After fixing the issues you can unblock the worker at
             arch_filter = run["args"].get("arch_filter", "")
             if arch_filter != "":
                 arch_filter_re = self.compile_regex(arch_filter)
-                # We use a timeout to protect against redos attacks.
-                # The timeout of 100ms should never trigger with a legitimate
-                # arch string.
-                # See https://github.com/official-stockfish/fishtest/pull/2428#issuecomment-3715147268
                 try:
-                    if arch_filter_re.search(worker_arch, timeout=0.1) is None:
+                    found = arch_filter_re.search(
+                        worker_arch, timeout=ARCH_SEARCH_TIMEOUT
+                    )
+                    if found is None:
                         continue
                 except Exception as e:
                     message = (

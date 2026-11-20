@@ -34,12 +34,14 @@ from fishtest.mcp import contracts as mcp_contracts
 from fishtest.mcp import tools as mcp_tools
 from fishtest.mcp.server import build_server
 from fishtest.run_cache import Prio
+from fishtest.rundb import ARCH_SEARCH_TIMEOUT
 from fishtest.schemas import (
     ACTION_QUERY_CLAUSE_MAX,
     ACTION_QUERY_FIELDS,
     ACTION_QUERY_LIST_MAX,
     action_query_schema,
 )
+from fishtest.views import _format_tests_view_string_arg
 
 CONTRACTS = mcp_contracts.CONTRACTS
 
@@ -147,16 +149,61 @@ class TestMcpContracts(unittest.TestCase):
         run["args"]["compiler"] = "clang++"
         summary = mcp_tools.run_summary(run)
         self.assertEqual(summary["arch_filter"], "avx512icl")
+        self.assertEqual(summary["arches"], ["x86-64-avx512icl"])
         self.assertEqual(summary["compiler"], "clang++")
         self.assertIn(summary, CONTRACTS["get_run"].returns)
+        # An arch the scheduler does not name is no summary.
+        unnamed = {**summary, "arches": ["x86-64-avx3"]}
+        self.assertNotIn(unnamed, CONTRACTS["get_run"].returns)
         run["args"]["arch_filter"] = run["args"]["compiler"] = ""
         summary = mcp_tools.run_summary(run)
         self.assertNotIn("arch_filter", summary)
+        self.assertNotIn("arches", summary)
         self.assertNotIn("compiler", summary)
         self.assertIn(summary, CONTRACTS["get_run"].returns)
         # A compiler fishtest does not build with is no summary.
         run["args"]["compiler"] = "icc"
         self.assertNotIn(mcp_tools.run_summary(run), CONTRACTS["get_run"].returns)
+
+    def test_the_arches_are_those_the_run_page_lists(self):
+        # The run page lists beside a filter the arches it admits, and a
+        # summary names the same, whatever the filter's form: `2i` admits
+        # x86-64-avx512icl alone, and a filter may admit none.
+        run = copy.deepcopy(RUN)
+        for arch_filter in (
+            "avx512icl",
+            "2i",
+            "^x86-64",
+            "(?<!512)(?<!icl)$",
+            "armv8|apple",
+            "nomatch",
+        ):
+            run["args"]["arch_filter"] = arch_filter
+            summary = mcp_tools.run_summary(run)
+            listed = _format_tests_view_string_arg(run, "arch_filter", arch_filter)
+            self.assertEqual(listed, f"{arch_filter}  ({', '.join(summary['arches'])})")
+            self.assertIn(summary, CONTRACTS["get_run"].returns, arch_filter)
+
+    def test_an_arch_whose_search_runs_out_of_time_is_admitted(self):
+        # The scheduler gives the run to a worker whose search runs past its
+        # time, so a summary names that arch; a filter `regex` does not
+        # compile names none.
+        def search(arch, timeout):
+            self.assertEqual(timeout, ARCH_SEARCH_TIMEOUT)
+            if arch == "riscv64":
+                raise TimeoutError
+            return None
+
+        mcp_tools.admitted_arches.cache_clear()
+        self.addCleanup(mcp_tools.admitted_arches.cache_clear)
+        pattern = mock.Mock(search=search)
+        with mock.patch.object(mcp_tools.regex, "compile", return_value=pattern):
+            self.assertEqual(mcp_tools.admitted_arches("(a+)+$"), ("riscv64",))
+        run = copy.deepcopy(RUN)
+        run["args"]["arch_filter"] = "x86-64-(avx2"
+        summary = mcp_tools.run_summary(run)
+        self.assertEqual(summary["arch_filter"], "x86-64-(avx2")
+        self.assertNotIn("arches", summary)
 
     def test_user_written_text_is_labeled_as_data(self):
         for record, field in (
