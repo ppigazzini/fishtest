@@ -24,6 +24,7 @@ from valgebra_planning.contracts import read_contract, read_task
 from valgebra_planning.critic import critique
 from valgebra_planning.library import Library
 from valgebra_planning.planner import plan
+from valgebra_planning.program import render
 from valgebra_planning.run import blame
 from valgebra_planning.servers import read_server, run_on_server
 from valgebra_planning.vacuity import vacuities
@@ -254,6 +255,8 @@ class TestMcpContracts(unittest.TestCase):
         self.assertIn({"page": 1.0}, accepts)
         self.assertNotIn({"page": True}, accepts)
         self.assertNotIn({"page": 0}, accepts)
+        # A page left out is the first.
+        self.assertIn({}, accepts)
 
 
 class TestMcpListings(unittest.TestCase):
@@ -413,6 +416,16 @@ return found
             source.replace('"avx512icl"', '""'), {}, _output("list_finished_runs")
         )
         self.assertFalse(refuted.accepted)
+
+    def test_the_planner_reads_the_newest_finished_runs(self):
+        # A program the planner writes holds no constant, so it reaches a
+        # listing only through a page it may leave out.
+        task = read_task("the newest finished runs", {}, _output("list_finished_runs"))
+        planned = plan(CONTRACTS, task)
+        self.assertTrue(planned.strong)
+        self.assertEqual(
+            render(planned.program), "c1 = list_finished_runs()\nreturn c1"
+        )
 
     def test_each_tool_has_a_typed_stub(self):
         written = stubs(CONTRACTS)
@@ -788,6 +801,12 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             len(result.structured_content["runs"]),
             mcp_contracts.FINISHED_RUNS_PAGE_SIZE,
         )
+
+    async def test_list_finished_runs_reads_a_missing_page_as_the_first(self):
+        first = await self._call("list_finished_runs", {"page": 1})
+        missing = await self._call("list_finished_runs", {})
+        self.assertFalse(missing.is_error)
+        self.assertEqual(missing.structured_content, first.structured_content)
 
     async def test_list_finished_runs_finds_the_runs_whose_info_holds_a_word(self):
         # Read as the finished-runs page reads its search box: by the text

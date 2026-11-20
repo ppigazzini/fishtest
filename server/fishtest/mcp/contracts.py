@@ -330,7 +330,10 @@ TOOLS: list[dict[str, Any]] = [
                 "page": {
                     "type": "integer",
                     "minimum": 1,
-                    "description": "The page, from 1; a page past the last holds no run",
+                    "description": (
+                        "The page, from 1, and 1 when absent; a page past the last"
+                        " holds no run"
+                    ),
                 },
                 "username": {
                     "type": "string",
@@ -361,7 +364,6 @@ TOOLS: list[dict[str, Any]] = [
                     ),
                 },
             },
-            "required": ["page"],
             "additionalProperties": False,
         },
         "outputSchema": {
