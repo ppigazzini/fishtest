@@ -13,7 +13,7 @@ import regex
 from bson.codec_options import CodecOptions
 from bson.objectid import ObjectId
 from pymongo import DESCENDING, MongoClient
-from pymongo.errors import OperationFailure
+from pymongo.errors import ExecutionTimeout, OperationFailure
 from valgebra import ValidationError
 
 import fishtest.github_api as gh
@@ -1011,17 +1011,22 @@ class RunDb:
         last_updated=None,
         max_count=None,
         until=None,
+        arch_filters=None,
+        max_time_ms=None,
     ):
         if limit is not None and limit <= 0:
             raise ValueError("limit must be None or a positive integer")
 
         projection = {"tasks": 0, "bad_tasks": 0, "args.spsa.param_history": 0}
 
+        # The per-user merge reads the filters the finished-runs page sets.
         if (
             usernames is not None
             and len(usernames) > 1
             and not text
             and limit is not None
+            and arch_filters is None
+            and max_time_ms is None
         ):
             merge_window = max(skip + limit, 1)
             fanout_budget = len(usernames) * merge_window
@@ -1048,6 +1053,7 @@ class RunDb:
             ltc_only=ltc_only,
             last_updated=last_updated,
             until=until,
+            arch_filters=arch_filters,
         )
         hint = self._finished_runs_hint_name(
             username=username,
@@ -1083,6 +1089,7 @@ class RunDb:
                     ltc_only=ltc_only,
                     last_updated=last_updated,
                     until=until,
+                    arch_filters=arch_filters,
                 )
                 q["args.info"] = {"$regex": info_regex, "$options": "i"}
                 hint = self._finished_runs_hint_name(
@@ -1101,7 +1108,38 @@ class RunDb:
             projection=projection,
             hint=hint,
             max_count=max_count,
+            max_time_ms=max_time_ms,
         )
+
+    def get_finished_runs_arch_filters(
+        self,
+        *,
+        username="",
+        text="",
+        success_only=False,
+        yellow_only=False,
+        ltc_only=False,
+        last_updated=None,
+        until=None,
+        max_time_ms=None,
+    ):
+        """Return the distinct arch filters the finished runs the filters select set.
+
+        A run that sets none, and so admits every worker, adds none. No index
+        holds the filters, so MongoDB reads each selected run.
+        """
+        q = self._build_finished_runs_query(
+            username=username,
+            text=text,
+            success_only=success_only,
+            yellow_only=yellow_only,
+            ltc_only=ltc_only,
+            last_updated=last_updated,
+            until=until,
+        )
+        q["args.arch_filter"] = {"$gt": ""}
+        kwargs = {} if max_time_ms is None else {"maxTimeMS": max_time_ms}
+        return self.runs.distinct("args.arch_filter", q, **kwargs)
 
     @staticmethod
     def _text_search_to_info_regex(text):
@@ -1142,6 +1180,7 @@ class RunDb:
         ltc_only=False,
         last_updated=None,
         until=None,
+        arch_filters=None,
     ):
         q: dict[str, object] = {"finished": True, "deleted": False}
         if usernames is not None:
@@ -1167,6 +1206,8 @@ class RunDb:
             window["$lt"] = until
         if window:
             q["last_updated"] = window
+        if arch_filters is not None:
+            q["args.arch_filter"] = {"$in": list(arch_filters)}
         return q
 
     def _finished_runs_hint_name(
@@ -1191,7 +1232,9 @@ class RunDb:
             return "finished_ltc_runs"
         return "finished_runs"
 
-    def _find_finished_runs_rows(self, q, *, skip, limit, projection, hint):
+    def _find_finished_runs_rows(
+        self, q, *, skip, limit, projection, hint, max_time_ms=None
+    ):
         if hint not in self.get_runs_index_names():
             hint = None
 
@@ -1202,6 +1245,8 @@ class RunDb:
         }
         if limit is not None:
             find_kwargs["limit"] = limit
+        if max_time_ms is not None:
+            find_kwargs["max_time_ms"] = max_time_ms
         if hint:
             find_kwargs["hint"] = hint
 
@@ -1226,6 +1271,7 @@ class RunDb:
         projection,
         hint,
         max_count=None,
+        max_time_ms=None,
     ):
         count_hint = hint if hint in self.get_runs_index_names() else None
         count_kwargs = {}
@@ -1233,9 +1279,14 @@ class RunDb:
             count_kwargs["hint"] = count_hint
         if max_count is not None:
             count_kwargs["limit"] = max_count
+        if max_time_ms is not None:
+            count_kwargs["maxTimeMS"] = max_time_ms
 
         try:
             count = self.runs.count_documents(q, **count_kwargs)
+        except ExecutionTimeout:
+            # A count past its time bound is past it with any index.
+            raise
         except OperationFailure as e:
             print(
                 f"RunDb.get_finished_runs: hint={hint!r} failed ({e}); retrying without hint",
@@ -1262,6 +1313,7 @@ class RunDb:
             limit=effective_limit,
             projection=projection,
             hint=hint,
+            max_time_ms=max_time_ms,
         )
         return [rows, count]
 

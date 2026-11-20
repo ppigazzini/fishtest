@@ -11,6 +11,7 @@ from unittest import mock
 import test_support
 from bson.objectid import ObjectId
 from pymongo import DESCENDING
+from pymongo.errors import ExecutionTimeout
 
 import fishtest.github_api as gh
 from fishtest.api import WORKER_VERSION
@@ -898,6 +899,55 @@ class CreateRunDBTest(unittest.TestCase):
             self.assertEqual(len(finished_runs), 2)
         finally:
             self.rundb.runs.delete_many({"args.username": {"$in": users}})
+
+    def test_57_finished_runs_read_the_runs_that_set_an_arch_filter(self):
+        now = datetime.now(UTC)
+        user = "arch-filter-user"
+        docs = [
+            {
+                "_id": ObjectId(),
+                "finished": True,
+                "deleted": False,
+                "args": {"username": user, "info": "arch row", **arch_filter},
+                "last_updated": now - timedelta(minutes=age),
+            }
+            for age, arch_filter in enumerate(
+                (
+                    {"arch_filter": "avx2"},
+                    {"arch_filter": ""},
+                    {"arch_filter": "avx2"},
+                    {"arch_filter": "icl"},
+                    {},
+                )
+            )
+        ]
+        self.rundb.runs.insert_many(docs)
+        try:
+            # A run that sets no filter, or an empty one, adds none.
+            arch_filters = self.rundb.get_finished_runs_arch_filters(
+                username=user, max_time_ms=2000
+            )
+            self.assertEqual(sorted(arch_filters), ["avx2", "icl"])
+            finished_runs, count = self.rundb.get_finished_runs(
+                username=user, arch_filters=["avx2"], max_time_ms=2000
+            )
+            self.assertEqual(count, 2)
+            self.assertEqual(
+                [run["_id"] for run in finished_runs], [docs[0]["_id"], docs[2]["_id"]]
+            )
+            # A count past its time bound is past it without the hint too, so
+            # it is not read again.
+            timeout = ExecutionTimeout("time limit exceeded")
+            with (
+                mock.patch.object(
+                    self.rundb.runs, "count_documents", side_effect=timeout
+                ) as count_documents,
+                self.assertRaises(ExecutionTimeout),
+            ):
+                self.rundb.get_finished_runs(username=user, max_time_ms=1)
+            count_documents.assert_called_once()
+        finally:
+            self.rundb.runs.delete_many({"args.username": user})
 
     def test_60_has_run_pgns_matches_only_the_run_task_pgns(self):
         run_id = "0123456789abcdef01234567"

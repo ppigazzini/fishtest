@@ -363,8 +363,9 @@ TOOLS: list[dict[str, Any]] = [
             f"Return one page of finished runs, newest first,"
             f" {FINISHED_RUNS_PAGE_SIZE} to a page, optionally one user's, only"
             f" those whose info holds some words, only the passed ones, only the"
-            f" yellow ones, only long time controls, or only those last updated"
-            f" within a time window."
+            f" yellow ones, only long time controls, only those last updated"
+            f" within a time window, or only those whose arch filter admits an"
+            f" architecture."
         ),
         "inputSchema": {
             "type": "object",
@@ -407,6 +408,16 @@ TOOLS: list[dict[str, Any]] = [
                 },
                 "since": moment("Only the runs last updated at or after this time"),
                 "until": moment("Only the runs last updated before this time"),
+                "arch": {
+                    **ARCH,
+                    "description": (
+                        "Only the runs whose arch filter admits this architecture,"
+                        " searched as the scheduler searches a worker's: the runs"
+                        " whose arches hold it. A run that sets no arch filter"
+                        " admits every architecture and is left out. No index"
+                        " holds the filters, so a window bounds what is read"
+                    ),
+                },
             },
             "additionalProperties": False,
         },

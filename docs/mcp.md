@@ -49,7 +49,7 @@ Every tool reads and changes nothing (`readOnlyHint`, `idempotentHint`,
 |------|-----------|---------|
 | `get_run` | `run_id` (24 hex digits) | the run's summary |
 | `list_active_runs` | none | `runs`: the summary of every unfinished run |
-| `list_finished_runs` | optionally `page` (from 1, default 1), `username`, `text`, `success_only`, `yellow_only`, `ltc_only`, `since`, `until` | `page`, `total`, `runs`: 50 summaries a page, newest first |
+| `list_finished_runs` | optionally `page` (from 1, default 1), `username`, `text`, `success_only`, `yellow_only`, `ltc_only`, `since`, `until`, `arch` | `page`, `total`, `runs`: 50 summaries a page, newest first |
 | `get_elo` | `run_id` | an SPRT run's bounds, log-likelihood ratio, Elo estimate with its 95% interval, and likelihood of superiority |
 | `search_actions` | `filter`, and optionally `text` and `limit` (1 to 200, default 200) | `actions`: the newest events the filter and the text match |
 
@@ -95,6 +95,12 @@ space and a `Z` for `+00:00` accepted, so a summary's `last_updated` passed as
 reads, so it adds no scan. A date the calendar does not hold, such as
 `2026-02-30`, is a tool error.
 
+`arch` holds `list_finished_runs` to the runs whose arch filter admits that
+architecture: the runs whose `arches` holds it. A run that sets no arch filter
+admits every architecture and is left out. No index holds the filters, so the
+listing reads every run its other filters select: a window bounds what it
+reads, and a listing that reads past its time bound is a tool error.
+
 A `text` argument searches as the search box of the matching page searches:
 `list_finished_runs` the runs' `info`, as the finished-runs page does, and
 `search_actions` an event's kind, author, worker, message, run name, user and
@@ -108,7 +114,7 @@ as written, and a word after a minus excludes what holds it.
 |-------|-------|---------|
 | Request body | 64 KiB | HTTP `413` |
 | Calls an instance reads at once | 8 | a tool error asking to retry |
-| Time MongoDB spends on one filter | 2000 ms | a tool error naming the indexed fields |
+| Time MongoDB spends on each read of `search_actions` and `list_finished_runs` | 2000 ms | a tool error naming what narrows the read |
 | A text search | 200 characters | a tool error |
 | A string in a result | 5120 characters | cut, ending in `...` |
 | Caching of `tools/list` and `server/discover` | one hour, public | |
