@@ -14,6 +14,7 @@ JSON Schema counts as an integer, so a page number is read with `int()`.
 from __future__ import annotations
 
 import unicodedata
+from datetime import UTC, datetime
 from typing import Any
 
 from pymongo import DESCENDING
@@ -171,6 +172,19 @@ def list_active_runs(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
     return {"runs": [run_summary(run) for run in runs]}
 
 
+def _moment(arguments: dict[str, Any], key: str) -> datetime | None:
+    # A time the contract admits, read in UTC where it names no offset. The
+    # pattern admits a day no month holds, such as 2026-02-30.
+    if key not in arguments:
+        return None
+    try:
+        moment = datetime.fromisoformat(arguments[key])
+    except ValueError as e:
+        msg = f"{key} names a day the calendar does not hold"
+        raise ToolRefusal(msg) from e
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
+
+
 def list_finished_runs(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
     page = int(arguments.get("page", 1))
     runs, total = rundb.get_finished_runs(
@@ -182,6 +196,9 @@ def list_finished_runs(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
         success_only=arguments.get("success_only", False),
         yellow_only=arguments.get("yellow_only", False),
         ltc_only=arguments.get("ltc_only", False),
+        # A window on the time each index sorts the runs by.
+        last_updated=_moment(arguments, "since"),
+        until=_moment(arguments, "until"),
     )
     return {"page": page, "total": total, "runs": [run_summary(run) for run in runs]}
 
