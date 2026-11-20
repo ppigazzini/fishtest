@@ -172,7 +172,7 @@ def list_active_runs(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 def list_finished_runs(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
-    page = int(arguments["page"])
+    page = int(arguments.get("page", 1))
     runs, total = rundb.get_finished_runs(
         skip=(page - 1) * FINISHED_RUNS_PAGE_SIZE,
         limit=FINISHED_RUNS_PAGE_SIZE,

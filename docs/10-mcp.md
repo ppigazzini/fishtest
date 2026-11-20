@@ -49,7 +49,7 @@ Every tool reads and changes nothing (`readOnlyHint`, `idempotentHint`,
 |------|-----------|---------|
 | `get_run` | `run_id` (24 hex digits) | the run's summary |
 | `list_active_runs` | none | `runs`: the summary of every unfinished run |
-| `list_finished_runs` | `page` (from 1), and optionally `username`, `text`, `success_only`, `yellow_only`, `ltc_only` | `page`, `total`, `runs`: 50 summaries a page, newest first |
+| `list_finished_runs` | optionally `page` (from 1, default 1), `username`, `text`, `success_only`, `yellow_only`, `ltc_only` | `page`, `total`, `runs`: 50 summaries a page, newest first |
 | `get_elo` | `run_id` | an SPRT run's bounds, log-likelihood ratio, Elo estimate with its 95% interval, and likelihood of superiority |
 | `search_actions` | `filter`, and optionally `text` and `limit` (1 to 200, default 200) | `actions`: the newest events the filter and the text match |
 
