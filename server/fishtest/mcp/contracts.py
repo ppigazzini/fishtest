@@ -22,7 +22,7 @@ from typing import Any
 
 from valgebra_planning.contracts import Contract, read_contract
 
-from fishtest.constants import LTC_LOWER_BOUND, supported_compilers
+from fishtest.constants import LTC_LOWER_BOUND, supported_arches, supported_compilers
 from fishtest.schemas import (
     ACTION_MESSAGE_SIZE,
     ACTION_NAMES,
@@ -80,6 +80,9 @@ def text_search(where: str, page: str, matched: str) -> dict[str, Any]:
 
 
 COUNT = {"type": "integer", "minimum": 0}
+
+# An architecture a worker builds Stockfish for, as the scheduler names it.
+ARCH = {"enum": list(supported_arches)}
 
 # A time as a result writes it: `str()` of a stored UTC datetime, the
 # microseconds left out where they are 0, as `/api/get_run` gives it.
@@ -177,6 +180,15 @@ RUN_SUMMARY = {
             "The regular expression searched in a worker's architecture, such as"
             " x86-64-avx2: only the workers it matches play the run"
         ),
+        "arches": {
+            "type": "array",
+            "items": ARCH,
+            "description": (
+                "The architectures whose workers may play the run: each one the"
+                " arch filter admits, searched as the scheduler searches a"
+                " worker's; absent where the run sets no arch filter"
+            ),
+        },
         "compiler": {
             "enum": list(supported_compilers),
             "description": "The compiler a worker must build with to play the run",

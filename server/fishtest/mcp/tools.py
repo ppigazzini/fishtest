@@ -15,17 +15,21 @@ from __future__ import annotations
 
 import unicodedata
 from datetime import UTC, datetime
+from functools import lru_cache
 from typing import Any
 
+import regex
 from pymongo import DESCENDING
 from pymongo.errors import ExecutionTimeout
 
 from fishtest.api import ACTIONS_QUERY_TIME_MAX_MS
+from fishtest.constants import supported_arches
 from fishtest.mcp.contracts import (
     ACTIONS_LIMIT_MAX,
     FINISHED_RUNS_PAGE_SIZE,
     TEXT_MAX,
 )
+from fishtest.rundb import ARCH_SEARCH_TIMEOUT
 from fishtest.stats.stat_util import SPRT_elo
 from fishtest.views_helpers import sanitize_quotation_marks
 
@@ -128,6 +132,30 @@ def _published(document: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any
     return fields
 
 
+@lru_cache(maxsize=1000)
+def admitted_arches(arch_filter: str) -> tuple[str, ...] | None:
+    """Return the supported arches `arch_filter` admits, as the scheduler reads it.
+
+    The scheduler searches a run's filter in a worker's arch and skips the
+    run only where the search finds nothing, so an arch whose search runs past
+    `ARCH_SEARCH_TIMEOUT` is admitted. None for a filter `regex` does not
+    compile. Runs share a few filters, so each one is searched once.
+    """
+    try:
+        pattern = regex.compile(arch_filter)
+    except regex.error:
+        return None
+    admitted = []
+    for arch in supported_arches:
+        try:
+            found = pattern.search(arch, timeout=ARCH_SEARCH_TIMEOUT) is not None
+        except TimeoutError:
+            found = True
+        if found:
+            admitted.append(arch)
+    return tuple(admitted)
+
+
 def run_summary(run: dict[str, Any]) -> dict[str, Any]:
     """Return what the `get_run` contract publishes of a run document."""
     args = run["args"]
@@ -140,6 +168,10 @@ def run_summary(run: dict[str, Any]) -> dict[str, Any]:
         **_published(run, _RUN_FIELDS),
         "results": {key: results[key] for key in _RESULT_FIELDS if key in results},
     }
+    if "arch_filter" in summary:
+        arches = admitted_arches(summary["arch_filter"])
+        if arches is not None:
+            summary["arches"] = list(arches)
     if "pentanomial" in results:
         summary["results"]["pentanomial"] = list(results["pentanomial"])
     if "sprt" in args:

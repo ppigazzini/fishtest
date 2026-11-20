@@ -58,16 +58,17 @@ A run summary holds the test the run asks for (`username`, `new_tag`,
 `tests_repo`, the resolved commits, and `new_options` and `base_options`, the
 UCI options each engine starts with, such as `Hash=16 nodestime=600`), the
 workers it admits where the run restricts them (`arch_filter`, the regular
-expression searched in a worker's architecture, and `compiler`, the compiler a
-worker must build with), how workers take it (`priority` and `throughput`), its
-state (`start_time`, `last_updated`, `approved`, `finished`, `deleted`,
-`failed`, `is_green`, `is_yellow`, `workers`, `cores`), its `results` with the
-pentanomial, and its `sprt` verdict or `spsa` progress. It holds no task and no
-worker address. A time is in UTC, written as `2026-11-20 20:48:11.323292+00:00`,
-the microseconds left out where they are 0. A field older runs store in an
-earlier shape, such as a count as a string of digits, is published as what it
-means; a value that means nothing, such as a negative worker count, is left
-out.
+expression searched in a worker's architecture; `arches`, each supported
+architecture the filter admits, searched as the scheduler searches a worker's;
+and `compiler`, the compiler a worker must build with), how workers take it
+(`priority` and `throughput`), its state (`start_time`, `last_updated`,
+`approved`, `finished`, `deleted`, `failed`, `is_green`, `is_yellow`,
+`workers`, `cores`), its `results` with the pentanomial, and its `sprt`
+verdict or `spsa` progress. It holds no task and no worker address. A time is
+in UTC, written as `2026-11-20 20:48:11.323292+00:00`, the microseconds left
+out where they are 0. A field older runs store in an earlier shape, such as a
+count as a string of digits, is published as what it means; a value that
+means nothing, such as a negative worker count, is left out.
 
 A worker plays the first run it can of the highest `priority`, so a run of a
 lower priority gets a worker only where no run above it can use one: 0 is
