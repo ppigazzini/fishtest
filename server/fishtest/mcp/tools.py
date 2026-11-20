@@ -28,9 +28,11 @@ from fishtest.mcp.contracts import (
     ACTIONS_LIMIT_MAX,
     FINISHED_RUNS_PAGE_SIZE,
     TEXT_MAX,
+    WORKERS_PAGE_SIZE,
 )
 from fishtest.rundb import ARCH_SEARCH_TIMEOUT
 from fishtest.stats.stat_util import SPRT_elo
+from fishtest.util import worker_name
 from fishtest.views_helpers import sanitize_quotation_marks
 
 
@@ -262,6 +264,67 @@ def list_finished_runs(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
     return {"page": page, "total": total, "runs": [run_summary(run) for run in runs]}
 
 
+def _version(value: Any) -> str | None:
+    # A version stored as a list of numbers, written with dots.
+    if isinstance(value, list) and value and all(isinstance(n, int) for n in value):
+        return ".".join(map(str, value))
+    return None
+
+
+def worker_row(machine: dict[str, Any]) -> dict[str, Any]:
+    """Return what `list_active_workers` publishes of a worker playing a task.
+
+    `machine` is a row of `RunDb.get_machines`: the worker's info, the task's
+    run, index and last update. A field left unset is left out.
+    """
+    last_updated = machine["last_updated"]
+    row = {
+        "name": worker_name(machine, short=True),
+        "username": machine["username"],
+        "country_code": machine.get("country_code"),
+        "cores": machine["concurrency"],
+        "nps": machine.get("nps"),
+        "max_memory": machine.get("max_memory"),
+        "system": machine.get("uname"),
+        "arch": machine.get("worker_arch"),
+        "compiler": machine.get("compiler"),
+        "compiler_version": _version(machine.get("gcc_version")),
+        "python_version": _version(machine.get("python_version")),
+        "version": machine.get("version"),
+        "modified": machine.get("modified"),
+        "run_id": str(machine["run"]["_id"]),
+        "task_id": machine["task_id"],
+        "last_updated": None if last_updated is None else str(last_updated),
+    }
+    return {key: value for key, value in row.items() if value is not None}
+
+
+def list_active_workers(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
+    # The machines page's own read: on a secondary instance, every unfinished
+    # run's tasks, cached for a few seconds, so the page and the calls made
+    # within those seconds share one query.
+    machines = sorted(
+        rundb.get_machines(), key=lambda m: (str(m["run"]["_id"]), m["task_id"])
+    )
+    # The most recently updated first, a task never updated last.
+    machines.sort(
+        key=lambda m: (m["last_updated"] is not None, m["last_updated"] or 0),
+        reverse=True,
+    )
+    rows = [worker_row(machine) for machine in machines]
+    for key in ("username", "arch", "run_id"):
+        if key in arguments:
+            rows = [row for row in rows if row.get(key) == arguments[key]]
+    page = int(arguments.get("page", 1))
+    start = (page - 1) * WORKERS_PAGE_SIZE
+    return {
+        "page": page,
+        "total": len(rows),
+        "cores": sum(row["cores"] for row in rows),
+        "workers": rows[start : start + WORKERS_PAGE_SIZE],
+    }
+
+
 def get_elo(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
     run_id = arguments["run_id"]
     run = _held_run(rundb, run_id)
@@ -363,6 +426,7 @@ TOOL_FUNCTIONS = {
     "get_run": get_run,
     "list_active_runs": list_active_runs,
     "list_finished_runs": list_finished_runs,
+    "list_active_workers": list_active_workers,
     "get_elo": get_elo,
     "search_actions": search_actions,
 }

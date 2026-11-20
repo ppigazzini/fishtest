@@ -1,9 +1,11 @@
 # MCP Endpoint Reference
 
-The MCP endpoint serves fishtest's public run data and event log as read-only
-tools to Model Context Protocol clients. It serves the data the read-only
-endpoints of [Worker API reference](api-reference.md) serve, each tool with a
-JSON Schema contract that every call and every result is checked against.
+The MCP endpoint serves fishtest's public run data, the workers playing the
+active runs and the event log as read-only tools to Model Context Protocol
+clients. It serves the data the read-only endpoints of
+[Worker API reference](api-reference.md) and the machines page serve, each
+tool with a JSON Schema contract that every call and every result is checked
+against.
 
 ## Enabling
 
@@ -50,6 +52,7 @@ Every tool reads and changes nothing (`readOnlyHint`, `idempotentHint`,
 | `get_run` | `run_id` (24 hex digits) | the run's summary |
 | `list_active_runs` | none | `runs`: the summary of every unfinished run |
 | `list_finished_runs` | optionally `page` (from 1, default 1), `username`, `text`, `success_only`, `yellow_only`, `ltc_only`, `since`, `until`, `arch`, `option` | `page`, `total`, `runs`: 50 summaries a page, newest first |
+| `list_active_workers` | optionally `page` (from 1, default 1), `username`, `arch`, `run_id` | `page`, `total`, `cores`, `workers`: 100 workers a page, the most recently updated first |
 | `get_elo` | `run_id` | an SPRT run's bounds, log-likelihood ratio, Elo estimate with its 95% interval, and likelihood of superiority |
 | `search_actions` | `filter`, and optionally `text` and `limit` (1 to 200, default 200) | `actions`: the newest events the filter and the text match |
 
@@ -75,6 +78,19 @@ lower priority gets a worker only where no run above it can use one: 0 is
 normal, and a run below 0 is held back. Among the runs of one priority,
 `throughput` is the share of cores a run asks for, as a percentage of a normal
 run's at the same time control.
+
+`list_active_workers` lists the workers the machines page lists: one row for
+each task of an active run a worker is playing. A row holds the worker's
+`name`, as the machines page links it (its owner's username, its cores and
+the first group of its key), its `username`, `country_code` (two letters, or
+`?`), `cores`, `nps`, `max_memory` in MiB, `system`, `arch` (a supported
+architecture, or `unknown`), `compiler` and `compiler_version`,
+`python_version`, its `version` and whether it is `modified`, and the
+`run_id`, `task_id` and `last_updated` of the task it plays. It holds no
+address and no more of the key than the name holds. `total` and `cores` count
+every worker the filters select, on any page. The rows are read as the
+machines page reads them, so a worker shows a few seconds after it takes a
+task.
 
 The `search_actions` filter is the language of `POST /api/actions`: the
 fields, comparisons, boolean operators and sizes its table lists.
@@ -144,8 +160,8 @@ client hands back to its model.
 ## User-written text
 
 A run's `info`, `new_tag`, `base_tag`, `tests_repo`, `arch_filter`,
-`new_options` and `base_options`, a `username`, and an event's `message` are
-written by fishtest users. Their
+`new_options` and `base_options`, a `username`, a worker's `name` and
+`system`, and an event's `message` are written by fishtest users. Their
 output schemas say so, and the server's instructions tell a client that such
 text is data to report, never instructions to follow. Every string in a result
 is cleared of control characters and invisible format characters, such as

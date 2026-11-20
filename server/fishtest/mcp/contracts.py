@@ -33,6 +33,7 @@ from fishtest.schemas import (
 )
 
 FINISHED_RUNS_PAGE_SIZE = 50
+WORKERS_PAGE_SIZE = 100
 ACTIONS_LIMIT_MAX = 200
 
 # The hints a client may act on: every tool here reads, and reads only this
@@ -248,6 +249,86 @@ RUN_SUMMARY = {
 
 RUN_LIST = {"type": "array", "items": RUN_SUMMARY}
 
+# A version as a list of three numbers joined by dots, such as 3.13.5.
+VERSION = {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}
+
+# The architecture a worker names, or `unknown` where it could not tell.
+WORKER_ARCH = {"enum": [*supported_arches, "unknown"]}
+
+# What the machines page shows anyone of a worker playing a task: who runs it,
+# what it builds and plays with, and the task. Its address is not shown, and
+# of its key only the first group, in its name.
+WORKER = {
+    "type": "object",
+    "properties": {
+        "name": user_text(
+            "The worker's name, as the machines page links it: its owner's"
+            " username, its cores and the first group of its key, such as"
+            " user00-8cores-048041d0"
+        ),
+        "username": user_text("The username of the worker's owner"),
+        "country_code": {
+            "type": "string",
+            "pattern": "^([A-Z]{2}|\\?)$",
+            "description": (
+                "The country the worker connects from, as two ISO 3166 letters,"
+                " or ? where it is not known"
+            ),
+        },
+        "cores": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The cores the worker plays on",
+        },
+        "nps": {
+            "type": "number",
+            "minimum": 0,
+            "description": "The nodes a second the worker's benchmark measured",
+        },
+        "max_memory": {**COUNT, "description": "The memory the worker uses, in MiB"},
+        "system": user_text("The worker's operating system, as its uname reads"),
+        "arch": {
+            **WORKER_ARCH,
+            "description": "The architecture the worker builds Stockfish for",
+        },
+        "compiler": {
+            "enum": list(supported_compilers),
+            "description": "The compiler the worker builds Stockfish with",
+        },
+        "compiler_version": {**VERSION, "description": "The compiler's version"},
+        "python_version": {
+            **VERSION,
+            "description": "The version of the Python the worker runs on",
+        },
+        "version": {**COUNT, "description": "The version of the worker"},
+        "modified": {
+            "type": "boolean",
+            "description": "Whether the worker's code differs from its version's",
+        },
+        "run_id": RUN_ID,
+        "task_id": {**COUNT, "description": "The index of the task it plays, from 0"},
+        "last_updated": STAMP,
+    },
+    "required": [
+        "name",
+        "username",
+        "country_code",
+        "cores",
+        "nps",
+        "max_memory",
+        "system",
+        "arch",
+        "compiler",
+        "compiler_version",
+        "python_version",
+        "version",
+        "modified",
+        "run_id",
+        "task_id",
+    ],
+    "additionalProperties": False,
+}
+
 # The /api/actions filter language: what `action_query_schema` admits, written
 # as the JSON a client sends.
 FILTER_CONSTANT = {"type": ["string", "number", "boolean", "null"]}
@@ -437,6 +518,60 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {"page": COUNT, "total": COUNT, "runs": RUN_LIST},
             "required": ["page", "total", "runs"],
+            "additionalProperties": False,
+        },
+        "annotations": READ_ONLY,
+    },
+    {
+        "name": "list_active_workers",
+        "title": "List the workers playing the active runs",
+        "description": (
+            f"Return one page of the workers playing a task of an active run,"
+            f" {WORKERS_PAGE_SIZE} to a page, the most recently updated first,"
+            f" with how many there are and their cores: optionally one user's,"
+            f" only those of an architecture, or only those playing one run."
+            f" They are the workers the machines page lists."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "page": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": (
+                        "The page, from 1, and 1 when absent; a page past the last"
+                        " holds no worker"
+                    ),
+                },
+                "username": {
+                    "type": "string",
+                    "description": (
+                        "The owner's username, matched whole and case-sensitively"
+                    ),
+                },
+                "arch": {
+                    **WORKER_ARCH,
+                    "description": "Only the workers that build for this architecture",
+                },
+                "run_id": {
+                    **RUN_ID,
+                    "description": (
+                        "Only the workers playing a task of this run: its id, 24"
+                        " lowercase hexadecimal digits"
+                    ),
+                },
+            },
+            "additionalProperties": False,
+        },
+        "outputSchema": {
+            "type": "object",
+            "properties": {
+                "page": COUNT,
+                "total": {**COUNT, "description": "The workers the filters select"},
+                "cores": {**COUNT, "description": "The cores of those workers"},
+                "workers": {"type": "array", "items": WORKER},
+            },
+            "required": ["page", "total", "cores", "workers"],
             "additionalProperties": False,
         },
         "annotations": READ_ONLY,

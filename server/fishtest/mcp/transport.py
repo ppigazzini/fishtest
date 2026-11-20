@@ -24,7 +24,9 @@ from fishtest.api import ACTIONS_BODY_MAX
 from fishtest.mcp.contracts import TOOLS_DIGEST
 
 # One line on what the server does: the description of the server card.
-DESCRIPTION = "Read-only fishtest test runs, results, SPRT verdicts and event log."
+DESCRIPTION = (
+    "Read-only fishtest test runs, results, SPRT verdicts, workers and event log."
+)
 
 
 # A local address on any port: what a development instance is reached at.
