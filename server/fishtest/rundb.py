@@ -1008,6 +1008,7 @@ class RunDb:
         max_count=None,
         until=None,
         arch_filters=None,
+        option="",
         max_time_ms=None,
     ):
         if limit is not None and limit <= 0:
@@ -1022,6 +1023,7 @@ class RunDb:
             and not text
             and limit is not None
             and arch_filters is None
+            and not option
             and max_time_ms is None
         ):
             merge_window = max(skip + limit, 1)
@@ -1050,6 +1052,7 @@ class RunDb:
             last_updated=last_updated,
             until=until,
             arch_filters=arch_filters,
+            option=option,
         )
         hint = self._finished_runs_hint_name(
             username=username,
@@ -1086,6 +1089,7 @@ class RunDb:
                     last_updated=last_updated,
                     until=until,
                     arch_filters=arch_filters,
+                    option=option,
                 )
                 q["args.info"] = {"$regex": info_regex, "$options": "i"}
                 hint = self._finished_runs_hint_name(
@@ -1117,6 +1121,7 @@ class RunDb:
         ltc_only=False,
         last_updated=None,
         until=None,
+        option="",
         max_time_ms=None,
     ):
         """Return the distinct arch filters the finished runs the filters select set.
@@ -1132,6 +1137,7 @@ class RunDb:
             ltc_only=ltc_only,
             last_updated=last_updated,
             until=until,
+            option=option,
         )
         q["args.arch_filter"] = {"$gt": ""}
         kwargs = {} if max_time_ms is None else {"maxTimeMS": max_time_ms}
@@ -1177,6 +1183,7 @@ class RunDb:
         last_updated=None,
         until=None,
         arch_filters=None,
+        option="",
     ):
         q: dict[str, object] = {"finished": True, "deleted": False}
         if usernames is not None:
@@ -1204,6 +1211,12 @@ class RunDb:
             q["last_updated"] = window
         if arch_filters is not None:
             q["args.arch_filter"] = {"$in": list(arch_filters)}
+        if option:
+            # A run whose engines start with the UCI option set: `Name=Value`
+            # pairs separated by spaces, the name matched whole and whatever
+            # its case, as UCI reads it. No index holds the options.
+            name = {"$regex": f"(^| ){re.escape(option)}=", "$options": "i"}
+            q["$or"] = [{"args.new_options": name}, {"args.base_options": name}]
         return q
 
     def _finished_runs_hint_name(

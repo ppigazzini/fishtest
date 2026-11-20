@@ -229,6 +229,7 @@ def list_finished_runs(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
         # A window on the time each index sorts the runs by.
         "last_updated": _moment(arguments, "since"),
         "until": _moment(arguments, "until"),
+        "option": arguments.get("option", ""),
     }
     bound = {"max_time_ms": ACTIONS_QUERY_TIME_MAX_MS}
     try:

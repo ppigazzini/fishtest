@@ -903,6 +903,50 @@ class CreateRunDBTest(unittest.TestCase):
         finally:
             self.rundb.runs.delete_many({"args.username": user})
 
+    def test_58_finished_runs_read_the_runs_that_set_an_option(self):
+        user = "option-user"
+        options = [
+            ("Hash=16 nodestime=600", "Hash=16"),
+            ("Hash=16", "SyzygyPath=/a.b"),
+            ("nodestimeX=1", ""),
+            ("a+b=1", ""),
+            ("", "Threads=2 NODESTIME=10"),
+            ("aab=1", ""),
+        ]
+        docs = [
+            {
+                "_id": ObjectId(),
+                "finished": True,
+                "deleted": False,
+                "args": {"username": user, "new_options": new, "base_options": base},
+                "last_updated": datetime.now(UTC),
+            }
+            for new, base in options
+        ]
+        self.rundb.runs.insert_many(docs)
+        try:
+            # A name matched whole and whatever its case, in either engine's
+            # options, and as written: a pattern character matches itself.
+            for option, expected in (
+                ("nodestime", [0, 4]),
+                ("SYZYGYPATH", [1]),
+                ("a+b", [3]),
+                ("aab", [5]),
+                ("time", []),
+            ):
+                finished_runs, count = self.rundb.get_finished_runs(
+                    username=user, option=option
+                )
+                ids = {run["_id"] for run in finished_runs}
+                self.assertEqual(
+                    sorted(i for i, doc in enumerate(docs) if doc["_id"] in ids),
+                    expected,
+                    option,
+                )
+                self.assertEqual(count, len(expected), option)
+        finally:
+            self.rundb.runs.delete_many({"args.username": user})
+
     def test_60_has_run_pgns_matches_only_the_run_task_pgns(self):
         run_id = "0123456789abcdef01234567"
         other_run_id = "0123456789abcdef01234568"

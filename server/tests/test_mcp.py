@@ -333,6 +333,15 @@ class TestMcpContracts(unittest.TestCase):
         # A page left out is the first.
         self.assertIn({}, accepts)
 
+    def test_an_option_is_one_uci_option_name(self):
+        # A name as a run's options write it: printable ASCII with no space
+        # and no `=`, so a value or a second option is refused.
+        accepts = CONTRACTS["list_finished_runs"].accepts
+        for option in ("nodestime", "Hash", "SyzygyPath", "a+b"):
+            self.assertIn({"option": option}, accepts, option)
+        for option in ("", "nodestime=600", "Hash Threads", "n\u00f6des"):
+            self.assertNotIn({"option": option}, accepts, option)
+
 
 class TestMcpListings(unittest.TestCase):
     def test_the_listing_served_is_committed(self):
@@ -592,6 +601,12 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         cls.finished_avx2_run_id = cls._create_run(
             sprt=False, finished=True, info="Widen the hay", arch_filter="avx2$"
         )
+        cls.finished_nodestime_run_id = cls._create_run(
+            sprt=False,
+            finished=True,
+            info="Count the hay in nodes",
+            options="Hash=16 nodestime=600",
+        )
         cls.server = build_server(lambda: cls.rundb)
 
     @classmethod
@@ -601,6 +616,7 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             cls.plain_run_id,
             cls.finished_run_id,
             cls.finished_avx2_run_id,
+            cls.finished_nodestime_run_id,
         )
         cls.rundb.runs.delete_many({"_id": {"$in": [ObjectId(r) for r in run_ids]}})
         cls.rundb.db["actions"].delete_many({"username": "TestMcpUser"})
@@ -986,6 +1002,33 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         )
         found = result.structured_content["runs"]
         self.assertEqual([run["run_id"] for run in found], [self.finished_run_id])
+
+    async def test_list_finished_runs_selects_the_runs_that_set_an_option(self):
+        # A UCI option name, matched whole and whatever its case, in either
+        # engine's options: the one field that tells a nodestime test apart.
+        user = {"username": "TestMcpUser"}
+        for option, expected in (
+            ("nodestime", [self.finished_nodestime_run_id]),
+            ("NodesTime", [self.finished_nodestime_run_id]),
+            ("Hash", [self.finished_nodestime_run_id]),
+            ("nodes", []),
+            ("time", []),
+        ):
+            result = await self._call("list_finished_runs", {**user, "option": option})
+            self.assertFalse(result.is_error, option)
+            found = result.structured_content
+            self.assertEqual([run["run_id"] for run in found["runs"]], expected, option)
+            self.assertEqual(found["total"], len(expected), option)
+        # With a text search, an arch and a window, as one listing.
+        for arguments, expected in (
+            ({"text": "hay", "option": "nodestime"}, [self.finished_nodestime_run_id]),
+            ({"option": "nodestime", "arch": "x86-64-avx2", **user}, []),
+            ({"option": "nodestime", "until": "2000-01-01", **user}, []),
+        ):
+            result = await self._call("list_finished_runs", arguments)
+            self.assertFalse(result.is_error, arguments)
+            found = result.structured_content["runs"]
+            self.assertEqual([run["run_id"] for run in found], expected, arguments)
 
     async def test_list_finished_runs_stops_a_read_past_its_time_bound(self):
         from pymongo.errors import ExecutionTimeout

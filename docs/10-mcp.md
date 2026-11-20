@@ -49,7 +49,7 @@ Every tool reads and changes nothing (`readOnlyHint`, `idempotentHint`,
 |------|-----------|---------|
 | `get_run` | `run_id` (24 hex digits) | the run's summary |
 | `list_active_runs` | none | `runs`: the summary of every unfinished run |
-| `list_finished_runs` | optionally `page` (from 1, default 1), `username`, `text`, `success_only`, `yellow_only`, `ltc_only`, `since`, `until`, `arch` | `page`, `total`, `runs`: 50 summaries a page, newest first |
+| `list_finished_runs` | optionally `page` (from 1, default 1), `username`, `text`, `success_only`, `yellow_only`, `ltc_only`, `since`, `until`, `arch`, `option` | `page`, `total`, `runs`: 50 summaries a page, newest first |
 | `get_elo` | `run_id` | an SPRT run's bounds, log-likelihood ratio, Elo estimate with its 95% interval, and likelihood of superiority |
 | `search_actions` | `filter`, and optionally `text` and `limit` (1 to 200, default 200) | `actions`: the newest events the filter and the text match |
 
@@ -100,6 +100,12 @@ architecture: the runs whose `arches` holds it. A run that sets no arch filter
 admits every architecture and is left out. No index holds the filters, so the
 listing reads every run its other filters select: a window bounds what it
 reads, and a listing that reads past its time bound is a tool error.
+
+`option` holds `list_finished_runs` to the runs whose `new_options` or
+`base_options` set that UCI option: `nodestime` finds the runs that play by
+nodes rather than by clock. The name is matched whole and whatever its case,
+as UCI reads option names, and holds no space and no `=`. No index holds the
+options either, so a window bounds what the listing reads.
 
 A `text` argument searches as the search box of the matching page searches:
 `list_finished_runs` the runs' `info`, as the finished-runs page does, and

@@ -620,7 +620,7 @@
    "openWorldHint": false,
    "readOnlyHint": true
   },
-  "description": "Return one page of finished runs, newest first, 50 to a page, optionally one user's, only those whose info holds some words, only the passed ones, only the yellow ones, only long time controls, only those last updated within a time window, or only those whose arch filter admits an architecture.",
+  "description": "Return one page of finished runs, newest first, 50 to a page, optionally one user's, only those whose info holds some words, only the passed ones, only the yellow ones, only long time controls, only those last updated within a time window, only those whose arch filter admits an architecture, or only those that set a UCI option.",
   "inputSchema": {
    "additionalProperties": false,
    "properties": {
@@ -661,6 +661,12 @@
     "ltc_only": {
      "description": "Only the runs whose base time control is at least 40 seconds",
      "type": "boolean"
+    },
+    "option": {
+     "description": "Only the runs whose new_options or base_options set this UCI option, such as nodestime: a name matched whole and whatever its case, as UCI reads it. No index holds the options, so a window bounds what is read",
+     "maxLength": 200,
+     "pattern": "^[\\x21-\\x3c\\x3e-\\x7e]+$",
+     "type": "string"
     },
     "page": {
      "description": "The page, from 1, and 1 when absent; a page past the last holds no run",

@@ -29,6 +29,7 @@ from fishtest.schemas import (
     ACTION_QUERY_CLAUSE_MAX,
     ACTION_QUERY_FIELDS,
     ACTION_QUERY_LIST_MAX,
+    OPTION_CHAR,
 )
 
 FINISHED_RUNS_PAGE_SIZE = 50
@@ -364,8 +365,8 @@ TOOLS: list[dict[str, Any]] = [
             f" {FINISHED_RUNS_PAGE_SIZE} to a page, optionally one user's, only"
             f" those whose info holds some words, only the passed ones, only the"
             f" yellow ones, only long time controls, only those last updated"
-            f" within a time window, or only those whose arch filter admits an"
-            f" architecture."
+            f" within a time window, only those whose arch filter admits an"
+            f" architecture, or only those that set a UCI option."
         ),
         "inputSchema": {
             "type": "object",
@@ -416,6 +417,17 @@ TOOLS: list[dict[str, Any]] = [
                         " whose arches hold it. A run that sets no arch filter"
                         " admits every architecture and is left out. No index"
                         " holds the filters, so a window bounds what is read"
+                    ),
+                },
+                "option": {
+                    "type": "string",
+                    "pattern": f"^{OPTION_CHAR}+$",
+                    "maxLength": TEXT_SEARCH_MAX,
+                    "description": (
+                        "Only the runs whose new_options or base_options set this"
+                        " UCI option, such as nodestime: a name matched whole and"
+                        " whatever its case, as UCI reads it. No index holds the"
+                        " options, so a window bounds what is read"
                     ),
                 },
             },
