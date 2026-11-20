@@ -857,6 +857,48 @@ class CreateRunDBTest(unittest.TestCase):
                 }
             )
 
+    def test_56_finished_runs_read_a_time_window(self):
+        # `last_updated` holds the window's start and `until` leaves out its
+        # end, on one user's runs, on several merged and on all of them.
+        now = datetime.now(UTC).replace(microsecond=0)
+        users = ["window-user-a", "window-user-b"]
+        docs = [
+            {
+                "_id": ObjectId(),
+                "finished": True,
+                "deleted": False,
+                "args": {"username": users[age % 2], "info": "window row"},
+                "last_updated": now - timedelta(minutes=age),
+            }
+            for age in range(4)
+        ]
+        self.rundb.runs.insert_many(docs)
+        start, end = now - timedelta(minutes=2), now - timedelta(minutes=1)
+        try:
+            for filters in (
+                {"username": users[0]},
+                {"usernames": users, "limit": 10},
+                {},
+            ):
+                finished_runs, count = self.rundb.get_finished_runs(
+                    **filters, last_updated=start, until=now
+                )
+                ages = [
+                    (now - run["last_updated"]) // timedelta(minutes=1)
+                    for run in finished_runs
+                    if run["args"]["username"] in users
+                ]
+                expected = [1, 2] if "username" not in filters else [2]
+                self.assertEqual(ages, expected, filters)
+                if filters:
+                    self.assertEqual(count, len(expected), filters)
+            finished_runs, _ = self.rundb.get_finished_runs(
+                usernames=users, limit=10, until=end
+            )
+            self.assertEqual(len(finished_runs), 2)
+        finally:
+            self.rundb.runs.delete_many({"args.username": {"$in": users}})
+
     def test_60_has_run_pgns_matches_only_the_run_task_pgns(self):
         run_id = "0123456789abcdef01234567"
         other_run_id = "0123456789abcdef01234568"

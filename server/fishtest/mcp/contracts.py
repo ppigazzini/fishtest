@@ -81,6 +81,35 @@ def text_search(where: str, page: str, matched: str) -> dict[str, Any]:
 
 COUNT = {"type": "integer", "minimum": 0}
 
+# A time as a result writes it: `str()` of a stored UTC datetime, the
+# microseconds left out where they are 0, as `/api/get_run` gives it.
+DAY = "[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"
+CLOCK = "([01][0-9]|2[0-3]):[0-5][0-9]"
+STAMP = {
+    "type": "string",
+    "pattern": rf"^{DAY} {CLOCK}:[0-5][0-9](\.[0-9]{{6}})?\+00:00$",
+    "description": "A UTC time, such as 2026-11-20 20:48:11.323292+00:00",
+}
+
+
+def moment(what: str) -> dict[str, Any]:
+    """Return the schema of a UTC time a tool takes: a date, or a time as written.
+
+    It admits every time a result writes, so a program passes one from a
+    result to an argument with the link proven.
+    """
+    return {
+        "type": "string",
+        "pattern": (
+            rf"^{DAY}([ T]{CLOCK}(:[0-5][0-9](\.[0-9]{{1,6}})?)?(Z|\+00:00)?)?$"
+        ),
+        "description": (
+            f"{what}: a UTC date, such as 2026-01-06, or a UTC time as a result"
+            " writes it, such as 2026-11-20 20:48:11+00:00"
+        ),
+    }
+
+
 RESULTS = {
     "type": "object",
     "properties": {
@@ -170,8 +199,8 @@ RUN_SUMMARY = {
                 " control: 100 is normal"
             ),
         },
-        "start_time": {"type": "string"},
-        "last_updated": {"type": "string"},
+        "start_time": STAMP,
+        "last_updated": STAMP,
         "approved": {"type": "boolean"},
         "finished": {"type": "boolean"},
         "deleted": {"type": "boolean"},
@@ -322,7 +351,8 @@ TOOLS: list[dict[str, Any]] = [
             f"Return one page of finished runs, newest first,"
             f" {FINISHED_RUNS_PAGE_SIZE} to a page, optionally one user's, only"
             f" those whose info holds some words, only the passed ones, only the"
-            f" yellow ones, or only long time controls."
+            f" yellow ones, only long time controls, or only those last updated"
+            f" within a time window."
         ),
         "inputSchema": {
             "type": "object",
@@ -363,6 +393,8 @@ TOOLS: list[dict[str, Any]] = [
                         f" {LTC_LOWER_BOUND} seconds"
                     ),
                 },
+                "since": moment("Only the runs last updated at or after this time"),
+                "until": moment("Only the runs last updated before this time"),
             },
             "additionalProperties": False,
         },

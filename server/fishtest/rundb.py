@@ -1004,6 +1004,7 @@ class RunDb:
         ltc_only=False,
         last_updated=None,
         max_count=None,
+        until=None,
     ):
         if limit is not None and limit <= 0:
             raise ValueError("limit must be None or a positive integer")
@@ -1028,6 +1029,7 @@ class RunDb:
                     yellow_only=yellow_only,
                     ltc_only=ltc_only,
                     last_updated=last_updated,
+                    until=until,
                     max_count=max_count,
                 )
 
@@ -1039,6 +1041,7 @@ class RunDb:
             yellow_only=yellow_only,
             ltc_only=ltc_only,
             last_updated=last_updated,
+            until=until,
         )
         hint = self._finished_runs_hint_name(
             username=username,
@@ -1073,6 +1076,7 @@ class RunDb:
                     yellow_only=yellow_only,
                     ltc_only=ltc_only,
                     last_updated=last_updated,
+                    until=until,
                 )
                 q["args.info"] = {"$regex": info_regex, "$options": "i"}
                 hint = self._finished_runs_hint_name(
@@ -1131,6 +1135,7 @@ class RunDb:
         yellow_only=False,
         ltc_only=False,
         last_updated=None,
+        until=None,
     ):
         q: dict[str, object] = {"finished": True, "deleted": False}
         if usernames is not None:
@@ -1148,8 +1153,14 @@ class RunDb:
             q["is_green"] = True
         if yellow_only:
             q["is_yellow"] = True
+        # A run last updated at `last_updated` or after, and before `until`.
+        window = {}
         if last_updated is not None:
-            q["last_updated"] = {"$gte": last_updated}
+            window["$gte"] = last_updated
+        if until is not None:
+            window["$lt"] = until
+        if window:
+            q["last_updated"] = window
         return q
 
     def _finished_runs_hint_name(
@@ -1268,6 +1279,7 @@ class RunDb:
         yellow_only,
         ltc_only,
         last_updated,
+        until,
         max_count,
     ):
         merge_window = max(skip + limit, 1)
@@ -1282,6 +1294,7 @@ class RunDb:
                 yellow_only=yellow_only,
                 ltc_only=ltc_only,
                 last_updated=last_updated,
+                until=until,
             )
             remaining_cap = None
             if max_count is not None:

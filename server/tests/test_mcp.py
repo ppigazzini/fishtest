@@ -214,6 +214,34 @@ class TestMcpContracts(unittest.TestCase):
         run["args"]["throughput"] = -1
         self.assertNotIn(mcp_tools.run_summary(run), returns)
 
+    def test_a_time_a_summary_writes_fills_a_window_bound(self):
+        # Each slot is a set, so whether every time a summary writes fills
+        # `since` and `until` is an inclusion valgebra decides.
+        listing = CONTRACTS["list_finished_runs"]
+        for field in ("start_time", "last_updated"):
+            written = CONTRACTS["get_run"].result(field).values
+            for bound in ("since", "until"):
+                self.assertEqual(
+                    written.relation_to(listing.argument(bound).values),
+                    "subset",
+                    f"{field} <= {bound}",
+                )
+        since = listing.argument("since").values
+        for value in (
+            "2026-01-06",
+            "2026-11-20 20:48:11+00:00",
+            "2026-11-20T20:48Z",
+            "2026-11-20 20:48:11.3",
+        ):
+            self.assertIn(value, since)
+        for value in ("2026-13-01", "2026-01-06Z", "yesterday", "2026-01-06+01:00"):
+            self.assertNotIn(value, since)
+        # A summary writes its times in UTC, as the database holds them.
+        summary = mcp_tools.run_summary(RUN)
+        self.assertEqual(summary["start_time"], "2026-01-02 03:04:05+00:00")
+        naive = {**summary, "start_time": "2026-01-02 03:04:05"}
+        self.assertNotIn(naive, CONTRACTS["get_run"].returns)
+
     def test_an_estimate_its_bounds_forbid_is_a_refusal(self):
         # A run of 2014 holds elo0 above elo1, and the estimator overflows.
         run = copy.deepcopy(RUN)
@@ -414,6 +442,26 @@ return found
         # An empty search is no search, and the contract refuses it.
         refuted = self._critique(
             source.replace('"avx512icl"', '""'), {}, _output("list_finished_runs")
+        )
+        self.assertFalse(refuted.accepted)
+
+    def test_a_run_read_bounds_the_runs_before_it(self):
+        # Paging back by time: the time each run was last updated bounds the
+        # next listing, a link proven for every time a summary writes.
+        source = """
+found = list_finished_runs(since="2026-01-06")
+for run in found.runs:
+    older = list_finished_runs(username=run.username, until=run.last_updated)
+return found
+"""
+        checked = self._critique(source, {}, _output("list_finished_runs"))
+        self.assertTrue(checked.accepted, feedback(checked))
+        self.assertEqual(checked.verification.count("refuted"), 0)
+        # The run's info is a string no window reads.
+        refuted = self._critique(
+            source.replace("run.last_updated", "run.info"),
+            {},
+            _output("list_finished_runs"),
         )
         self.assertFalse(refuted.accepted)
 
@@ -807,6 +855,33 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         missing = await self._call("list_finished_runs", {})
         self.assertFalse(missing.is_error)
         self.assertEqual(missing.structured_content, first.structured_content)
+
+    async def test_list_finished_runs_reads_a_time_window(self):
+        # A window holds a run last updated at its start and not one at its
+        # end: the run's own time, read back from its summary, bounds both.
+        user = {"username": "TestMcpUser"}
+        found = await self._call("list_finished_runs", user)
+        runs = {run["run_id"]: run for run in found.structured_content["runs"]}
+        stamp = runs[self.finished_run_id]["last_updated"]
+        for window, held in (
+            ({"since": stamp}, True),
+            ({"until": stamp}, False),
+            ({"since": stamp[:10]}, True),
+            ({"until": stamp[:10]}, False),
+            ({"since": "2000-01-01", "until": "2000-01-02"}, False),
+        ):
+            result = await self._call("list_finished_runs", {**user, **window})
+            self.assertFalse(result.is_error, window)
+            run_ids = [run["run_id"] for run in result.structured_content["runs"]]
+            self.assertEqual(self.finished_run_id in run_ids, held, window)
+
+    async def test_a_day_no_month_holds_is_a_tool_error(self):
+        # The pattern admits 2026-02-30, which names no day.
+        result = await self._call("list_finished_runs", {"since": "2026-02-30"})
+        self.assertTrue(result.is_error)
+        self.assertEqual(
+            result.content[0].text, "since names a day the calendar does not hold"
+        )
 
     async def test_list_finished_runs_finds_the_runs_whose_info_holds_a_word(self):
         # Read as the finished-runs page reads its search box: by the text

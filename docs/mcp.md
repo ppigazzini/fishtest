@@ -49,7 +49,7 @@ Every tool reads and changes nothing (`readOnlyHint`, `idempotentHint`,
 |------|-----------|---------|
 | `get_run` | `run_id` (24 hex digits) | the run's summary |
 | `list_active_runs` | none | `runs`: the summary of every unfinished run |
-| `list_finished_runs` | optionally `page` (from 1, default 1), `username`, `text`, `success_only`, `yellow_only`, `ltc_only` | `page`, `total`, `runs`: 50 summaries a page, newest first |
+| `list_finished_runs` | optionally `page` (from 1, default 1), `username`, `text`, `success_only`, `yellow_only`, `ltc_only`, `since`, `until` | `page`, `total`, `runs`: 50 summaries a page, newest first |
 | `get_elo` | `run_id` | an SPRT run's bounds, log-likelihood ratio, Elo estimate with its 95% interval, and likelihood of superiority |
 | `search_actions` | `filter`, and optionally `text` and `limit` (1 to 200, default 200) | `actions`: the newest events the filter and the text match |
 
@@ -63,9 +63,11 @@ worker must build with), how workers take it (`priority` and `throughput`), its
 state (`start_time`, `last_updated`, `approved`, `finished`, `deleted`,
 `failed`, `is_green`, `is_yellow`, `workers`, `cores`), its `results` with the
 pentanomial, and its `sprt` verdict or `spsa` progress. It holds no task and no
-worker address. A field older runs store in an earlier shape, such as a count
-as a string of digits, is published as what it means; a value that means
-nothing, such as a negative worker count, is left out.
+worker address. A time is in UTC, written as `2026-11-20 20:48:11.323292+00:00`,
+the microseconds left out where they are 0. A field older runs store in an
+earlier shape, such as a count as a string of digits, is published as what it
+means; a value that means nothing, such as a negative worker count, is left
+out.
 
 A worker plays the first run it can of the highest `priority`, so a run of a
 lower priority gets a worker only where no run above it can use one: 0 is
@@ -83,6 +85,14 @@ is one of the kinds the description lists; a constant in another case, unit or
 type matches nothing and is not refused. `success_only` selects the green runs,
 `yellow_only` the yellow ones, and `ltc_only` the runs whose base time control
 is at least 40 seconds.
+
+`since` and `until` hold `list_finished_runs` to a window on `last_updated`:
+the runs last updated at or after `since` and before `until`, each a UTC date,
+such as `2026-01-06`, or a UTC time in the form a summary writes, a `T` for the
+space and a `Z` for `+00:00` accepted, so a summary's `last_updated` passed as
+`until` pages back from that run. The window narrows the index range a listing
+reads, so it adds no scan. A date the calendar does not hold, such as
+`2026-02-30`, is a tool error.
 
 A `text` argument searches as the search box of the matching page searches:
 `list_finished_runs` the runs' `info`, as the finished-runs page does, and
