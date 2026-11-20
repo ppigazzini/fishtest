@@ -512,6 +512,39 @@ return found
         )
         self.assertFalse(refuted.accepted)
 
+    def test_the_arches_a_run_admits_select_the_runs_each_may_play(self):
+        # `arches` is held only where a test shows the key: a run that sets
+        # no arch filter has none. Each arch it names fills `arch`, an enum
+        # of the same architectures, so every link is proven.
+        source = """
+run = get_run(run_id=run_id)
+if "arches" in run:
+    for arch in run.arches:
+        alike = list_finished_runs(arch=arch, until=run.last_updated)
+    return run
+return run
+"""
+        inputs, goal = {"run_id": mcp_contracts.RUN_ID}, mcp_contracts.RUN_SUMMARY
+        checked = self._critique(source, inputs, goal)
+        self.assertTrue(checked.accepted, feedback(checked))
+        self.assertEqual(
+            checked.verification.count("proven"), len(checked.verification.links)
+        )
+        unguarded = """
+run = get_run(run_id=run_id)
+for arch in run.arches:
+    alike = list_finished_runs(arch=arch)
+return run
+"""
+        self.assertFalse(self._critique(unguarded, inputs, goal).accepted)
+        # An arch the scheduler does not name is refuted by its own value.
+        named = self._critique(
+            'found = list_finished_runs(arch="x86-64-avx3")\nreturn found\n',
+            {},
+            _output("list_finished_runs"),
+        )
+        self.assertIn("'x86-64-avx3' lies outside", feedback(named))
+
     def test_the_planner_reads_the_newest_finished_runs(self):
         # A program the planner writes holds no constant, so it reaches a
         # listing only through a page it may leave out.
@@ -556,11 +589,19 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         cls.finished_run_id = cls._create_run(
             sprt=True, finished=True, info="Vectorize the needle on avx512icl only"
         )
+        cls.finished_avx2_run_id = cls._create_run(
+            sprt=False, finished=True, info="Widen the hay", arch_filter="avx2$"
+        )
         cls.server = build_server(lambda: cls.rundb)
 
     @classmethod
     def tearDownClass(cls):
-        run_ids = (cls.run_id, cls.plain_run_id, cls.finished_run_id)
+        run_ids = (
+            cls.run_id,
+            cls.plain_run_id,
+            cls.finished_run_id,
+            cls.finished_avx2_run_id,
+        )
         cls.rundb.runs.delete_many({"_id": {"$in": [ObjectId(r) for r in run_ids]}})
         cls.rundb.db["actions"].delete_many({"username": "TestMcpUser"})
         test_support.cleanup_test_rundb(cls.rundb)
@@ -921,6 +962,47 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(result.is_error, window)
             run_ids = [run["run_id"] for run in result.structured_content["runs"]]
             self.assertEqual(self.finished_run_id in run_ids, held, window)
+
+    async def test_list_finished_runs_selects_the_runs_an_arch_may_play(self):
+        # A run whose filter admits the arch, read as the scheduler reads it;
+        # a run that sets no filter is left out.
+        user = {"username": "TestMcpUser"}
+        for arch, expected in (
+            ("x86-64-avx512icl", [self.finished_run_id]),
+            ("x86-64-avx2", [self.finished_avx2_run_id]),
+            ("armv7", []),
+        ):
+            result = await self._call("list_finished_runs", {**user, "arch": arch})
+            self.assertFalse(result.is_error, arch)
+            found = result.structured_content
+            self.assertEqual([run["run_id"] for run in found["runs"]], expected, arch)
+            self.assertEqual(found["total"], len(expected), arch)
+            for run in found["runs"]:
+                self.assertIn(arch, run["arches"])
+        # With a text search and a window, the three read as one listing.
+        result = await self._call(
+            "list_finished_runs",
+            {"text": "needle", "arch": "x86-64-avx512icl", "since": "2000-01-01"},
+        )
+        found = result.structured_content["runs"]
+        self.assertEqual([run["run_id"] for run in found], [self.finished_run_id])
+
+    async def test_list_finished_runs_stops_a_read_past_its_time_bound(self):
+        from pymongo.errors import ExecutionTimeout
+
+        timeout = ExecutionTimeout("time limit exceeded")
+        for method, arguments in (
+            ("get_finished_runs_arch_filters", {"arch": "x86-64-avx2"}),
+            ("get_finished_runs", {"text": "needle"}),
+        ):
+            with mock.patch.object(self.rundb, method, side_effect=timeout):
+                result = await self._call("list_finished_runs", arguments)
+            self.assertTrue(result.is_error, method)
+            self.assertEqual(
+                result.content[0].text,
+                "The listing took longer than 2000 ms; since and until bound the"
+                " runs it reads",
+            )
 
     async def test_a_day_no_month_holds_is_a_tool_error(self):
         # The pattern admits 2026-02-30, which names no day.

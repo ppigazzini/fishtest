@@ -219,19 +219,45 @@ def _moment(arguments: dict[str, Any], key: str) -> datetime | None:
 
 def list_finished_runs(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
     page = int(arguments.get("page", 1))
-    runs, total = rundb.get_finished_runs(
-        skip=(page - 1) * FINISHED_RUNS_PAGE_SIZE,
-        limit=FINISHED_RUNS_PAGE_SIZE,
-        username=arguments.get("username", ""),
+    filters = {
+        "username": arguments.get("username", ""),
         # Read as the finished-runs page reads its search box.
-        text=sanitize_quotation_marks(arguments.get("text", "")),
-        success_only=arguments.get("success_only", False),
-        yellow_only=arguments.get("yellow_only", False),
-        ltc_only=arguments.get("ltc_only", False),
+        "text": sanitize_quotation_marks(arguments.get("text", "")),
+        "success_only": arguments.get("success_only", False),
+        "yellow_only": arguments.get("yellow_only", False),
+        "ltc_only": arguments.get("ltc_only", False),
         # A window on the time each index sorts the runs by.
-        last_updated=_moment(arguments, "since"),
-        until=_moment(arguments, "until"),
-    )
+        "last_updated": _moment(arguments, "since"),
+        "until": _moment(arguments, "until"),
+    }
+    bound = {"max_time_ms": ACTIONS_QUERY_TIME_MAX_MS}
+    try:
+        arch_filters = None
+        if "arch" in arguments:
+            # Each filter the window's runs set is searched once, as the
+            # scheduler searches it, and MongoDB pages the runs that set one
+            # admitting the arch.
+            stored = rundb.get_finished_runs_arch_filters(**filters, **bound)
+            arch_filters = [
+                arch_filter
+                for arch_filter in stored
+                if arguments["arch"] in (admitted_arches(arch_filter) or ())
+            ]
+            if not arch_filters:
+                return {"page": page, "total": 0, "runs": []}
+        runs, total = rundb.get_finished_runs(
+            skip=(page - 1) * FINISHED_RUNS_PAGE_SIZE,
+            limit=FINISHED_RUNS_PAGE_SIZE,
+            arch_filters=arch_filters,
+            **filters,
+            **bound,
+        )
+    except ExecutionTimeout as e:
+        msg = (
+            f"The listing took longer than {ACTIONS_QUERY_TIME_MAX_MS} ms; since"
+            " and until bound the runs it reads"
+        )
+        raise ToolRefusal(msg) from e
     return {"page": page, "total": total, "runs": [run_summary(run) for run in runs]}
 
 
