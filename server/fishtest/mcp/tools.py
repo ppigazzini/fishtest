@@ -25,6 +25,7 @@ from pymongo.errors import ExecutionTimeout
 from fishtest.api import ACTIONS_QUERY_TIME_MAX_MS
 from fishtest.constants import supported_arches
 from fishtest.mcp.contracts import (
+    ACTION_FIELDS,
     ACTIONS_LIMIT_MAX,
     FINISHED_RUNS_PAGE_SIZE,
     TEXT_MAX,
@@ -369,6 +370,16 @@ def elo_estimate(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _action(action: dict[str, Any]) -> dict[str, Any]:
+    # An event as the `search_actions` contract publishes it: the fields it
+    # names and the document holds, the id rendered. A field the document does
+    # not hold is left out, and one it holds and the contract does not name is
+    # dropped here rather than passed through.
+    event = {key: action[key] for key in ACTION_FIELDS if key in action}
+    event["_id"] = str(action["_id"])
+    return event
+
+
 def search_actions(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
     # The filter the contract admits is one `action_query_schema` accepts: the
     # two are proven equal, so the database is handed only what `/api/actions`
@@ -385,7 +396,9 @@ def search_actions(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
         .limit(limit)
     )
     try:
-        found = [{**action, "_id": str(action["_id"])} for action in actions]
+        # Build each event from the fields the contract names, not from the
+        # stored document: a field nobody published cannot leave through it.
+        found = [_action(action) for action in actions]
     except ExecutionTimeout as e:
         msg = (
             f"The filter took longer than {ACTIONS_QUERY_TIME_MAX_MS} ms; a filter"

@@ -95,6 +95,13 @@ task.
 The `search_actions` filter is the language of `POST /api/actions`: the
 fields, comparisons, boolean operators and sizes its table lists.
 
+Each event holds its `_id`, `action`, `username` and `time`, and, where its
+kind sets them, the `worker`, `run_id`, `run`, `task_id`, `message`, `nn` and
+`user` the filter fields name. The record is closed and the server builds it
+from those fields alone, so a field a stored document may carry beyond them
+never leaves through the tool. An older event may hold a kind the server no
+longer writes, such as `update_stats`, and is published as stored.
+
 Each argument and each filter field carries a `description` with what it holds,
 in its unit and case. A string in a filter matches whole and case-sensitively,
 an event's `time` is in seconds since the Unix epoch, and an event's `action`

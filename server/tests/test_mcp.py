@@ -18,6 +18,7 @@ from mcp.shared.exceptions import MCPError
 from mcp.types import INVALID_PARAMS
 from pymongo import DESCENDING, TEXT
 from test_schemas import RUN
+from valgebra import Validator, union
 from valgebra_jsonschema import compile_schema, compile_with_fallbacks
 from valgebra_planning.codemode import feedback, stubs
 from valgebra_planning.contracts import read_contract, read_task
@@ -29,6 +30,7 @@ from valgebra_planning.run import blame
 from valgebra_planning.servers import read_server, run_on_server
 from valgebra_planning.vacuity import vacuities
 
+from fishtest import schemas
 from fishtest.constants import LTC_LOWER_BOUND
 from fishtest.mcp import contracts as mcp_contracts
 from fishtest.mcp import tools as mcp_tools
@@ -163,6 +165,42 @@ class TestMcpContracts(unittest.TestCase):
         self.assertNotIn(
             {**summary, "results": {**summary["results"], "spsa": 1}}, returns
         )
+
+    def test_every_stored_action_is_published_inside_the_event_record(self):
+        # The record is closed over the fields a stored action declares, so a
+        # field nobody published cannot leave through search_actions. A proof
+        # per field holds that every value the stored schema admits there is
+        # published inside the field, so no event the server writes is
+        # refused: each branch's field is one of these values or narrower.
+        record = mcp_contracts.ACTION
+        self.assertIs(record["additionalProperties"], False)
+        self.assertEqual(set(record["properties"]), set(mcp_contracts.ACTION_FIELDS))
+        stored = {
+            "action": schemas.action_name,
+            "username": schemas.action_username,
+            "worker": union(schemas.long_worker_name, schemas.short_worker_name),
+            "run_id": schemas.run_id,
+            "run": schemas.run_name,
+            "task_id": schemas.task_id,
+            "time": schemas.timestamp,
+            "message": schemas.action_message,
+            "nn": schemas.net_name,
+            "user": Validator(str),
+        }
+        self.assertEqual({"_id", *stored}, set(mcp_contracts.ACTION_FIELDS))
+
+        # Text a user wrote: a string whose one bound is TEXT_MAX, the length
+        # `plain` cuts every string to, so every string is published inside it.
+        def bounds(schema):
+            return {key: value for key, value in schema.items() if key != "description"}
+
+        text = bounds(mcp_contracts.user_text(""))
+        for field, values in stored.items():
+            published = record["properties"][field]
+            if values.relation_to(compile_schema(published)) == "subset":
+                continue
+            self.assertEqual(bounds(published), text, f"{field} is no user text")
+            self.assertEqual(values.relation_to(Validator(str)), "subset", field)
 
     def test_a_summary_names_the_workers_a_run_admits(self):
         # The arch filter and the compiler decide which workers play a run, so
@@ -1065,6 +1103,57 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         )
         messages = [a["message"] for a in result.structured_content["actions"]]
         self.assertIn(marker, messages)
+
+    async def test_search_actions_publishes_only_the_fields_it_names(self):
+        # A stored action carrying a field the contract does not name, as a
+        # legacy document or a new action type might, does not leave through
+        # the tool: the result is built from the named fields alone.
+        marker = f"leak probe {datetime.now(UTC).isoformat()}"
+        self.rundb.db["actions"].insert_one(
+            {
+                "action": "log_message",
+                "username": "TestMcpUser",
+                "message": marker,
+                "time": datetime.now(UTC).timestamp(),
+                "remote_addr": "203.0.113.9",
+                "reset_token": "s3cr3t",
+            }
+        )
+        result = await self._call(
+            "search_actions", {"filter": {"username": "TestMcpUser"}, "text": "leak"}
+        )
+        self.assertFalse(result.is_error)
+        events = [
+            a for a in result.structured_content["actions"] if a["message"] == marker
+        ]
+        self.assertEqual(len(events), 1)
+        self.assertNotIn("remote_addr", events[0])
+        self.assertNotIn("reset_token", events[0])
+        self.assertNotIn("203.0.113.9", result.content[0].text)
+        self.assertNotIn("s3cr3t", result.content[0].text)
+
+    async def test_search_actions_publishes_an_event_of_a_retired_kind(self):
+        # Older events hold kinds the server no longer writes, such as
+        # update_stats: the record publishes one as stored, and it does not
+        # refuse the listing it is in.
+        marker = f"retired kind {datetime.now(UTC).isoformat()}"
+        self.rundb.db["actions"].insert_one(
+            {
+                "action": "update_stats",
+                "username": "TestMcpUser",
+                "message": marker,
+                "time": datetime.now(UTC).timestamp(),
+            }
+        )
+        result = await self._call(
+            "search_actions",
+            {"filter": {"username": "TestMcpUser", "action": "update_stats"}},
+        )
+        self.assertFalse(result.is_error)
+        events = result.structured_content["actions"]
+        self.assertEqual(
+            [(e["action"], e["message"]) for e in events], [("update_stats", marker)]
+        )
 
     async def test_a_run_the_database_does_not_hold_is_a_tool_error(self):
         result = await self._call("get_run", {"run_id": "f" * 24})

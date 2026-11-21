@@ -391,17 +391,36 @@ FILTER = {
 }
 
 # An action names its kind, its author and its time; the rest depends on the
-# kind, and is what /api/actions returns too.
+# kind, and is what /api/actions returns too. The record is closed and names
+# every field a stored action holds, so a field nobody published, such as a
+# worker's address, cannot leave through it; the server builds each result
+# from these keys alone.
+ACTION_FIELDS = ("_id", *ACTION_QUERY_FIELDS)
 ACTION = {
     "type": "object",
     "properties": {
         "_id": {"type": "string"},
-        "action": {"type": "string"},
-        "username": user_text("The username of the event's author"),
-        "message": user_text("The event's message"),
+        # A string, not an enum: older events hold kinds the server no
+        # longer writes, and one such event would refuse its whole listing.
+        "action": {
+            "type": "string",
+            "description": (
+                f"{FILTER_FIELDS['action']}; an older event may hold a kind the"
+                " server no longer writes, such as update_stats"
+            ),
+        },
+        "username": user_text(FILTER_FIELDS["username"]),
+        "worker": user_text(FILTER_FIELDS["worker"]),
+        "run_id": RUN_ID,
+        "run": user_text(FILTER_FIELDS["run"]),
+        "task_id": COUNT,
         "time": {"type": "number"},
+        "message": user_text(FILTER_FIELDS["message"]),
+        "nn": user_text(FILTER_FIELDS["nn"]),
+        "user": user_text(FILTER_FIELDS["user"]),
     },
     "required": ["_id", "action", "username", "time"],
+    "additionalProperties": False,
 }
 
 TOOLS: list[dict[str, Any]] = [
