@@ -133,6 +133,77 @@ class AuditTest(unittest.TestCase):
         raised = [code for group, _, code in tally.failures if group.endswith("v1")]
         self.assertTrue(all(code.startswith("raises KeyError") for code in raised))
 
+    def test_the_mcp_audit_reads_actions_and_workers(self):
+        worker_info = {
+            "uname": "Linux 6.6",
+            "architecture": ["64bit", "ELF"],
+            "concurrency": 8,
+            "max_memory": 6000,
+            "min_threads": 1,
+            "username": "someone",
+            "version": 332,
+            "python_version": [3, 13, 5],
+            "gcc_version": [13, 2, 0],
+            "compiler": "g++",
+            "unique_key": "abcd1234-5a28-4b7d-b27b-d78d97ecf11a",
+            "modified": False,
+            "worker_arch": "x86-64-avx2",
+            "ARCH": "AVX2",
+            "nps": 100000.0,
+            "near_github_api_limit": False,
+            "remote_addr": "1.2.3.4",
+            "country_code": "US",
+        }
+        self.db["runs"].insert_one(
+            {
+                "_id": ObjectId(),
+                "finished": False,
+                "version": 24,
+                "args": {"username": "someone"},
+                "tasks": [
+                    {"active": True, "worker_info": worker_info, "last_updated": None},
+                    {"active": False, "worker_info": worker_info},
+                    # An active task the row cannot be built from.
+                    {"active": True},
+                ],
+            }
+        )
+        self.db["actions"].insert_many(
+            [
+                {
+                    "action": "log_message",
+                    "username": "someone",
+                    "time": 1.0,
+                    "message": "ok",
+                },
+                # A kind the server no longer writes.
+                {"action": "update_stats", "username": "someone", "time": 2.0},
+                # A field no branch declares.
+                {
+                    "action": "log_message",
+                    "username": "someone",
+                    "time": 3.0,
+                    "message": "ok",
+                    "remote_addr": "203.0.113.9",
+                },
+            ]
+        )
+        with redirect_stderr(io.StringIO()):
+            tally = audit(self.db, 0, mcp=True)
+        # Each active task is one worker row: one meets the contract, and the
+        # one without worker info is counted, not raised.
+        self.assertEqual(tally.checked["mcp list_active_workers"], 2)
+        self.assertEqual(tally.failing["mcp list_active_workers"], 1)
+        (raised,) = [code for group, _, code in tally.failures if "workers" in group]
+        self.assertTrue(raised.startswith("raises KeyError"), raised)
+        # Every action is published inside the event record: the projection
+        # drops the field no branch declares, and the record admits any kind.
+        self.assertEqual(tally.checked["mcp search_actions"], 3)
+        self.assertEqual(tally.failing["mcp search_actions"], 0)
+        # The stored check names both documents the event would hide.
+        self.assertEqual(tally.checked["actions"], 3)
+        self.assertEqual(tally.failing["actions"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -10,10 +10,15 @@ server logs a failing run older than RUN_VERSION to stdout only.
 The server raises on a failing user, worker or net where it validates one:
 a user update, a worker update, a net download. It logs a failing run.
 
-With `--mcp` it also reads every run, finished or not, as the MCP endpoint
-publishes it: the `get_run` summary, and the `get_elo` estimate of an SPRT
-run, each through its tool's result contract. The endpoint refuses a result
-outside its contract, so each failure is a run a client cannot read.
+With `--mcp` it also reads every document the MCP endpoint publishes, each
+through its tool's result contract: every run, finished or not, as the
+`get_run` summary and, for an SPRT run, the `get_elo` estimate; every stored
+action as a `search_actions` event; and every active task's worker as a
+`list_active_workers` row. The endpoint refuses a result outside its
+contract, so each failure is a document a client cannot read. Each action is
+also checked against its own schema in the same read: the event drops a field
+the contract does not name, so only the stored check names a document that
+holds one, or a kind the server no longer writes.
 
     cd server
     uv run python utils/validate_documents.py [--db NAME] [--limit N] [--mcp]
@@ -30,8 +35,16 @@ from pymongo import MongoClient
 from valgebra import ValidationError
 
 from fishtest.mcp.contracts import CONTRACTS
-from fishtest.mcp.tools import RUN_PROJECTION, elo_estimate, plain, run_summary
+from fishtest.mcp.tools import (
+    RUN_PROJECTION,
+    _action,
+    elo_estimate,
+    plain,
+    run_summary,
+    worker_row,
+)
 from fishtest.schemas import (
+    action_schema,
     books_schema,
     github_api_cache_schema,
     legacy_usernames_schema,
@@ -165,6 +178,73 @@ def audit_mcp(db, limit, tally):
                 lambda run=run: plain(elo_estimate(run)),
                 estimate,
             )
+    audit_mcp_actions(db, limit, tally)
+    audit_mcp_workers(db, limit, tally)
+
+
+def audit_mcp_actions(db, limit, tally):
+    # Every stored action twice in one read: as the server writes it, which
+    # names a field or a kind its schema does not declare, and as
+    # `search_actions` publishes it, one event in the tool's result, cleared
+    # as the server clears it, which names an event a client cannot read.
+    events = CONTRACTS["search_actions"].returns
+    total = limit or db["actions"].estimated_document_count()
+    print(f"mcp: reading {total} actions", file=sys.stderr, flush=True)
+    start = time.monotonic()
+    for read, action in enumerate(db["actions"].find().limit(limit), 1):
+        if read % PROGRESS_EVERY == 0:
+            elapsed = time.monotonic() - start
+            print(
+                f"mcp: {read} of {total} actions, {elapsed:.0f} s",
+                file=sys.stderr,
+                flush=True,
+            )
+        tally.check("actions", action["_id"], action, action_schema)
+        tally.check_call(
+            "mcp search_actions",
+            action["_id"],
+            lambda action=action: plain({"actions": [_action(action)]}),
+            events,
+        )
+
+
+def audit_mcp_workers(db, limit, tally):
+    # Every active task's worker as `list_active_workers` publishes it, built
+    # as `RunDb.get_machines` builds a secondary instance's rows: the task's
+    # worker info, the run it plays, its index and its last update.
+    listing = CONTRACTS["list_active_workers"].returns
+    projection = {"tasks": 1, "args": 1}
+    for run in db["runs"].find({"finished": False}, projection).limit(limit):
+        tasks = run.get("tasks", [])
+        if not any(task.get("active") for task in tasks):
+            continue
+        for task_id, task in enumerate(tasks):
+            if not task.get("active"):
+                continue
+            # Built inside the call, so a task the row cannot be built from is
+            # counted rather than raised.
+            tally.check_call(
+                "mcp list_active_workers",
+                run["_id"],
+                lambda run=run, task_id=task_id, task=task: plain(
+                    _worker_result(worker_row(_machine(run, task_id, task)))
+                ),
+                listing,
+            )
+
+
+def _machine(run, task_id, task):
+    """Return the row `RunDb.get_machines` builds of an active task."""
+    return task["worker_info"] | {
+        "last_updated": task.get("last_updated"),
+        "run": run,
+        "task_id": task_id,
+    }
+
+
+def _worker_result(row):
+    """Return the one-worker result its contract checks: the row in the page."""
+    return {"page": 1, "total": 1, "cores": row["cores"], "workers": [row]}
 
 
 def main():
