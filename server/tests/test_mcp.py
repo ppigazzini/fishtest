@@ -648,6 +648,38 @@ return run
         )
         self.assertIn("'x86-64-avx3' lies outside", feedback(named))
 
+    def test_each_listed_run_reads_its_arches_under_a_key_test(self):
+        # Which workers can play, and which runs alike, for each finished run
+        # that targets architectures: a loop item's field is held under a
+        # test showing its key, as a result's is, so every link is proven.
+        source = """
+found = list_finished_runs(since="2026-01-06")
+for run in found.runs:
+    if "arches" in run:
+        for arch in run.arches:
+            able = list_active_workers(arch=arch)
+            alike = list_finished_runs(arch=arch, until=run.last_updated)
+return found
+"""
+        goal = _output("list_finished_runs")
+        checked = self._critique(source, {}, goal)
+        self.assertTrue(checked.accepted, feedback(checked))
+        self.assertEqual(
+            checked.verification.count("proven"), len(checked.verification.links)
+        )
+        # Without the test the field is no value the program holds, and the
+        # critique names the test to add.
+        unguarded = """
+found = list_finished_runs(since="2026-01-06")
+for run in found.runs:
+    for arch in run.arches:
+        able = list_active_workers(arch=arch)
+return found
+"""
+        refuted = self._critique(unguarded, {}, goal)
+        self.assertFalse(refuted.accepted)
+        self.assertIn("""test `if "arches" in run:`""", feedback(refuted))
+
     def test_each_worker_feeds_the_run_it_plays(self):
         source = """
 found = list_active_workers()

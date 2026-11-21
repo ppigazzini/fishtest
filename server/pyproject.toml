@@ -36,8 +36,8 @@ dependencies = [
     "scipy>=1.18.1",
     "uvicorn>=0.54.0",
     "valgebra>=0.0.37,<0.0.38",
-    "valgebra-jsonschema>=0.0.3,<0.0.4",
-    "valgebra-planning[mcp]>=0.0.4,<0.0.5",
+    "valgebra-jsonschema>=0.0.4,<0.0.5",
+    "valgebra-planning[mcp]>=0.0.5,<0.0.6",
     "zxcvbn>=4.5.0",
 ]
 
