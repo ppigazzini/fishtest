@@ -435,6 +435,26 @@ class TestMcpContracts(unittest.TestCase):
         with self.assertRaisesRegex(mcp_tools.ToolRefusal, "is an SPSA tune"):
             mcp_tools.get_elo(rundb, {"run_id": str(run["_id"])})
 
+    def test_a_filter_nested_past_the_bound_is_refused_for_its_depth(self):
+        # A filter /api/actions reads nests 95 levels; the arguments record
+        # adds one. The refusal names the depth, not what a string admits,
+        # and its path is cut in its middle, not spelled out 190 steps long.
+        from fishtest.mcp.refusals import refusal
+
+        def nested(levels):
+            query = {"action": "new_run"}
+            for _ in range(levels):
+                query = {"$and": [query]}
+            return query
+
+        self.assertIn({"filter": nested(94)}, CONTRACTS["search_actions"].accepts)
+        self.assertEqual(
+            refusal("search_actions", {"filter": nested(95)}),
+            "search_actions refuses its arguments: at"
+            " filter.$and.0.$and.0.$and.<180 more>.0.$and.0.$and.0.action:"
+            " expected a value that nests fewer levels [recursion_limit]",
+        )
+
     def test_each_keyword_of_a_contract_asserts(self):
         # A keyword JSON Schema does not define is an annotation, so a
         # misspelled bound bounds nothing; an opaque keyword, such as

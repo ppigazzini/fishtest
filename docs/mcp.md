@@ -173,7 +173,7 @@ as written, and a word after a minus excludes what holds it.
 | `Origin` present and not served | HTTP `403` |
 | A method other than `POST` | HTTP `405`, `Allow: POST` |
 | A tool the server does not list | JSON-RPC error `-32602`, "Unknown tool: NAME" (HTTP `400` under `2026-07-28`) |
-| Arguments outside the input schema | a tool error naming where they fail, what the input schema admits there in its own terms (an unexpected key names the keys the tool takes), and the code |
+| Arguments outside the input schema | a tool error naming where they fail, what the input schema admits there in its own terms (an unexpected key names the keys the tool takes; a value nested past the depth the server reads, such as a filter of 95 levels, asks for fewer levels), and the code; a path longer than 12 steps names its first and last 6 |
 | A run the database does not hold, or `get_elo` on an SPSA tune, on a fixed-games test that has played no game, or on an SPRT test whose bounds the estimator cannot read | a tool error |
 | A result outside the output schema | a tool error, "TOOL could not answer within its contract" |
 | A failure in the server | JSON-RPC error `-32603`, "Internal server error", in either protocol era; the server logs the failure |

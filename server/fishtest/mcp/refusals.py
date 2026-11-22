@@ -182,6 +182,10 @@ def _expected(contract: Contract, error: ValidationError) -> str:
     # Python values valgebra-jsonschema compiles it into: an unexpected key
     # names the keys its record takes, any other failure what its subschema
     # admits. A failure these words do not cover keeps valgebra's expectation.
+    if error.code == "recursion_limit":
+        # The value nests past what the server reads; valgebra's expectation
+        # counts the levels of its own walk, which no client can count.
+        return "a value that nests fewer levels"
     if error.code == "extra_forbidden":
         keys = _keys(contract, error.path[:-1])
         if keys is not None:
@@ -194,8 +198,18 @@ def _expected(contract: Contract, error: ValidationError) -> str:
     return error.expected
 
 
+# The steps of a path a refusal names in full: a longer one, such as a filter
+# nested to the depth the server reads, is cut in its middle.
+PATH_STEPS_SHOWN = 12
+
+
 def _where(path: tuple[str | int, ...], whole: str) -> str:
-    return ".".join(map(str, path)) or whole
+    steps = [str(step) for step in path]
+    if len(steps) > PATH_STEPS_SHOWN:
+        half = PATH_STEPS_SHOWN // 2
+        cut = len(steps) - 2 * half
+        steps = [*steps[:half], f"<{cut} more>", *steps[-half:]]
+    return ".".join(steps) or whole
 
 
 def refusal(name: str, arguments: dict[str, Any]) -> str:
