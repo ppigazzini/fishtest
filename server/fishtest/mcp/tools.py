@@ -439,6 +439,43 @@ def _fixed_games_estimate(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def get_spsa(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
+    run_id = arguments["run_id"]
+    run = _held_run(rundb, run_id)
+    if "spsa" not in run["args"]:
+        msg = f"The run {run_id} is no SPSA tune"
+        raise ToolRefusal(msg)
+    return spsa_tune(run)
+
+
+# A parameter's fields the run page lists beside its name and value.
+_SPSA_PARAM_FIELDS = ("start", "min", "max", "c_end", "r_end")
+
+
+def spsa_tune(run: dict[str, Any]) -> dict[str, Any]:
+    """Return what the `get_spsa` contract publishes of an SPSA tune.
+
+    Each parameter's value is its `theta`, the value the tune has reached; a
+    field an older tune does not store is left out.
+    """
+    spsa = run["args"]["spsa"]
+    tune = {
+        "run_id": str(run["_id"]),
+        "iter": spsa["iter"],
+        "num_iter": spsa["num_iter"],
+    }
+    tune |= {key: spsa[key] for key in ("A", "alpha", "gamma") if key in spsa}
+    tune["params"] = [
+        {
+            "name": param["name"],
+            "value": param["theta"],
+            **{key: param[key] for key in _SPSA_PARAM_FIELDS if key in param},
+        }
+        for param in spsa["params"]
+    ]
+    return tune
+
+
 def _action(action: dict[str, Any]) -> dict[str, Any]:
     # An event as the `search_actions` contract publishes it: the fields it
     # names and the document holds, the id rendered. A field the document does
@@ -524,5 +561,6 @@ TOOL_FUNCTIONS = {
     "list_finished_runs": list_finished_runs,
     "list_active_workers": list_active_workers,
     "get_elo": get_elo,
+    "get_spsa": get_spsa,
     "search_actions": search_actions,
 }

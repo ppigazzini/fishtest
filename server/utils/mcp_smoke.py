@@ -74,6 +74,12 @@ async def smoke(target, mode):
             check("get_elo", not result.is_error, sprt[0])
         else:
             check("get_elo", None, "no SPRT run to read")
+        tunes = [run["run_id"] for run in runs if "spsa" in run]
+        if tunes:
+            result = await client.call_tool("get_spsa", {"run_id": tunes[0]})
+            check("get_spsa", not result.is_error, tunes[0])
+        else:
+            check("get_spsa", None, "no SPSA tune to read")
 
         query = {"filter": {"action": "new_run"}, "limit": 1}
         result = await client.call_tool("search_actions", query)

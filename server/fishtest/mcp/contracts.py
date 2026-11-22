@@ -274,6 +274,30 @@ def run_list(finished: bool) -> dict[str, Any]:
     return {"type": "array", "items": {**RUN_SUMMARY, "properties": properties}}
 
 
+# An SPSA parameter as the run page lists it: the value the tune has reached,
+# where it started, its bounds, and the perturbation and learning rate it ends
+# with.
+SPSA_PARAM = {
+    "type": "object",
+    "properties": {
+        "name": user_text("The parameter's name, as the tune's author wrote it"),
+        "value": {"type": "number", "description": "The value the tune has reached"},
+        "start": {"type": "number", "description": "The value the tune started from"},
+        "min": {"type": "number", "description": "The least value the tune tries"},
+        "max": {"type": "number", "description": "The greatest value the tune tries"},
+        "c_end": {
+            "type": "number",
+            "description": "The perturbation c at the tune's last iteration",
+        },
+        "r_end": {
+            "type": "number",
+            "description": "The learning rate r at the tune's last iteration",
+        },
+    },
+    "required": ["name", "value"],
+    "additionalProperties": False,
+}
+
 # A version as a list of three numbers joined by dots, such as 3.13.5.
 VERSION = {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}
 
@@ -721,6 +745,37 @@ TOOLS: list[dict[str, Any]] = [
                 },
             },
             "required": ["run_id", "elo_model", "elo", "ci", "LOS"],
+            "additionalProperties": False,
+        },
+        "annotations": READ_ONLY,
+    },
+    {
+        "name": "get_spsa",
+        "title": "Get the parameters of an SPSA tune",
+        "description": (
+            "Return an SPSA tune's parameters as its page lists them: each one's"
+            " name, the value the tune has reached, its start and bounds, and its"
+            " final perturbation and learning rate, with the iterations played"
+            " and planned. A run that is no SPSA tune has none."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"run_id": RUN_ID},
+            "required": ["run_id"],
+            "additionalProperties": False,
+        },
+        "outputSchema": {
+            "type": "object",
+            "properties": {
+                "run_id": RUN_ID,
+                "iter": {**COUNT, "description": "The iterations played"},
+                "num_iter": {**COUNT, "description": "The iterations planned"},
+                "A": {**COUNT, "description": "The tune's iteration offset A"},
+                "alpha": {"type": "number", "description": "The tune's alpha"},
+                "gamma": {"type": "number", "description": "The tune's gamma"},
+                "params": {"type": "array", "items": SPSA_PARAM},
+            },
+            "required": ["run_id", "iter", "num_iter", "params"],
             "additionalProperties": False,
         },
         "annotations": READ_ONLY,

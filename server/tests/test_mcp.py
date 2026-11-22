@@ -82,6 +82,36 @@ def _worker_info(username, arch, country_code):
     }
 
 
+# An SPSA tune as `new_run` stores one: its parameters with their value
+# reached (theta), start, bounds and end rates.
+SPSA_TUNE = {
+    "A": 10,
+    "alpha": 0.602,
+    "gamma": 0.101,
+    "raw_params": "Needle,40,0,80,4,0.002\nHay,-3,-10,10,1,0.002",
+    "iter": 10,
+    "num_iter": 100,
+    "params": [
+        {
+            "name": name,
+            "start": start,
+            "min": low,
+            "max": high,
+            "c_end": c_end,
+            "r_end": 0.002,
+            "c": c_end * 100**0.101,
+            "a_end": 0.002 * c_end**2,
+            "a": 0.002 * c_end**2 * 110**0.602,
+            "theta": theta,
+        }
+        for name, start, low, high, c_end, theta in (
+            ("Needle", 40.0, 0.0, 80.0, 4.0, 41.5),
+            ("Hay", -3.0, -10.0, 10.0, 1.0, -2.25),
+        )
+    ],
+}
+
+
 class TestMcpContracts(unittest.TestCase):
     def test_each_listed_tool_has_a_contract_and_a_function(self):
         names = [tool["name"] for tool in mcp_contracts.TOOLS]
@@ -632,6 +662,27 @@ return events
         checked = self._critique(source, {}, _output("search_actions"))
         self.assertTrue(checked.accepted, feedback(checked))
 
+    def test_a_tunes_parameters_are_read_under_a_key_test(self):
+        source = """
+run = get_run(run_id=run_id)
+if "spsa" in run:
+    tune = get_spsa(run_id=run.run_id)
+    return tune
+stop(run)
+"""
+        checked = self._critique(
+            source, {"run_id": mcp_contracts.RUN_ID}, _output("get_spsa")
+        )
+        self.assertTrue(
+            all(link.verdict == "proven" for link in checked.verification.links),
+            feedback(checked),
+        )
+        # A run that is no tune has no parameters: that branch stops.
+        self.assertEqual(
+            [(gap.where, gap.ref) for gap in checked.verification.gaps],
+            [("else", "run")],
+        )
+
     def test_a_runs_events_and_the_events_before_each_are_proven(self):
         # A run's events need no filter record, which a program cannot build
         # from a value it holds, and an event's time pages back from it.
@@ -850,6 +901,10 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         cls.finished_avx2_run_id = cls._create_run(
             sprt=False, finished=True, info="Widen the hay", arch_filter="avx2$"
         )
+        # An SPSA tune of two parameters, 10 of 100 iterations in.
+        cls.spsa_run_id = cls._create_run(
+            sprt=False, info="Tune the needle", spsa=SPSA_TUNE
+        )
         cls.finished_nodestime_run_id = cls._create_run(
             sprt=False,
             finished=True,
@@ -1003,6 +1058,46 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(estimate["elo_model"], "normalized")
         self.assertEqual(len(estimate["ci"]), 2)
         self.assertLess(estimate["ci"][0], estimate["ci"][1])
+
+    async def test_get_spsa_lists_the_parameters_a_tune_has_reached(self):
+        result = await self._call("get_spsa", {"run_id": self.spsa_run_id})
+        self.assertFalse(result.is_error)
+        self.assertEqual(
+            result.structured_content,
+            {
+                "run_id": self.spsa_run_id,
+                "iter": 10,
+                "num_iter": 100,
+                "A": 10,
+                "alpha": 0.602,
+                "gamma": 0.101,
+                "params": [
+                    {
+                        "name": "Needle",
+                        "value": 41.5,
+                        "start": 40.0,
+                        "min": 0.0,
+                        "max": 80.0,
+                        "c_end": 4.0,
+                        "r_end": 0.002,
+                    },
+                    {
+                        "name": "Hay",
+                        "value": -2.25,
+                        "start": -3.0,
+                        "min": -10.0,
+                        "max": 10.0,
+                        "c_end": 1.0,
+                        "r_end": 0.002,
+                    },
+                ],
+            },
+        )
+        refused = await self._call("get_spsa", {"run_id": self.run_id})
+        self.assertTrue(refused.is_error)
+        self.assertEqual(
+            refused.content[0].text, f"The run {self.run_id} is no SPSA tune"
+        )
 
     async def test_get_elo_estimates_a_fixed_games_run_as_its_page(self):
         # The run page's estimate: logistic Elo from the pentanomial, with its
@@ -1695,7 +1790,7 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             checks = await smoke(self.server, mode)
             failed = [check for check in checks if check[1] is not True]
             self.assertEqual(failed, [], mode)
-            self.assertEqual(len(checks), 10, mode)
+            self.assertEqual(len(checks), 11, mode)
 
     async def test_a_proven_program_runs_on_the_server(self):
         # A proven program breaks at run time only where a result leaves its

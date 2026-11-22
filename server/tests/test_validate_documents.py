@@ -143,6 +143,9 @@ class AuditTest(unittest.TestCase):
         for version in (3, 4):
             self.assertNotIn(f"mcp get_elo fixed v{version}", tally.checked)
             self.assertNotIn(f"mcp get_elo v{version}", tally.checked)
+        # The tune's parameters are read as get_spsa publishes them.
+        self.assertEqual(tally.checked["mcp get_spsa v4"], 1)
+        self.assertEqual(tally.failing["mcp get_spsa v4"], 0)
         # A run missing what the reader expects is counted, not raised.
         self.assertEqual(tally.failing["mcp get_run v1"], 1)
         self.assertEqual(tally.failing["mcp get_elo v1"], 1)

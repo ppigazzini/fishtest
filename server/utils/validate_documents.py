@@ -41,6 +41,7 @@ from fishtest.mcp.tools import (
     elo_estimate,
     plain,
     run_summary,
+    spsa_tune,
     worker_row,
 )
 from fishtest.schemas import (
@@ -163,6 +164,7 @@ def _played(run):
 
 def audit_mcp(db, limit, tally):
     summary, estimate = CONTRACTS["get_run"].returns, CONTRACTS["get_elo"].returns
+    tune = CONTRACTS["get_spsa"].returns
     total = limit or db["runs"].estimated_document_count()
     print(f"mcp: reading {total} runs", file=sys.stderr, flush=True)
     start = time.monotonic()
@@ -195,6 +197,13 @@ def audit_mcp(db, limit, tally):
                 run["_id"],
                 lambda run=run: plain(elo_estimate(run)),
                 estimate,
+            )
+        if "spsa" in args:
+            tally.check_call(
+                f"mcp get_spsa v{version}",
+                run["_id"],
+                lambda run=run: plain(spsa_tune(run)),
+                tune,
             )
     audit_mcp_actions(db, limit, tally)
     audit_mcp_workers(db, limit, tally)

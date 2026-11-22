@@ -888,8 +888,8 @@ each collection.
 
 `--mcp` also reads every run, finished or not, as the MCP endpoint publishes
 it: the `get_run` summary of each run and the `get_elo` estimate of each SPRT
-test and of each fixed-games test that has played a game, each through its
-tool's result contract. Run it before setting
+test and of each fixed-games test that has played a game, and the `get_spsa`
+parameters of each SPSA tune, each through its tool's result contract. Run it before setting
 `MCP_PATH`. An estimate takes milliseconds, so on a full database the audit
 takes minutes; it prints its progress to stderr every 10,000 runs. Once the
 endpoint serves, a result its contract refuses is logged as an error naming the
