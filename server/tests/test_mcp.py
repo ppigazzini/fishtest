@@ -1404,10 +1404,28 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             with mock.patch.object(self.rundb, method, side_effect=timeout):
                 result = await self._call("list_finished_runs", arguments)
             self.assertTrue(result.is_error, method)
+            # The refusal names the call to retry with: a window a month back,
+            # and the until that reads the month before it.
+            days = [
+                (datetime.now(UTC) - timedelta(days=n)).date().isoformat()
+                for n in (30, 31)
+            ]
+            self.assertIn(
+                result.content[0].text,
+                [
+                    "The listing took longer than 2000 ms; since and until bound"
+                    f" the runs it reads: retry with since={day}, a month back,"
+                    f" and read the month before it with until={day}"
+                    for day in days
+                ],
+            )
+            windowed = {**arguments, "since": days[0]}
+            with mock.patch.object(self.rundb, method, side_effect=timeout):
+                result = await self._call("list_finished_runs", windowed)
             self.assertEqual(
                 result.content[0].text,
-                "The listing took longer than 2000 ms; since and until bound the"
-                " runs it reads",
+                "The listing took longer than 2000 ms; a later since or an earlier"
+                " until narrows the runs it reads",
             )
 
     async def test_a_day_no_month_holds_is_a_tool_error(self):

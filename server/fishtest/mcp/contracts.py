@@ -516,7 +516,8 @@ TOOLS: list[dict[str, Any]] = [
                         " searched as the scheduler searches a worker's: the runs"
                         " whose arches hold it. A run that sets no arch filter"
                         " admits every architecture and is left out. No index"
-                        " holds the filters, so a window bounds what is read"
+                        " holds the filters, so pass since, such as a month back,"
+                        " to bound what is read"
                     ),
                 },
                 "option": {
@@ -527,7 +528,8 @@ TOOLS: list[dict[str, Any]] = [
                         "Only the runs whose new_options or base_options set this"
                         " UCI option, such as nodestime: a name matched whole and"
                         " whatever its case, as UCI reads it. No index holds the"
-                        " options, so a window bounds what is read"
+                        " options, so pass since, such as a month back, to bound"
+                        " what is read"
                     ),
                 },
             },

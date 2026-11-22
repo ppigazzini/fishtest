@@ -122,13 +122,15 @@ reads, so it adds no scan. A date the calendar does not hold, such as
 architecture: the runs whose `arches` holds it. A run that sets no arch filter
 admits every architecture and is left out. No index holds the filters, so the
 listing reads every run its other filters select: a window bounds what it
-reads, and a listing that reads past its time bound is a tool error.
+reads, a month of runs reading within the time bound. A listing that reads
+past its time bound is a tool error that names a `since` a month back to
+retry with, and the `until` that reads the month before it.
 
 `option` holds `list_finished_runs` to the runs whose `new_options` or
 `base_options` set that UCI option: `nodestime` finds the runs that play by
 nodes rather than by clock. The name is matched whole and whatever its case,
 as UCI reads option names, and holds no space and no `=`. No index holds the
-options either, so a window bounds what the listing reads.
+options either, so a window bounds what the listing reads, as for `arch`.
 
 A `text` argument searches as the search box of the matching page searches:
 `list_finished_runs` the runs' `info`, as the finished-runs page does, and

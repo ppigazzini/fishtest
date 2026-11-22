@@ -13,7 +13,7 @@ JSON Schema counts as an integer, so a page number is read with `int()`.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Any
 
@@ -260,12 +260,28 @@ def list_finished_runs(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
             **bound,
         )
     except ExecutionTimeout as e:
-        msg = (
-            f"The listing took longer than {ACTIONS_QUERY_TIME_MAX_MS} ms; since"
-            " and until bound the runs it reads"
-        )
-        raise ToolRefusal(msg) from e
+        raise ToolRefusal(_past_time_bound(arguments)) from e
     return {"page": page, "total": total, "runs": [run_summary(run) for run in runs]}
+
+
+# The window a listing past its time bound names. An arch, option or text
+# filter reads every run the window holds, and on DEV's 170,000 runs a month
+# of them reads within the bound with any of the three.
+RETRY_WINDOW = timedelta(days=30)
+
+
+def _past_time_bound(arguments: dict[str, Any]) -> str:
+    # A window to retry with, and how to read the runs before it: a client
+    # retries a refusal that names its next call.
+    bound = f"The listing took longer than {ACTIONS_QUERY_TIME_MAX_MS} ms"
+    if "since" in arguments:
+        return f"{bound}; a later since or an earlier until narrows the runs it reads"
+    since = (datetime.now(UTC) - RETRY_WINDOW).date().isoformat()
+    return (
+        f"{bound}; since and until bound the runs it reads: retry with"
+        f" since={since}, a month back, and read the month before it with"
+        f" until={since}"
+    )
 
 
 def _version(value: Any) -> str | None:
