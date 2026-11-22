@@ -155,7 +155,8 @@ number of games. `branch` holds it to the runs testing one branch or commit,
 their `new_tag`, matched whole and case-sensitively, where a `text` search
 splits a branch name into words and reads only the info. Neither is held by an
 index, so on `list_finished_runs` a window bounds what each reads, as for
-`arch`, or a `username`, whose index orders that user's runs.
+`arch`; a `username` alone does not, since a prolific author's runs read past
+the time bound.
 
 A `text` argument searches as the search box of the matching page searches:
 `list_finished_runs` the runs' `info`, as the finished-runs page does,
