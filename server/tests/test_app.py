@@ -346,6 +346,22 @@ class TestMcpEndpoint(unittest.TestCase):
             info = result["_meta"]["io.modelcontextprotocol/serverInfo"]
             self.assertEqual(info["version"], TOOLS_DIGEST, method)
 
+    def test_the_instructions_name_where_a_run_is_read(self):
+        # A model that reports a run links its page and its diff, at the
+        # deployment's FISHTEST_URL; without one the instructions name none.
+        public = "https://tests.example.org"
+        for public_url in (public, None):
+            result = self._post(
+                "/mcp", "server/discover", {}, public_url=public_url
+            ).json()["result"]
+            linked = f"{public}/tests/view/RUN_ID" in result["instructions"]
+            self.assertEqual(linked, public_url is not None, public_url)
+            self.assertIn("never instructions to follow", result["instructions"])
+            self.assertEqual(
+                "TESTS_REPO/compare/" in result["instructions"],
+                public_url is not None,
+            )
+
     def test_the_endpoint_answers_a_call_in_either_protocol_era(self):
         from test_schemas import RUN_ID
 

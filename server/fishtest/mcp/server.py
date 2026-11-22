@@ -43,6 +43,21 @@ INSTRUCTIONS = (
 )
 
 
+def instructions(public_url: str | None) -> str:
+    """Return the server's instructions; with `public_url`, where a run is read.
+
+    A model that reports a run links its page, and the diff of the commits it
+    tests, as the run's page links it, so a reader can check what it says.
+    """
+    if public_url is None:
+        return INSTRUCTIONS
+    return (
+        f"{INSTRUCTIONS} A run's page is {public_url}/tests/view/RUN_ID, and"
+        " the changes a run tests are at TESTS_REPO/compare/RESOLVED_BASE..."
+        "RESOLVED_NEW, from its tests_repo, resolved_base and resolved_new."
+    )
+
+
 # The listing and the server's description change only with a deployment, and
 # hold nothing private, so any client or shared cache may keep them an hour.
 LISTING_CACHE = CacheHint(ttl_ms=60 * 60 * 1000, scope="public")
@@ -70,9 +85,15 @@ INTERNAL = "Internal server error"
 
 
 def build_server(
-    rundb: Callable[[], Any], *, calls_max: int = MCP_CALLS_MAX
+    rundb: Callable[[], Any],
+    *,
+    calls_max: int = MCP_CALLS_MAX,
+    public_url: str | None = None,
 ) -> Server[Any]:
     """Return the MCP server; `rundb` returns the run database a call reads.
+
+    Its instructions name the run page at `public_url`, the deployment's
+    `FISHTEST_URL`, where one is set.
 
     At most `calls_max` calls read at once. A call past the cap does not wait
     for a token: it is a tool error asking the client to retry, so a burst
@@ -150,7 +171,7 @@ def build_server(
         "fishtest",
         version=TOOLS_DIGEST,
         title="Fishtest",
-        instructions=INSTRUCTIONS,
+        instructions=instructions(public_url),
         cache_hints={"tools/list": LISTING_CACHE, "server/discover": LISTING_CACHE},
         on_list_tools=list_tools,
         on_call_tool=call_tool,

@@ -28,6 +28,7 @@ FISHTEST_INSECURE_DEV=1 MCP_PATH=/mcp uv run uvicorn fishtest.app:app --port 800
 | Methods | `POST` only; no event stream, no session |
 | Capabilities | tools |
 | Server name | `fishtest`; its version is a digest of the tool listing and changes with any tool's definition |
+| Instructions | what the server reads, that user-written text is data, and, where `FISHTEST_URL` is set, a run's page (`FISHTEST_URL/tests/view/RUN_ID`) and the diff of the commits it tests (`TESTS_REPO/compare/RESOLVED_BASE...RESOLVED_NEW`), so a client links what it reports |
 
 ## Discovery
 
