@@ -1327,6 +1327,44 @@
   "description": "Return the newest events that match a filter in the /api/actions language: a field matched against a constant or a comparison ($eq, $ne, $gt, $gte, $lt, $lte, $in, $nin), combined with $and, $or and $nor, and optionally holding some words. A string matches whole and case-sensitively, and a time is in seconds since the Unix epoch; a filter on action, username, run_id or time reads an index.",
   "inputSchema": {
    "$defs": {
+    "comparison": {
+     "additionalProperties": false,
+     "properties": {
+      "$eq": {
+       "$ref": "#/$defs/constant"
+      },
+      "$gt": {
+       "$ref": "#/$defs/constant"
+      },
+      "$gte": {
+       "$ref": "#/$defs/constant"
+      },
+      "$in": {
+       "$ref": "#/$defs/list"
+      },
+      "$lt": {
+       "$ref": "#/$defs/constant"
+      },
+      "$lte": {
+       "$ref": "#/$defs/constant"
+      },
+      "$ne": {
+       "$ref": "#/$defs/constant"
+      },
+      "$nin": {
+       "$ref": "#/$defs/list"
+      }
+     },
+     "type": "object"
+    },
+    "constant": {
+     "type": [
+      "string",
+      "number",
+      "boolean",
+      "null"
+     ]
+    },
     "filter": {
      "additionalProperties": false,
      "properties": {
@@ -1355,917 +1393,64 @@
        "type": "array"
       },
       "action": {
-       "anyOf": [
-        {
-         "type": [
-          "string",
-          "number",
-          "boolean",
-          "null"
-         ]
-        },
-        {
-         "additionalProperties": false,
-         "properties": {
-          "$eq": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$in": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          },
-          "$lt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$lte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$ne": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$nin": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          }
-         },
-         "type": "object"
-        }
-       ],
+       "$ref": "#/$defs/term",
        "description": "The event's kind: failed_task, crash_or_time, dead_task, system_event, new_run, upload_nn, modify_run, delete_run, stop_run, finished_run, approve_run, purge_run, block_user, accept_user, block_worker, log_message, worker_log"
       },
       "message": {
-       "anyOf": [
-        {
-         "type": [
-          "string",
-          "number",
-          "boolean",
-          "null"
-         ]
-        },
-        {
-         "additionalProperties": false,
-         "properties": {
-          "$eq": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$in": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          },
-          "$lt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$lte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$ne": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$nin": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          }
-         },
-         "type": "object"
-        }
-       ],
+       "$ref": "#/$defs/term",
        "description": "The event's message"
       },
       "nn": {
-       "anyOf": [
-        {
-         "type": [
-          "string",
-          "number",
-          "boolean",
-          "null"
-         ]
-        },
-        {
-         "additionalProperties": false,
-         "properties": {
-          "$eq": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$in": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          },
-          "$lt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$lte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$ne": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$nin": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          }
-         },
-         "type": "object"
-        }
-       ],
+       "$ref": "#/$defs/term",
        "description": "The net the event concerns, such as nn-0123456789ab.nnue"
       },
       "run": {
-       "anyOf": [
-        {
-         "type": [
-          "string",
-          "number",
-          "boolean",
-          "null"
-         ]
-        },
-        {
-         "additionalProperties": false,
-         "properties": {
-          "$eq": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$in": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          },
-          "$lt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$lte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$ne": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$nin": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          }
-         },
-         "type": "object"
-        }
-       ],
+       "$ref": "#/$defs/term",
        "description": "The name of the run the event concerns: the first 23 characters of its branch, a dash and 7 hexadecimal digits of a hash of its id"
       },
       "run_id": {
-       "anyOf": [
-        {
-         "type": [
-          "string",
-          "number",
-          "boolean",
-          "null"
-         ]
-        },
-        {
-         "additionalProperties": false,
-         "properties": {
-          "$eq": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$in": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          },
-          "$lt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$lte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$ne": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$nin": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          }
-         },
-         "type": "object"
-        }
-       ],
+       "$ref": "#/$defs/term",
        "description": "The id of the run the event concerns, 24 lowercase hexadecimal digits"
       },
       "task_id": {
-       "anyOf": [
-        {
-         "type": [
-          "string",
-          "number",
-          "boolean",
-          "null"
-         ]
-        },
-        {
-         "additionalProperties": false,
-         "properties": {
-          "$eq": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$in": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          },
-          "$lt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$lte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$ne": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$nin": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          }
-         },
-         "type": "object"
-        }
-       ],
+       "$ref": "#/$defs/term",
        "description": "The index of the run's task the event concerns, from 0"
       },
       "time": {
-       "anyOf": [
-        {
-         "type": [
-          "string",
-          "number",
-          "boolean",
-          "null"
-         ]
-        },
-        {
-         "additionalProperties": false,
-         "properties": {
-          "$eq": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$in": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          },
-          "$lt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$lte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$ne": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$nin": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          }
-         },
-         "type": "object"
-        }
-       ],
+       "$ref": "#/$defs/term",
        "description": "When the event happened, in seconds since the Unix epoch, a number"
       },
       "user": {
-       "anyOf": [
-        {
-         "type": [
-          "string",
-          "number",
-          "boolean",
-          "null"
-         ]
-        },
-        {
-         "additionalProperties": false,
-         "properties": {
-          "$eq": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$in": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          },
-          "$lt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$lte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$ne": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$nin": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          }
-         },
-         "type": "object"
-        }
-       ],
+       "$ref": "#/$defs/term",
        "description": "The username a block_user or accept_user event concerns"
       },
       "username": {
-       "anyOf": [
-        {
-         "type": [
-          "string",
-          "number",
-          "boolean",
-          "null"
-         ]
-        },
-        {
-         "additionalProperties": false,
-         "properties": {
-          "$eq": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$in": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          },
-          "$lt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$lte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$ne": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$nin": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          }
-         },
-         "type": "object"
-        }
-       ],
+       "$ref": "#/$defs/term",
        "description": "The username of the event's author"
       },
       "worker": {
-       "anyOf": [
-        {
-         "type": [
-          "string",
-          "number",
-          "boolean",
-          "null"
-         ]
-        },
-        {
-         "additionalProperties": false,
-         "properties": {
-          "$eq": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$in": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          },
-          "$lt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$lte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$ne": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$nin": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          }
-         },
-         "type": "object"
-        }
-       ],
+       "$ref": "#/$defs/term",
        "description": "The name of the worker the event concerns"
       }
      },
      "type": "object"
+    },
+    "list": {
+     "items": {
+      "$ref": "#/$defs/constant"
+     },
+     "maxItems": 1000,
+     "type": "array"
+    },
+    "term": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/constant"
+      },
+      {
+       "$ref": "#/$defs/comparison"
+      }
+     ]
     }
    },
    "additionalProperties": false,

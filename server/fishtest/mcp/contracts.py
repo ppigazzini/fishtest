@@ -330,28 +330,27 @@ WORKER = {
 }
 
 # The /api/actions filter language: what `action_query_schema` admits, written
-# as the JSON a client sends.
+# as the JSON a client sends. Each part is stated once, under the input
+# schema's `$defs`, and every field's term refers to it.
 FILTER_CONSTANT = {"type": ["string", "number", "boolean", "null"]}
 FILTER_LIST = {
     "type": "array",
-    "items": FILTER_CONSTANT,
+    "items": {"$ref": "#/$defs/constant"},
     "maxItems": ACTION_QUERY_LIST_MAX,
 }
 FILTER_COMPARISON = {
     "type": "object",
     "properties": {
-        "$eq": FILTER_CONSTANT,
-        "$ne": FILTER_CONSTANT,
-        "$gt": FILTER_CONSTANT,
-        "$gte": FILTER_CONSTANT,
-        "$lt": FILTER_CONSTANT,
-        "$lte": FILTER_CONSTANT,
-        "$in": FILTER_LIST,
-        "$nin": FILTER_LIST,
+        **{
+            operator: {"$ref": "#/$defs/constant"}
+            for operator in ("$eq", "$ne", "$gt", "$gte", "$lt", "$lte")
+        },
+        "$in": {"$ref": "#/$defs/list"},
+        "$nin": {"$ref": "#/$defs/list"},
     },
     "additionalProperties": False,
 }
-FILTER_TERM = {"anyOf": [FILTER_CONSTANT, FILTER_COMPARISON]}
+FILTER_TERM = {"anyOf": [{"$ref": "#/$defs/constant"}, {"$ref": "#/$defs/comparison"}]}
 # What each field holds, in the unit and case a filter must match: a string
 # matches whole and case-sensitively, and a constant of another type or unit
 # matches nothing.
@@ -380,7 +379,7 @@ FILTER = {
     "type": "object",
     "properties": {
         **{
-            field: {"description": FILTER_FIELDS[field], **FILTER_TERM}
+            field: {"description": FILTER_FIELDS[field], "$ref": "#/$defs/term"}
             for field in ACTION_QUERY_FIELDS
         },
         "$and": FILTER_CLAUSES,
@@ -388,6 +387,13 @@ FILTER = {
         "$nor": FILTER_CLAUSES,
     },
     "additionalProperties": False,
+}
+FILTER_DEFS = {
+    "filter": FILTER,
+    "term": FILTER_TERM,
+    "constant": FILTER_CONSTANT,
+    "comparison": FILTER_COMPARISON,
+    "list": FILTER_LIST,
 }
 
 # An action names its kind, its author and its time; the rest depends on the
@@ -680,7 +686,7 @@ TOOLS: list[dict[str, Any]] = [
             },
             "required": ["filter"],
             "additionalProperties": False,
-            "$defs": {"filter": FILTER},
+            "$defs": FILTER_DEFS,
         },
         "outputSchema": {
             "type": "object",
