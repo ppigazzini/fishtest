@@ -191,16 +191,25 @@ class TestMcpContracts(unittest.TestCase):
 
         # Text a user wrote: a string whose one bound is TEXT_MAX, the length
         # `plain` cuts every string to, so every string is published inside it.
+        # Each field is decided: its stored values are proved inside the
+        # published field, or refuted there and published as text `plain` cuts.
         def bounds(schema):
             return {key: value for key, value in schema.items() if key != "description"}
 
         text = bounds(mcp_contracts.user_text(""))
+        cut = set()
         for field, values in stored.items():
             published = record["properties"][field]
-            if values.relation_to(compile_schema(published)) == "subset":
+            answer = values.relation_to(compile_schema(published))
+            if answer == "subset":
                 continue
+            self.assertEqual(answer, "not_subset", field)
             self.assertEqual(bounds(published), text, f"{field} is no user text")
             self.assertEqual(values.relation_to(Validator(str)), "subset", field)
+            cut.add(field)
+        # A net name is 20 characters and is published as stored; a user or
+        # worker name may run past TEXT_MAX.
+        self.assertEqual(cut, {"username", "worker", "user"})
 
     def test_a_summary_names_the_workers_a_run_admits(self):
         # The arch filter and the compiler decide which workers play a run, so
