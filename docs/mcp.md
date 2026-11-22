@@ -53,7 +53,7 @@ Every tool reads and changes nothing (`readOnlyHint`, `idempotentHint`,
 | `list_active_runs` | none | `runs`: the summary of every unfinished run |
 | `list_finished_runs` | optionally `page` (from 1, default 1), `username`, `text`, `success_only`, `yellow_only`, `ltc_only`, `since`, `until`, `arch`, `option` | `page`, `total`, `runs`: 50 summaries a page, newest first |
 | `list_active_workers` | optionally `page` (from 1, default 1), `username`, `arch`, `run_id` | `page`, `total`, `cores`, `workers`: 100 workers a page, the most recently updated first |
-| `get_elo` | `run_id` | an SPRT run's bounds, log-likelihood ratio, Elo estimate with its 95% interval, and likelihood of superiority |
+| `get_elo` | `run_id` | a test run's Elo estimate with its 95% interval and likelihood of superiority, as its page shows them; an SPRT test's also with its bounds and log-likelihood ratio |
 | `search_actions` | optionally `run_id`, `username`, `action`, `before`, `filter`, `text` and `limit` (1 to 200, default 50) | `actions`: the newest events every argument selects |
 
 A run summary holds the test the run asks for (`username`, `new_tag`,
@@ -72,6 +72,13 @@ in UTC, written as `2026-11-20 20:48:11.323292+00:00`, the microseconds left
 out where they are 0. A field older runs store in an earlier shape, such as a
 count as a string of digits, is published as what it means; a value that
 means nothing, such as a negative worker count, is left out.
+
+`get_elo` estimates a run as its page does. An SPRT test's estimate is in the
+test's Elo model, such as `normalized`, beside its bounds `elo0` and `elo1`,
+its log-likelihood ratio `LLR` and the `lower_bound` and `upper_bound` at
+which it is rejected and accepted. A fixed-games test's is logistic Elo, from
+the pentanomial where the run holds one and from its wins, draws and losses
+where it does not. `LOS` is the likelihood of superiority, from 0 to 1.
 
 A worker plays the first run it can of the highest `priority`, so a run of a
 lower priority gets a worker only where no run above it can use one: 0 is
@@ -167,7 +174,7 @@ as written, and a word after a minus excludes what holds it.
 | A method other than `POST` | HTTP `405`, `Allow: POST` |
 | A tool the server does not list | JSON-RPC error `-32602`, "Unknown tool: NAME" (HTTP `400` under `2026-07-28`) |
 | Arguments outside the input schema | a tool error naming where they fail, what the input schema admits there in its own terms (an unexpected key names the keys the tool takes), and the code |
-| A run the database does not hold, or `get_elo` on a run that is no SPRT test or whose bounds the estimator cannot read | a tool error |
+| A run the database does not hold, or `get_elo` on an SPSA tune, on a fixed-games test that has played no game, or on an SPRT test whose bounds the estimator cannot read | a tool error |
 | A result outside the output schema | a tool error, "TOOL could not answer within its contract" |
 | A failure in the server | JSON-RPC error `-32603`, "Internal server error", in either protocol era; the server logs the failure |
 

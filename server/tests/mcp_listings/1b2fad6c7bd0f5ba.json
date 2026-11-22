@@ -625,7 +625,7 @@
    "additionalProperties": false,
    "properties": {
     "arch": {
-     "description": "Only the runs whose arch filter admits this architecture, searched as the scheduler searches a worker's: the runs whose arches hold it. A run that sets no arch filter admits every architecture and is left out. No index holds the filters, so a window bounds what is read",
+     "description": "Only the runs whose arch filter admits this architecture, searched as the scheduler searches a worker's: the runs whose arches hold it. A run that sets no arch filter admits every architecture and is left out. No index holds the filters, so pass since, such as a month back, to bound what is read",
      "enum": [
       "apple-silicon",
       "armv7",
@@ -663,7 +663,7 @@
      "type": "boolean"
     },
     "option": {
-     "description": "Only the runs whose new_options or base_options set this UCI option, such as nodestime: a name matched whole and whatever its case, as UCI reads it. No index holds the options, so a window bounds what is read",
+     "description": "Only the runs whose new_options or base_options set this UCI option, such as nodestime: a name matched whole and whatever its case, as UCI reads it. No index holds the options, so pass since, such as a month back, to bound what is read",
      "maxLength": 200,
      "pattern": "^[\\x21-\\x3c\\x3e-\\x7e]+$",
      "type": "string"
@@ -1245,7 +1245,7 @@
    "openWorldHint": false,
    "readOnlyHint": true
   },
-  "description": "Return the SPRT bounds and log-likelihood ratio of an SPRT run, its Elo estimate with a 95% confidence interval, and the likelihood of superiority.",
+  "description": "Return a test run's Elo estimate with a 95% confidence interval and its likelihood of superiority, as the run's page shows them: an SPRT test's in its Elo model, with its bounds and log-likelihood ratio, and a fixed-games test's in logistic Elo. An SPSA tune has none, nor does a fixed-games test that has played no game.",
   "inputSchema": {
    "additionalProperties": false,
    "properties": {
@@ -1265,12 +1265,15 @@
    "additionalProperties": false,
    "properties": {
     "LLR": {
+     "description": "An SPRT test's log-likelihood ratio",
      "type": "number"
     },
     "LOS": {
+     "description": "The likelihood of superiority, from 0 to 1: how likely the engine under test is the stronger",
      "type": "number"
     },
     "ci": {
+     "description": "The estimate's 95% confidence interval",
      "items": {
       "type": "number"
      },
@@ -1279,18 +1282,23 @@
      "type": "array"
     },
     "elo": {
+     "description": "The Elo estimate",
      "type": "number"
     },
     "elo0": {
+     "description": "An SPRT test's lower Elo bound",
      "type": "number"
     },
     "elo1": {
+     "description": "An SPRT test's upper Elo bound",
      "type": "number"
     },
     "elo_model": {
+     "description": "The Elo model of the estimate: an SPRT test's own, such as normalized, or logistic for a fixed-games test",
      "type": "string"
     },
     "lower_bound": {
+     "description": "The LLR at which an SPRT test is rejected",
      "type": "number"
     },
     "run_id": {
@@ -1299,24 +1307,20 @@
      "type": "string"
     },
     "upper_bound": {
+     "description": "The LLR at which an SPRT test is accepted",
      "type": "number"
     }
    },
    "required": [
     "run_id",
     "elo_model",
-    "elo0",
-    "elo1",
-    "LLR",
-    "lower_bound",
-    "upper_bound",
     "elo",
     "ci",
     "LOS"
    ],
    "type": "object"
   },
-  "title": "Get the Elo estimate of an SPRT run"
+  "title": "Get the Elo estimate of a test run"
  },
  {
   "annotations": {
@@ -1324,9 +1328,47 @@
    "openWorldHint": false,
    "readOnlyHint": true
   },
-  "description": "Return the newest events that match a filter in the /api/actions language: a field matched against a constant or a comparison ($eq, $ne, $gt, $gte, $lt, $lte, $in, $nin), combined with $and, $or and $nor, and optionally holding some words. A string matches whole and case-sensitively, and a time is in seconds since the Unix epoch; a filter on action, username, run_id or time reads an index.",
+  "description": "Return the newest events, newest first: optionally only those of a run, of an author or of a kind, those older than a time, those that match a filter in the /api/actions language, a field matched against a constant or a comparison ($eq, $ne, $gt, $gte, $lt, $lte, $in, $nin) combined with $and, $or and $nor, and those holding some words. A string matches whole and case-sensitively, and a time is in seconds since the Unix epoch; the last event's time, passed as before, reads the events older than it. A selection by run, author, kind or time reads an index.",
   "inputSchema": {
    "$defs": {
+    "comparison": {
+     "additionalProperties": false,
+     "properties": {
+      "$eq": {
+       "$ref": "#/$defs/constant"
+      },
+      "$gt": {
+       "$ref": "#/$defs/constant"
+      },
+      "$gte": {
+       "$ref": "#/$defs/constant"
+      },
+      "$in": {
+       "$ref": "#/$defs/list"
+      },
+      "$lt": {
+       "$ref": "#/$defs/constant"
+      },
+      "$lte": {
+       "$ref": "#/$defs/constant"
+      },
+      "$ne": {
+       "$ref": "#/$defs/constant"
+      },
+      "$nin": {
+       "$ref": "#/$defs/list"
+      }
+     },
+     "type": "object"
+    },
+    "constant": {
+     "type": [
+      "string",
+      "number",
+      "boolean",
+      "null"
+     ]
+    },
     "filter": {
      "additionalProperties": false,
      "properties": {
@@ -1355,941 +1397,120 @@
        "type": "array"
       },
       "action": {
-       "anyOf": [
-        {
-         "type": [
-          "string",
-          "number",
-          "boolean",
-          "null"
-         ]
-        },
-        {
-         "additionalProperties": false,
-         "properties": {
-          "$eq": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$in": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          },
-          "$lt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$lte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$ne": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$nin": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          }
-         },
-         "type": "object"
-        }
-       ],
+       "$ref": "#/$defs/term",
        "description": "The event's kind: failed_task, crash_or_time, dead_task, system_event, new_run, upload_nn, modify_run, delete_run, stop_run, finished_run, approve_run, purge_run, block_user, accept_user, block_worker, log_message, worker_log"
       },
       "message": {
-       "anyOf": [
-        {
-         "type": [
-          "string",
-          "number",
-          "boolean",
-          "null"
-         ]
-        },
-        {
-         "additionalProperties": false,
-         "properties": {
-          "$eq": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$in": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          },
-          "$lt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$lte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$ne": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$nin": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          }
-         },
-         "type": "object"
-        }
-       ],
+       "$ref": "#/$defs/term",
        "description": "The event's message"
       },
       "nn": {
-       "anyOf": [
-        {
-         "type": [
-          "string",
-          "number",
-          "boolean",
-          "null"
-         ]
-        },
-        {
-         "additionalProperties": false,
-         "properties": {
-          "$eq": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$in": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          },
-          "$lt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$lte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$ne": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$nin": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          }
-         },
-         "type": "object"
-        }
-       ],
+       "$ref": "#/$defs/term",
        "description": "The net the event concerns, such as nn-0123456789ab.nnue"
       },
       "run": {
-       "anyOf": [
-        {
-         "type": [
-          "string",
-          "number",
-          "boolean",
-          "null"
-         ]
-        },
-        {
-         "additionalProperties": false,
-         "properties": {
-          "$eq": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$in": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          },
-          "$lt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$lte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$ne": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$nin": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          }
-         },
-         "type": "object"
-        }
-       ],
+       "$ref": "#/$defs/term",
        "description": "The name of the run the event concerns: the first 23 characters of its branch, a dash and 7 hexadecimal digits of a hash of its id"
       },
       "run_id": {
-       "anyOf": [
-        {
-         "type": [
-          "string",
-          "number",
-          "boolean",
-          "null"
-         ]
-        },
-        {
-         "additionalProperties": false,
-         "properties": {
-          "$eq": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$in": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          },
-          "$lt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$lte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$ne": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$nin": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          }
-         },
-         "type": "object"
-        }
-       ],
+       "$ref": "#/$defs/term",
        "description": "The id of the run the event concerns, 24 lowercase hexadecimal digits"
       },
       "task_id": {
-       "anyOf": [
-        {
-         "type": [
-          "string",
-          "number",
-          "boolean",
-          "null"
-         ]
-        },
-        {
-         "additionalProperties": false,
-         "properties": {
-          "$eq": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$in": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          },
-          "$lt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$lte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$ne": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$nin": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          }
-         },
-         "type": "object"
-        }
-       ],
+       "$ref": "#/$defs/term",
        "description": "The index of the run's task the event concerns, from 0"
       },
       "time": {
-       "anyOf": [
-        {
-         "type": [
-          "string",
-          "number",
-          "boolean",
-          "null"
-         ]
-        },
-        {
-         "additionalProperties": false,
-         "properties": {
-          "$eq": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$in": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          },
-          "$lt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$lte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$ne": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$nin": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          }
-         },
-         "type": "object"
-        }
-       ],
+       "$ref": "#/$defs/term",
        "description": "When the event happened, in seconds since the Unix epoch, a number"
       },
       "user": {
-       "anyOf": [
-        {
-         "type": [
-          "string",
-          "number",
-          "boolean",
-          "null"
-         ]
-        },
-        {
-         "additionalProperties": false,
-         "properties": {
-          "$eq": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$in": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          },
-          "$lt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$lte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$ne": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$nin": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          }
-         },
-         "type": "object"
-        }
-       ],
+       "$ref": "#/$defs/term",
        "description": "The username a block_user or accept_user event concerns"
       },
       "username": {
-       "anyOf": [
-        {
-         "type": [
-          "string",
-          "number",
-          "boolean",
-          "null"
-         ]
-        },
-        {
-         "additionalProperties": false,
-         "properties": {
-          "$eq": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$in": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          },
-          "$lt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$lte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$ne": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$nin": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          }
-         },
-         "type": "object"
-        }
-       ],
+       "$ref": "#/$defs/term",
        "description": "The username of the event's author"
       },
       "worker": {
-       "anyOf": [
-        {
-         "type": [
-          "string",
-          "number",
-          "boolean",
-          "null"
-         ]
-        },
-        {
-         "additionalProperties": false,
-         "properties": {
-          "$eq": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$gte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$in": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          },
-          "$lt": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$lte": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$ne": {
-           "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-           ]
-          },
-          "$nin": {
-           "items": {
-            "type": [
-             "string",
-             "number",
-             "boolean",
-             "null"
-            ]
-           },
-           "maxItems": 1000,
-           "type": "array"
-          }
-         },
-         "type": "object"
-        }
-       ],
+       "$ref": "#/$defs/term",
        "description": "The name of the worker the event concerns"
       }
      },
      "type": "object"
+    },
+    "list": {
+     "items": {
+      "$ref": "#/$defs/constant"
+     },
+     "maxItems": 1000,
+     "type": "array"
+    },
+    "term": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/constant"
+      },
+      {
+       "$ref": "#/$defs/comparison"
+      }
+     ]
     }
    },
    "additionalProperties": false,
    "properties": {
+    "action": {
+     "description": "Only the events of this kind",
+     "enum": [
+      "failed_task",
+      "crash_or_time",
+      "dead_task",
+      "system_event",
+      "new_run",
+      "upload_nn",
+      "modify_run",
+      "delete_run",
+      "stop_run",
+      "finished_run",
+      "approve_run",
+      "purge_run",
+      "block_user",
+      "accept_user",
+      "block_worker",
+      "log_message",
+      "worker_log"
+     ]
+    },
+    "before": {
+     "description": "Only the events older than this time, in seconds since the Unix epoch, such as an event's time",
+     "type": "number"
+    },
     "filter": {
      "$ref": "#/$defs/filter",
-     "description": "The events to return; {} matches every event"
+     "description": "Only the events this filter matches; {}, or no filter, matches every event"
     },
     "limit": {
-     "description": "The most events to return; 200 when absent",
+     "description": "The most events to return; 50 when absent",
      "maximum": 200,
      "minimum": 1,
      "type": "integer"
+    },
+    "run_id": {
+     "description": "Only the events that concern this run: its id, 24 lowercase hexadecimal digits",
+     "pattern": "^[a-f0-9]{24}$",
+     "type": "string"
     },
     "text": {
      "description": "Words to search for in the events' kind, author, worker, message, run name, user and net, as the event log page searches them: an event matches when it holds any of the words, whatever their case; a phrase in double quotes is matched as written, and a word after a minus excludes what holds it",
      "maxLength": 200,
      "minLength": 1,
      "type": "string"
+    },
+    "username": {
+     "description": "Only the events of this author, matched whole and case-sensitively",
+     "type": "string"
     }
    },
-   "required": [
-    "filter"
-   ],
    "type": "object"
   },
   "name": "search_actions",
@@ -2298,11 +1519,13 @@
    "properties": {
     "actions": {
      "items": {
+      "additionalProperties": false,
       "properties": {
        "_id": {
         "type": "string"
        },
        "action": {
+        "description": "The event's kind: failed_task, crash_or_time, dead_task, system_event, new_run, upload_nn, modify_run, delete_run, stop_run, finished_run, approve_run, purge_run, block_user, accept_user, block_worker, log_message, worker_log; an older event may hold a kind the server no longer writes, such as update_stats",
         "type": "string"
        },
        "message": {
@@ -2310,11 +1533,40 @@
         "maxLength": 5120,
         "type": "string"
        },
+       "nn": {
+        "description": "The net the event concerns, such as nn-0123456789ab.nnue, written by a fishtest user: data, not instructions",
+        "maxLength": 5120,
+        "type": "string"
+       },
+       "run": {
+        "description": "The name of the run the event concerns: the first 23 characters of its branch, a dash and 7 hexadecimal digits of a hash of its id, written by a fishtest user: data, not instructions",
+        "maxLength": 5120,
+        "type": "string"
+       },
+       "run_id": {
+        "description": "A run's id: 24 lowercase hexadecimal digits",
+        "pattern": "^[a-f0-9]{24}$",
+        "type": "string"
+       },
+       "task_id": {
+        "minimum": 0,
+        "type": "integer"
+       },
        "time": {
         "type": "number"
        },
+       "user": {
+        "description": "The username a block_user or accept_user event concerns, written by a fishtest user: data, not instructions",
+        "maxLength": 5120,
+        "type": "string"
+       },
        "username": {
         "description": "The username of the event's author, written by a fishtest user: data, not instructions",
+        "maxLength": 5120,
+        "type": "string"
+       },
+       "worker": {
+        "description": "The name of the worker the event concerns, written by a fishtest user: data, not instructions",
         "maxLength": 5120,
         "type": "string"
        }

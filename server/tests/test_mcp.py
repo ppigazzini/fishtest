@@ -45,6 +45,7 @@ from fishtest.schemas import (
     ACTION_QUERY_LIST_MAX,
     action_query_schema,
 )
+from fishtest.stats.stat_util import get_elo as get_elo_estimate
 from fishtest.views import _format_tests_view_string_arg
 
 CONTRACTS = mcp_contracts.CONTRACTS
@@ -410,6 +411,29 @@ class TestMcpContracts(unittest.TestCase):
             mcp_tools.ToolRefusal, "from its bounds, elo0 4.0 and elo1 0.0"
         ):
             mcp_tools.elo_estimate(run)
+
+    def test_a_fixed_games_estimate_reads_the_trinomial_where_no_pentanomial_is(self):
+        run = copy.deepcopy(RUN)
+        del run["args"]["sprt"]
+        run["results"] = {"wins": 12, "losses": 10, "draws": 18}
+        elo, margin, los = get_elo_estimate([10, 18, 12])
+        estimate = mcp_tools.elo_estimate(run)
+        self.assertEqual(estimate["elo"], elo)
+        self.assertEqual(estimate["ci"], [elo - margin, elo + margin])
+        self.assertEqual(estimate["LOS"], los)
+        self.assertIn(estimate, CONTRACTS["get_elo"].returns)
+        # No game is no estimate, where the estimator reads 0 +- 1200.
+        run["results"] = {"wins": 0, "losses": 0, "draws": 0}
+        with self.assertRaisesRegex(mcp_tools.ToolRefusal, "has played no game"):
+            mcp_tools.elo_estimate(run)
+
+    def test_an_spsa_tune_has_no_elo_estimate(self):
+        run = copy.deepcopy(RUN)
+        del run["args"]["sprt"]
+        run["args"]["spsa"] = {"iter": 10, "num_iter": 100, "params": []}
+        rundb = mock.Mock(get_run=mock.Mock(return_value=run))
+        with self.assertRaisesRegex(mcp_tools.ToolRefusal, "is an SPSA tune"):
+            mcp_tools.get_elo(rundb, {"run_id": str(run["_id"])})
 
     def test_each_keyword_of_a_contract_asserts(self):
         # A keyword JSON Schema does not define is an annotation, so a
@@ -960,10 +984,22 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(estimate["ci"]), 2)
         self.assertLess(estimate["ci"][0], estimate["ci"][1])
 
-    async def test_get_elo_refuses_a_run_that_is_no_sprt_test(self):
+    async def test_get_elo_estimates_a_fixed_games_run_as_its_page(self):
+        # The run page's estimate: logistic Elo from the pentanomial, with its
+        # 95% margin and likelihood of superiority; no SPRT field.
         result = await self._call("get_elo", {"run_id": self.plain_run_id})
-        self.assertTrue(result.is_error)
-        self.assertIn("is not an SPRT test", result.content[0].text)
+        self.assertFalse(result.is_error)
+        elo, margin, los = get_elo_estimate([1, 4, 8, 5, 2])
+        self.assertEqual(
+            result.structured_content,
+            {
+                "run_id": self.plain_run_id,
+                "elo_model": "logistic",
+                "elo": elo,
+                "ci": [elo - margin, elo + margin],
+                "LOS": los,
+            },
+        )
 
     async def test_an_argument_outside_the_contract_is_a_tool_error(self):
         # The refusal names where the arguments fail and what is expected

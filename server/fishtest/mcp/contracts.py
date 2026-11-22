@@ -606,11 +606,13 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "get_elo",
-        "title": "Get the Elo estimate of an SPRT run",
+        "title": "Get the Elo estimate of a test run",
         "description": (
-            "Return the SPRT bounds and log-likelihood ratio of an SPRT run, its"
-            " Elo estimate with a 95% confidence interval, and the likelihood of"
-            " superiority."
+            "Return a test run's Elo estimate with a 95% confidence interval and"
+            " its likelihood of superiority, as the run's page shows them: an"
+            " SPRT test's in its Elo model, with its bounds and log-likelihood"
+            " ratio, and a fixed-games test's in logistic Elo. An SPSA tune has"
+            " none, nor does a fixed-games test that has played no game."
         ),
         "inputSchema": {
             "type": "object",
@@ -622,33 +624,50 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "run_id": RUN_ID,
-                "elo_model": {"type": "string"},
-                "elo0": {"type": "number"},
-                "elo1": {"type": "number"},
-                "LLR": {"type": "number"},
-                "lower_bound": {"type": "number"},
-                "upper_bound": {"type": "number"},
-                "elo": {"type": "number"},
+                "elo_model": {
+                    "type": "string",
+                    "description": (
+                        "The Elo model of the estimate: an SPRT test's own, such as"
+                        " normalized, or logistic for a fixed-games test"
+                    ),
+                },
+                "elo0": {
+                    "type": "number",
+                    "description": "An SPRT test's lower Elo bound",
+                },
+                "elo1": {
+                    "type": "number",
+                    "description": "An SPRT test's upper Elo bound",
+                },
+                "LLR": {
+                    "type": "number",
+                    "description": "An SPRT test's log-likelihood ratio",
+                },
+                "lower_bound": {
+                    "type": "number",
+                    "description": "The LLR at which an SPRT test is rejected",
+                },
+                "upper_bound": {
+                    "type": "number",
+                    "description": "The LLR at which an SPRT test is accepted",
+                },
+                "elo": {"type": "number", "description": "The Elo estimate"},
                 "ci": {
                     "type": "array",
                     "items": {"type": "number"},
                     "minItems": 2,
                     "maxItems": 2,
+                    "description": "The estimate's 95% confidence interval",
                 },
-                "LOS": {"type": "number"},
+                "LOS": {
+                    "type": "number",
+                    "description": (
+                        "The likelihood of superiority, from 0 to 1: how likely"
+                        " the engine under test is the stronger"
+                    ),
+                },
             },
-            "required": [
-                "run_id",
-                "elo_model",
-                "elo0",
-                "elo1",
-                "LLR",
-                "lower_bound",
-                "upper_bound",
-                "elo",
-                "ci",
-                "LOS",
-            ],
+            "required": ["run_id", "elo_model", "elo", "ci", "LOS"],
             "additionalProperties": False,
         },
         "annotations": READ_ONLY,

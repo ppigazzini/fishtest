@@ -32,6 +32,7 @@ from fishtest.mcp.contracts import (
 )
 from fishtest.rundb import ARCH_SEARCH_TIMEOUT
 from fishtest.stats.stat_util import SPRT_elo
+from fishtest.stats.stat_util import get_elo as get_elo_estimate
 from fishtest.util import worker_name
 from fishtest.views_helpers import sanitize_quotation_marks
 
@@ -352,14 +353,21 @@ def list_active_workers(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]
 def get_elo(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
     run_id = arguments["run_id"]
     run = _held_run(rundb, run_id)
-    if "sprt" not in run["args"]:
-        msg = f"The run {run_id} is not an SPRT test"
+    if "spsa" in run["args"]:
+        msg = f"The run {run_id} is an SPSA tune, which has no Elo estimate"
         raise ToolRefusal(msg)
     return elo_estimate(run)
 
 
 def elo_estimate(run: dict[str, Any]) -> dict[str, Any]:
-    """Return what the `get_elo` contract publishes of an SPRT run."""
+    """Return what the `get_elo` contract publishes of a test run.
+
+    An SPRT test's estimate in its Elo model, with its bounds and its
+    log-likelihood ratio, or a fixed-games test's logistic Elo, from its
+    pentanomial where it holds one, as the run page shows it.
+    """
+    if "sprt" not in run["args"]:
+        return _fixed_games_estimate(run)
     sprt = run["args"]["sprt"]
     elo_model = sprt.get("elo_model", "BayesElo")
     try:
@@ -390,6 +398,26 @@ def elo_estimate(run: dict[str, Any]) -> dict[str, Any]:
         "elo": float(estimate["elo"]),
         "ci": [float(bound) for bound in estimate["ci"]],
         "LOS": float(estimate["LOS"]),
+    }
+
+
+def _fixed_games_estimate(run: dict[str, Any]) -> dict[str, Any]:
+    results = run["results"]
+    if "pentanomial" in results:
+        counts = list(results["pentanomial"])
+    else:
+        counts = [results["losses"], results["draws"], results["wins"]]
+    if not any(counts):
+        # The estimator reads no game as 0 +- 1200, which says nothing.
+        msg = f"The run {run['_id']} has played no game, so it has no Elo estimate"
+        raise ToolRefusal(msg)
+    elo, margin, los = get_elo_estimate(counts)
+    return {
+        "run_id": str(run["_id"]),
+        "elo_model": "logistic",
+        "elo": float(elo),
+        "ci": [float(elo - margin), float(elo + margin)],
+        "LOS": float(los),
     }
 
 
