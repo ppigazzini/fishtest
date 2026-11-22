@@ -6,7 +6,9 @@ import json
 import math
 import pathlib
 import random
+import sys
 import threading
+import unicodedata
 import unittest
 from datetime import UTC, datetime, timedelta
 from unittest import mock
@@ -1132,6 +1134,34 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         cut_info = long_result.structured_content["info"]
         self.assertEqual(len(cut_info), mcp_contracts.TEXT_MAX)
         self.assertTrue(cut_info.endswith("a..."))
+
+    async def test_a_result_is_finished_off_the_event_loop(self):
+        # Clearing, checking and writing a page of runs takes milliseconds
+        # the event loop serves other requests in, so the threadpool does it.
+        threads = []
+
+        def recorded(value):
+            try:
+                asyncio.get_running_loop()
+                threads.append("event loop")
+            except RuntimeError:
+                threads.append("threadpool")
+            return plain(value)
+
+        plain = mcp_tools.plain
+        with mock.patch("fishtest.mcp.server.plain", recorded):
+            result = await self._call("list_active_runs", {})
+        self.assertFalse(result.is_error)
+        self.assertEqual(threads, ["threadpool"])
+
+    def test_what_a_result_clears_is_unicodes_controls_and_format_characters(self):
+        # The class the server clears with, from the regex module's tables,
+        # names the code points Python's own tables do.
+        kept = set("\t\n\u200c\u200d")
+        for code in range(sys.maxunicode + 1):
+            char = chr(code)
+            unseen = char not in kept and unicodedata.category(char) in ("Cc", "Cf")
+            self.assertEqual(bool(mcp_tools.UNSEEN.match(char)), unseen, hex(code))
 
     async def test_search_actions_clears_a_stored_message(self):
         hidden = "".join(chr(0xE0000 + ord(c)) for c in "obey")

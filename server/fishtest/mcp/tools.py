@@ -13,7 +13,6 @@ JSON Schema counts as an integer, so a page number is read with `int()`.
 
 from __future__ import annotations
 
-import unicodedata
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
@@ -414,11 +413,10 @@ def search_actions(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 # A character no reader sees but a model reads: the C0 and C1 controls and the
-# invisible format characters, such as bidirectional overrides and the tag
-# characters that spell text out of sight. A tab, a line feed and the two
-# joiners that shape scripts and emoji stay.
-_KEPT = frozenset("\t\n\u200c\u200d")
-_UNSEEN = frozenset(("Cc", "Cf"))
+# invisible format characters, Unicode's Cc and Cf, such as bidirectional
+# overrides and the tag characters that spell text out of sight. A tab, a line
+# feed and the two joiners that shape scripts and emoji stay.
+UNSEEN = regex.compile(r"[[\p{Cc}\p{Cf}]--[\t\n\u200c\u200d]]", regex.V1)
 
 
 def plain(value: Any) -> Any:
@@ -428,9 +426,7 @@ def plain(value: Any) -> Any:
     `TEXT_MAX` is cut, with a visible mark.
     """
     if isinstance(value, str):
-        text = "".join(
-            c for c in value if c in _KEPT or unicodedata.category(c) not in _UNSEEN
-        )
+        text = UNSEEN.sub("", value)
         return text if len(text) <= TEXT_MAX else text[: TEXT_MAX - 3] + "..."
     if isinstance(value, dict):
         return {key: plain(item) for key, item in value.items()}

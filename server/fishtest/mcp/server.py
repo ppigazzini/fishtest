@@ -2,10 +2,11 @@
 
 `build_server` returns a low-level MCP server that lists `TOOLS` and answers a
 `tools/call` in four steps: the gate checks the arguments against the tool's
-contract, the tool reads the run database in the threadpool, the gate checks
-the result, every string cleared of control and invisible format characters,
-against the contract, and the result goes back as structured content beside
-its JSON text. A refusal at either check, or a call that names a run the
+contract, the tool reads the run database, the gate checks the result, every
+string cleared of control and invisible format characters, against the
+contract, and the result goes back as structured content beside its JSON
+text. Every step past the arguments runs in the threadpool, so the event loop
+spends no time on a result. A refusal at either check, or a call that names a run the
 database does not hold, is a tool error the client can read, so nothing a
 contract refuses reaches the database or the client. A call naming a tool the
 server does not list is a JSON-RPC error, `-32602`, and a failure in a tool's
@@ -104,9 +105,7 @@ def build_server(
             return _tool_error(BUSY)
         reading += 1
         try:
-            result = await run_in_threadpool(TOOL_FUNCTIONS[name], rundb(), arguments)
-        except ToolRefusal as e:
-            return _tool_error(str(e))
+            return await run_in_threadpool(answer, name, arguments)
         except Exception:
             # A failure in the server. The log keeps it; the client gets
             # JSON-RPC's internal error in every protocol era, and none of its
@@ -115,6 +114,16 @@ def build_server(
             raise MCPError(code=types.INTERNAL_ERROR, message=INTERNAL) from None
         finally:
             reading -= 1
+
+    def answer(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
+        # The call's work past its arguments, in the threadpool: the read, and
+        # the result's strings cleared, checked and written as JSON, which for
+        # a page of runs takes milliseconds the event loop serves other
+        # requests in.
+        try:
+            result = TOOL_FUNCTIONS[name](rundb(), arguments)
+        except ToolRefusal as e:
+            return _tool_error(str(e))
         result = plain(result)
         refused = None
         if gate.after(name, result) is not None:

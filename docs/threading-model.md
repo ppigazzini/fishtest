@@ -276,5 +276,11 @@ does not wait for a token, and the client gets a tool error asking it to
 retry. Tool calls therefore hold at most 8 of the 200 tokens, and the pages
 and API routes the same instance serves keep the rest.
 
+A call's token covers all of its work past its arguments: the database read,
+and the result's strings cleared, checked against the tool's contract and
+written as JSON. The event loop only checks the arguments and counts the
+calls, so a page of runs, which takes milliseconds to finish, does not delay
+the other requests the instance serves.
+
 The cap is per instance, not per client. Per-client limits belong to the
 reverse proxy, which sees the client address first.
