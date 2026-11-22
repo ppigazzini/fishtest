@@ -1275,6 +1275,18 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             mcp_contracts.FINISHED_RUNS_PAGE_SIZE,
         )
 
+    async def test_a_page_past_the_integers_mongodb_skips_holds_no_run(self):
+        # The contract admits any integer page; one whose skip passes MongoDB's
+        # 64-bit integers is past the last page, as any page past it is.
+        first = await self._call("list_finished_runs", {})
+        total = first.structured_content["total"]
+        for page in (2**63, 1e300):
+            result = await self._call("list_finished_runs", {"page": page})
+            self.assertFalse(result.is_error, page)
+            self.assertEqual(result.structured_content["runs"], [], page)
+            self.assertEqual(result.structured_content["total"], total, page)
+            self.assertEqual(result.structured_content["page"], int(page), page)
+
     async def test_list_finished_runs_reads_a_missing_page_as_the_first(self):
         first = await self._call("list_finished_runs", {"page": 1})
         missing = await self._call("list_finished_runs", {})

@@ -36,6 +36,10 @@ from fishtest.stats.stat_util import SPRT_elo
 from fishtest.util import worker_name
 from fishtest.views_helpers import sanitize_quotation_marks
 
+# The largest skip MongoDB reads, a signed 64-bit integer: a page past it is
+# past the last page, as any page past the last is.
+SKIP_MAX = 2**63 - 1
+
 
 class ToolRefusal(Exception):
     """A call its contract admits that names something the server does not hold."""
@@ -250,7 +254,7 @@ def list_finished_runs(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
             if not arch_filters:
                 return {"page": page, "total": 0, "runs": []}
         runs, total = rundb.get_finished_runs(
-            skip=(page - 1) * FINISHED_RUNS_PAGE_SIZE,
+            skip=min((page - 1) * FINISHED_RUNS_PAGE_SIZE, SKIP_MAX),
             limit=FINISHED_RUNS_PAGE_SIZE,
             arch_filters=arch_filters,
             **filters,
