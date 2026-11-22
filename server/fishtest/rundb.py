@@ -89,6 +89,14 @@ _UNFINISHED_RUNS_STATS_PROJECTION = {
 # See https://github.com/official-stockfish/fishtest/pull/2428#issuecomment-3715147268
 ARCH_SEARCH_TIMEOUT = 0.1
 
+# The kinds of test a run is, by the arguments it stores: an SPRT test, an
+# SPSA tune, or a test of a fixed number of games. No index holds them.
+RUN_KINDS = {
+    "sprt": {"args.sprt": {"$exists": True}},
+    "spsa": {"args.spsa": {"$exists": True}},
+    "fixed": {"args.sprt": {"$exists": False}, "args.spsa": {"$exists": False}},
+}
+
 
 class RunDb:
     def __init__(self, db_name=FISHTEST, port=-1, is_primary_instance=True):
@@ -1013,6 +1021,8 @@ class RunDb:
         until=None,
         arch_filters=None,
         option="",
+        kind=None,
+        branch="",
         max_time_ms=None,
     ):
         if limit is not None and limit <= 0:
@@ -1028,6 +1038,8 @@ class RunDb:
             and limit is not None
             and arch_filters is None
             and not option
+            and kind is None
+            and not branch
             and max_time_ms is None
         ):
             merge_window = max(skip + limit, 1)
@@ -1057,6 +1069,8 @@ class RunDb:
             until=until,
             arch_filters=arch_filters,
             option=option,
+            kind=kind,
+            branch=branch,
         )
         hint = self._finished_runs_hint_name(
             username=username,
@@ -1094,6 +1108,8 @@ class RunDb:
                     until=until,
                     arch_filters=arch_filters,
                     option=option,
+                    kind=kind,
+                    branch=branch,
                 )
                 q["args.info"] = {"$regex": info_regex, "$options": "i"}
                 hint = self._finished_runs_hint_name(
@@ -1126,6 +1142,8 @@ class RunDb:
         last_updated=None,
         until=None,
         option="",
+        kind=None,
+        branch="",
         max_time_ms=None,
     ):
         """Return the distinct arch filters the finished runs the filters select set.
@@ -1142,6 +1160,8 @@ class RunDb:
             last_updated=last_updated,
             until=until,
             option=option,
+            kind=kind,
+            branch=branch,
         )
         q["args.arch_filter"] = {"$gt": ""}
         kwargs = {} if max_time_ms is None else {"maxTimeMS": max_time_ms}
@@ -1188,6 +1208,8 @@ class RunDb:
         until=None,
         arch_filters=None,
         option="",
+        kind=None,
+        branch="",
     ):
         q: dict[str, object] = {"finished": True, "deleted": False}
         if usernames is not None:
@@ -1221,6 +1243,11 @@ class RunDb:
             # its case, as UCI reads it. No index holds the options.
             name = {"$regex": f"(^| ){re.escape(option)}=", "$options": "i"}
             q["$or"] = [{"args.new_options": name}, {"args.base_options": name}]
+        if kind is not None:
+            q.update(RUN_KINDS[kind])
+        if branch:
+            # The branch or commit under test, matched whole. No index holds it.
+            q["args.new_tag"] = branch
         return q
 
     def _finished_runs_hint_name(

@@ -23,6 +23,7 @@ from typing import Any
 from valgebra_planning.contracts import Contract, read_contract
 
 from fishtest.constants import LTC_LOWER_BOUND, supported_arches, supported_compilers
+from fishtest.rundb import RUN_KINDS
 from fishtest.schemas import (
     ACTION_MESSAGE_SIZE,
     ACTION_NAMES,
@@ -84,6 +85,34 @@ def text_search(where: str, page: str, matched: str) -> dict[str, Any]:
 
 
 COUNT = {"type": "integer", "minimum": 0}
+
+
+def run_kind(bound: str) -> dict[str, Any]:
+    """Return the schema of the kind of test a listing selects."""
+    return {
+        "enum": list(RUN_KINDS),
+        "description": (
+            "Only the runs of this kind: sprt, an SPRT test; spsa, an SPSA tune;"
+            f" fixed, a test of a fixed number of games{bound}"
+        ),
+    }
+
+
+def run_branch(bound: str) -> dict[str, Any]:
+    """Return the schema of the branch a listing selects."""
+    return {
+        "type": "string",
+        "description": (
+            "Only the runs that test this branch or commit, their new_tag,"
+            f" matched whole and case-sensitively{bound}"
+        ),
+    }
+
+
+# What bounds a finished-runs filter no index holds.
+UNINDEXED = (
+    ". No index holds it, so pass since, such as a month back, to bound what is read"
+)
 
 
 def page_size(most: int, what: str) -> dict[str, Any]:
@@ -501,7 +530,8 @@ TOOLS: list[dict[str, Any]] = [
         "description": (
             f"Return one page of the runs that have not finished, approved or"
             f" not, the newest first, up to {ACTIVE_RUNS_PAGE_SIZE} to a page,"
-            f" with how many there are: optionally one user's."
+            f" with how many there are: optionally one user's, those of a kind,"
+            f" or those of a branch."
         ),
         "inputSchema": {
             "type": "object",
@@ -521,6 +551,8 @@ TOOLS: list[dict[str, Any]] = [
                         "The author's username, matched whole and case-sensitively"
                     ),
                 },
+                "kind": run_kind(""),
+                "branch": run_branch(""),
             },
             "additionalProperties": False,
         },
@@ -545,7 +577,8 @@ TOOLS: list[dict[str, Any]] = [
             f" those whose info holds some words, only the passed ones, only the"
             f" yellow ones, only long time controls, only those last updated"
             f" within a time window, only those whose arch filter admits an"
-            f" architecture, or only those that set a UCI option."
+            f" architecture, only those that set a UCI option, or only those of a"
+            f" kind or of a branch."
         ),
         "inputSchema": {
             "type": "object",
@@ -612,6 +645,8 @@ TOOLS: list[dict[str, Any]] = [
                         " what is read"
                     ),
                 },
+                "kind": run_kind(UNINDEXED),
+                "branch": run_branch(UNINDEXED),
             },
             "additionalProperties": False,
         },

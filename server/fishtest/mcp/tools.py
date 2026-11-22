@@ -31,7 +31,7 @@ from fishtest.mcp.contracts import (
     TEXT_MAX,
     WORKERS_PAGE_SIZE,
 )
-from fishtest.rundb import ARCH_SEARCH_TIMEOUT
+from fishtest.rundb import ARCH_SEARCH_TIMEOUT, RUN_KINDS
 from fishtest.stats.stat_util import SPRT_elo
 from fishtest.stats.stat_util import get_elo as get_elo_estimate
 from fishtest.util import worker_name
@@ -217,6 +217,10 @@ def list_active_runs(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
     query: dict[str, Any] = {"finished": False}
     if "username" in arguments:
         query["args.username"] = arguments["username"]
+    if "kind" in arguments:
+        query.update(RUN_KINDS[arguments["kind"]])
+    if "branch" in arguments:
+        query["args.new_tag"] = arguments["branch"]
     page = int(arguments.get("page", 1))
     size = int(arguments.get("limit", ACTIVE_RUNS_PAGE_SIZE))
     runs = (
@@ -259,6 +263,8 @@ def list_finished_runs(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
         "last_updated": _moment(arguments, "since"),
         "until": _moment(arguments, "until"),
         "option": arguments.get("option", ""),
+        "kind": arguments.get("kind"),
+        "branch": arguments.get("branch", ""),
     }
     bound = {"max_time_ms": ACTIONS_QUERY_TIME_MAX_MS}
     try:

@@ -1195,7 +1195,8 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             (
                 "list_active_runs",
                 {"x": 1},
-                "at x: expected no key but page, limit and username [extra_forbidden]",
+                "at x: expected no key but page, limit, username, kind and branch"
+                " [extra_forbidden]",
             ),
         ):
             result = await self._call(name, arguments)
@@ -1437,6 +1438,35 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(past.structured_content["total"], stored)
         nobody = await self._call("list_active_runs", {"username": "testmcpuser"})
         self.assertEqual(nobody.structured_content["total"], 0)
+
+    async def test_the_run_lists_select_a_kind_and_a_branch(self):
+        # A kind is read from the arguments a run stores, and a branch is its
+        # new_tag matched whole and case-sensitively.
+        async def ids(tool, **arguments):
+            result = await self._call(tool, {"username": "TestMcpUser", **arguments})
+            self.assertFalse(result.is_error, arguments)
+            return {run["run_id"] for run in result.structured_content["runs"]}
+
+        active = {
+            "sprt": self.run_id,
+            "fixed": self.plain_run_id,
+            "spsa": self.spsa_run_id,
+        }
+        for kind, run_id in active.items():
+            found = await ids("list_active_runs", kind=kind)
+            self.assertIn(run_id, found, kind)
+            self.assertFalse(found & (set(active.values()) - {run_id}), kind)
+        window = {"since": (datetime.now(UTC) - timedelta(days=1)).date().isoformat()}
+        finished_sprt = await ids("list_finished_runs", kind="sprt", **window)
+        finished_fixed = await ids("list_finished_runs", kind="fixed", **window)
+        self.assertIn(self.finished_run_id, finished_sprt)
+        self.assertNotIn(self.finished_run_id, finished_fixed)
+        self.assertIn(self.finished_nodestime_run_id, finished_fixed)
+        for tool, bound in (("list_active_runs", {}), ("list_finished_runs", window)):
+            mine = await ids(tool, branch="mcp-branch", **bound)
+            self.assertTrue(mine, tool)
+            for branch in ("MCP-branch", "mcp", "mcp-branch "):
+                self.assertEqual(await ids(tool, branch=branch, **bound), set(), branch)
 
     async def test_the_active_runs_tell_a_held_back_nodestime_run_apart(self):
         # Its options name nodestime, which no other field shows, and its
