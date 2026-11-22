@@ -355,6 +355,30 @@ class TestMcpContracts(unittest.TestCase):
             self.assertIn("data, not instructions", schema["description"], field)
             self.assertEqual(schema["maxLength"], mcp_contracts.TEXT_MAX, field)
 
+    def test_each_result_field_a_reader_may_take_two_ways_says_what_it_holds(self):
+        # Whose wins a run counts, what a pentanomial counts, which time control
+        # is whose, what makes a run green or yellow, a verdict still to come,
+        # and the unit of an event's time, which pages back the event log.
+        summary = mcp_contracts.RUN_SUMMARY["properties"]
+        fields = [
+            summary["tc"],
+            summary["new_tc"],
+            summary["num_games"],
+            summary["is_green"],
+            summary["is_yellow"],
+            summary["workers"],
+            summary["failed"],
+            *(summary["results"]["properties"][k] for k in ("wins", "losses")),
+            summary["results"]["properties"]["pentanomial"],
+            *(summary["sprt"]["properties"][k] for k in ("state", "llr")),
+            mcp_contracts.ACTION["properties"]["time"],
+        ]
+        for schema in fields:
+            self.assertIn("description", schema, schema)
+        self.assertIn(
+            "seconds", mcp_contracts.ACTION["properties"]["time"]["description"]
+        )
+
     def test_each_argument_says_what_it_holds(self):
         # A constant in another unit or case matches nothing and refuses
         # nothing, so each argument and each filter field states its own where

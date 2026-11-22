@@ -163,12 +163,21 @@ def moment(what: str) -> dict[str, Any]:
 RESULTS = {
     "type": "object",
     "properties": {
-        "wins": COUNT,
-        "losses": COUNT,
+        "wins": {**COUNT, "description": "Games the engine under test won"},
+        "losses": {**COUNT, "description": "Games the engine under test lost"},
         "draws": COUNT,
         "crashes": COUNT,
-        "time_losses": COUNT,
-        "pentanomial": {"type": "array", "items": COUNT, "minItems": 5, "maxItems": 5},
+        "time_losses": {**COUNT, "description": "Games lost on time"},
+        "pentanomial": {
+            "type": "array",
+            "items": COUNT,
+            "minItems": 5,
+            "maxItems": 5,
+            "description": (
+                "Game pairs, each opening played with both colors, by the points"
+                " the engine under test scored in the pair: 0, 0.5, 1, 1.5, 2"
+            ),
+        },
     },
     "required": ["wins", "losses", "draws"],
     "additionalProperties": False,
@@ -177,11 +186,23 @@ RESULTS = {
 SPRT = {
     "type": "object",
     "properties": {
-        "elo0": {"type": "number"},
-        "elo1": {"type": "number"},
+        "elo0": {
+            "type": "number",
+            "description": "The Elo of H0, which rejection favors",
+        },
+        "elo1": {
+            "type": "number",
+            "description": "The Elo of H1, which acceptance favors",
+        },
         "elo_model": {"type": "string"},
-        "state": {"enum": ["", "accepted", "rejected"]},
-        "llr": {"type": "number"},
+        "state": {
+            "enum": ["", "accepted", "rejected"],
+            "description": "The verdict, or empty while the test runs",
+        },
+        "llr": {
+            "type": "number",
+            "description": "The log-likelihood ratio, between the two bounds while the test runs",
+        },
         "lower_bound": {"type": "number"},
         "upper_bound": {"type": "number"},
     },
@@ -191,7 +212,11 @@ SPRT = {
 
 SPSA = {
     "type": "object",
-    "properties": {"iter": COUNT, "num_iter": COUNT, "params": COUNT},
+    "properties": {
+        "iter": {**COUNT, "description": "The iterations played"},
+        "num_iter": {**COUNT, "description": "The iterations planned"},
+        "params": {**COUNT, "description": "The parameters tuned; get_spsa lists them"},
+    },
     "required": ["iter", "num_iter", "params"],
     "additionalProperties": False,
 }
@@ -206,10 +231,20 @@ RUN_SUMMARY = {
         "username": user_text("The username of the run's author"),
         "new_tag": user_text("The branch or commit under test"),
         "base_tag": user_text("The branch or commit it is tested against"),
-        "tc": {"type": "string"},
-        "new_tc": {"type": "string"},
-        "threads": COUNT,
-        "book": {"type": "string"},
+        "tc": {
+            "type": "string",
+            "description": (
+                "The time control: seconds per game plus seconds added a move,"
+                " such as 10+0.1, after the moves it covers where it repeats,"
+                " such as 40/20"
+            ),
+        },
+        "new_tc": {
+            "type": "string",
+            "description": "The engine under test's time control, where it differs",
+        },
+        "threads": {**COUNT, "description": "The threads each engine searches with"},
+        "book": {"type": "string", "description": "The book of opening positions"},
         "new_options": user_text(
             "The UCI options the engine under test starts with, name=value pairs"
             " separated by spaces, such as Hash=16 nodestime=600"
@@ -218,11 +253,17 @@ RUN_SUMMARY = {
             "The UCI options the engine it is tested against starts with, in the"
             " same form"
         ),
-        "num_games": COUNT,
+        "num_games": {
+            **COUNT,
+            "description": "The games planned, the most an SPRT test plays",
+        },
         "info": user_text("What the test is for"),
         "tests_repo": user_text("The repository the commits are fetched from"),
-        "resolved_new": {"type": "string"},
-        "resolved_base": {"type": "string"},
+        "resolved_new": {"type": "string", "description": "The commit under test"},
+        "resolved_base": {
+            "type": "string",
+            "description": "The commit it is tested against",
+        },
         "arch_filter": user_text(
             "The regular expression searched in a worker's architecture, such as"
             " x86-64-avx2: only the workers it matches play the run"
@@ -260,14 +301,29 @@ RUN_SUMMARY = {
         },
         "start_time": STAMP,
         "last_updated": STAMP,
-        "approved": {"type": "boolean"},
+        "approved": {
+            "type": "boolean",
+            "description": "Whether an approver let workers play the run",
+        },
         "finished": {"type": "boolean"},
         "deleted": {"type": "boolean"},
-        "failed": {"type": "boolean"},
-        "is_green": {"type": "boolean"},
-        "is_yellow": {"type": "boolean"},
-        "workers": COUNT,
-        "cores": COUNT,
+        "failed": {
+            "type": "boolean",
+            "description": "Whether a worker stopped the run on an error it met",
+        },
+        "is_green": {
+            "type": "boolean",
+            "description": (
+                "Passed: an SPRT test accepted, or a fixed-games test whose"
+                " likelihood of superiority is above 95%"
+            ),
+        },
+        "is_yellow": {
+            "type": "boolean",
+            "description": "Rejected with more wins than losses",
+        },
+        "workers": {**COUNT, "description": "The workers playing the run now"},
+        "cores": {**COUNT, "description": "The cores of those workers"},
         "results": RESULTS,
         "sprt": SPRT,
         "spsa": SPSA,
@@ -483,7 +539,7 @@ ACTION_FIELDS = ("_id", *ACTION_QUERY_FIELDS)
 ACTION = {
     "type": "object",
     "properties": {
-        "_id": {"type": "string"},
+        "_id": {"type": "string", "description": "The event's id"},
         # A string, not an enum: older events hold kinds the server no
         # longer writes, and one such event would refuse its whole listing.
         "action": {
@@ -497,8 +553,14 @@ ACTION = {
         "worker": user_text(FILTER_FIELDS["worker"]),
         "run_id": RUN_ID,
         "run": user_text(FILTER_FIELDS["run"]),
-        "task_id": COUNT,
-        "time": {"type": "number"},
+        "task_id": {**COUNT, "description": FILTER_FIELDS["task_id"]},
+        "time": {
+            "type": "number",
+            "description": (
+                f"{FILTER_FIELDS['time']}; passed as before, it reads the events"
+                " older than this one"
+            ),
+        },
         "message": user_text(FILTER_FIELDS["message"]),
         "nn": user_text(FILTER_FIELDS["nn"]),
         "user": user_text(FILTER_FIELDS["user"]),

@@ -73,7 +73,11 @@ verdict or `spsa` progress. It holds no task and no worker address. A time is
 in UTC, written as `2026-11-20 20:48:11.323292+00:00`, the microseconds left
 out where they are 0. A field older runs store in an earlier shape, such as a
 count as a string of digits, is published as what it means; a value that
-means nothing, such as a negative worker count, is left out.
+means nothing, such as a negative worker count, is left out. Each field a
+reader could take two ways carries a description in the output schema: the
+results count the games of the engine under test, the pentanomial counts game
+pairs by the points it scored, and `new_tc` is that engine's time control
+where it differs from `tc`.
 
 `get_elo` estimates a run as its page does. An SPRT test's estimate is in the
 test's Elo model, such as `normalized`, beside its bounds `elo0` and `elo1`,
