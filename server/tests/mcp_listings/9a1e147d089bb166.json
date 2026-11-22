@@ -311,7 +311,7 @@
    "openWorldHint": false,
    "readOnlyHint": true
   },
-  "description": "Return one page of the runs that have not finished, approved or not, the newest first, up to 50 to a page, with how many there are: optionally one user's, those of a kind, or those of a branch.",
+  "description": "Return one page of the runs that have not finished, approved or not, the newest first, up to 50 to a page, with how many there are: optionally one user's, those of a kind, those of a branch, or those whose info or branch holds some words.",
   "inputSchema": {
    "additionalProperties": false,
    "properties": {
@@ -337,6 +337,12 @@
      "description": "The page, from 1, and 1 when absent; a page past the last holds no run",
      "minimum": 1,
      "type": "integer"
+    },
+    "text": {
+     "description": "Words to search for in the runs' info and branch, as the finished-runs page searches them: a run matches when it holds any of the words, whatever their case; a phrase in double quotes is matched as written, and a word after a minus excludes what holds it",
+     "maxLength": 200,
+     "minLength": 1,
+     "type": "string"
     },
     "username": {
      "description": "The author's username, matched whole and case-sensitively",

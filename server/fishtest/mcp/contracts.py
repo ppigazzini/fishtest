@@ -531,7 +531,7 @@ TOOLS: list[dict[str, Any]] = [
             f"Return one page of the runs that have not finished, approved or"
             f" not, the newest first, up to {ACTIVE_RUNS_PAGE_SIZE} to a page,"
             f" with how many there are: optionally one user's, those of a kind,"
-            f" or those of a branch."
+            f" those of a branch, or those whose info or branch holds some words."
         ),
         "inputSchema": {
             "type": "object",
@@ -553,6 +553,9 @@ TOOLS: list[dict[str, Any]] = [
                 },
                 "kind": run_kind(""),
                 "branch": run_branch(""),
+                "text": text_search(
+                    "the runs' info and branch", "the finished-runs page", "a run"
+                ),
             },
             "additionalProperties": False,
         },

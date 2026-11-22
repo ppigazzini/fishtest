@@ -51,7 +51,7 @@ Every tool reads and changes nothing (`readOnlyHint`, `idempotentHint`,
 | Tool | Arguments | Returns |
 |------|-----------|---------|
 | `get_run` | `run_id` (24 hex digits) | the run's summary |
-| `list_active_runs` | optionally `page` (from 1, default 1), `limit` (1 to 50, default 50), `username`, `kind`, `branch` | `page`, `total`, `runs`: `limit` summaries of unfinished runs a page, newest first |
+| `list_active_runs` | optionally `page` (from 1, default 1), `limit` (1 to 50, default 50), `username`, `kind`, `branch`, `text` | `page`, `total`, `runs`: `limit` summaries of unfinished runs a page, newest first |
 | `list_finished_runs` | optionally `page` (from 1, default 1), `limit` (1 to 50, default 50), `username`, `text`, `success_only`, `yellow_only`, `ltc_only`, `since`, `until`, `arch`, `option`, `kind`, `branch` | `page`, `total`, `runs`: `limit` summaries a page, newest first |
 | `list_active_workers` | optionally `page` (from 1, default 1), `username`, `arch`, `run_id` | `page`, `total`, `cores`, `workers`: 100 workers a page, the most recently updated first |
 | `get_elo` | `run_id` | a test run's Elo estimate with its 95% interval and likelihood of superiority, as its page shows them; an SPRT test's also with its bounds and log-likelihood ratio |
@@ -158,7 +158,8 @@ index, so on `list_finished_runs` a window bounds what each reads, as for
 `arch`, or a `username`, whose index orders that user's runs.
 
 A `text` argument searches as the search box of the matching page searches:
-`list_finished_runs` the runs' `info`, as the finished-runs page does, and
+`list_finished_runs` the runs' `info`, as the finished-runs page does,
+`list_active_runs` the active runs' `info` and branch in the same way, and
 `search_actions` an event's kind, author, worker, message, run name, user and
 net, as the event log page does. A match holds any of the words, whatever
 their case; a phrase in double quotes, typographic quotes included, is matched

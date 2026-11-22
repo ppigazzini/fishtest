@@ -1195,8 +1195,8 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             (
                 "list_active_runs",
                 {"x": 1},
-                "at x: expected no key but page, limit, username, kind and branch"
-                " [extra_forbidden]",
+                "at x: expected no key but page, limit, username, kind, branch and"
+                " text [extra_forbidden]",
             ),
         ):
             result = await self._call(name, arguments)
@@ -1467,6 +1467,27 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(mine, tool)
             for branch in ("MCP-branch", "mcp", "mcp-branch "):
                 self.assertEqual(await ids(tool, branch=branch, **bound), set(), branch)
+
+    async def test_the_active_runs_holding_some_words_are_found(self):
+        # As a page's search box reads them, over the info and the branch: any
+        # word, whole and whatever its case, a quoted phrase as written, and a
+        # word after a minus excluding.
+        async def ids(text):
+            arguments = {"username": "TestMcpUser", "text": text}
+            result = await self._call("list_active_runs", arguments)
+            self.assertFalse(result.is_error, text)
+            return {run["run_id"] for run in result.structured_content["runs"]}
+
+        tune, sprt, fixed = self.spsa_run_id, self.run_id, self.plain_run_id
+        for text in ("needle", "NEEDLE", '"Tune the needle"', "hay needle"):
+            found = await ids(text)
+            self.assertIn(tune, found, text)
+            self.assertFalse(found & {sprt, fixed}, text)
+        self.assertTrue({tune, sprt, fixed} <= await ids("mcp-branch"))
+        self.assertEqual(await ids("needl"), set())
+        self.assertEqual(await ids("needle -tune"), set())
+        self.assertNotIn(tune, await ids("-needle"))
+        self.assertTrue({sprt, fixed} <= await ids("-needle"))
 
     async def test_the_active_runs_tell_a_held_back_nodestime_run_apart(self):
         # Its options name nodestime, which no other field shows, and its

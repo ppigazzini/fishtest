@@ -211,6 +211,43 @@ def get_run(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
     return run_summary(_held_run(rundb, arguments["run_id"]))
 
 
+# A word, or a phrase in double quotes, each after an optional minus.
+_SEARCH_TERM = regex.compile(r'-?"[^"]*"|-?\S+')
+
+
+def words_query(text: str, fields: tuple[str, ...]) -> dict[str, Any]:
+    """Return the MongoDB filter of the documents `text` finds in `fields`.
+
+    Read as a page's search box reads it: a document matches where a field
+    holds any of the words, whole and whatever their case, or a phrase in
+    double quotes, typographic ones included, as written; a word or a phrase
+    after a minus excludes what holds it. No index is read, so the caller
+    bounds the documents first.
+    """
+    wanted, unwanted = [], []
+    for term in _SEARCH_TERM.findall(sanitize_quotation_marks(text)):
+        negated = term.startswith("-")
+        term = term.removeprefix("-")
+        if len(term) > 1 and term.startswith('"') and term.endswith('"'):
+            pattern = regex.escape(term[1:-1].strip())
+        else:
+            # Whole: neither preceded nor followed by a word character, which
+            # also holds a word that starts or ends with punctuation.
+            pattern = rf"(?<!\w){regex.escape(term)}(?!\w)" if term else ""
+        if pattern:
+            (unwanted if negated else wanted).append(pattern)
+
+    def held(pattern: str) -> list[dict[str, Any]]:
+        return [{field: {"$regex": pattern, "$options": "i"}} for field in fields]
+
+    query: dict[str, Any] = {}
+    if wanted:
+        query["$or"] = [clause for pattern in wanted for clause in held(pattern)]
+    if unwanted:
+        query["$nor"] = [clause for pattern in unwanted for clause in held(pattern)]
+    return query
+
+
 def list_active_runs(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
     # Newest first by id, an order no update moves, so a page holds the runs
     # it held a moment before, less those that finished.
@@ -221,6 +258,8 @@ def list_active_runs(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
         query.update(RUN_KINDS[arguments["kind"]])
     if "branch" in arguments:
         query["args.new_tag"] = arguments["branch"]
+    if "text" in arguments:
+        query |= words_query(arguments["text"], ("args.info", "args.new_tag"))
     page = int(arguments.get("page", 1))
     size = int(arguments.get("limit", ACTIVE_RUNS_PAGE_SIZE))
     runs = (
