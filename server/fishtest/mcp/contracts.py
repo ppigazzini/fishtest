@@ -35,6 +35,7 @@ from fishtest.schemas import (
 FINISHED_RUNS_PAGE_SIZE = 50
 WORKERS_PAGE_SIZE = 100
 ACTIONS_LIMIT_MAX = 200
+ACTIONS_LIMIT_DEFAULT = 50
 
 # The hints a client may act on: every tool here reads, and reads only this
 # server's data.
@@ -656,19 +657,50 @@ TOOLS: list[dict[str, Any]] = [
         "name": "search_actions",
         "title": "Search the event log",
         "description": (
-            "Return the newest events that match a filter in the /api/actions"
-            " language: a field matched against a constant or a comparison"
-            " ($eq, $ne, $gt, $gte, $lt, $lte, $in, $nin), combined with $and,"
-            " $or and $nor, and optionally holding some words. A string matches"
-            " whole and case-sensitively, and a time is in seconds since the Unix"
-            " epoch; a filter on action, username, run_id or time reads an index."
+            "Return the newest events, newest first: optionally only those of a"
+            " run, of an author or of a kind, those older than a time, those that"
+            " match a filter in the /api/actions language, a field matched"
+            " against a constant or a comparison ($eq, $ne, $gt, $gte, $lt, $lte,"
+            " $in, $nin) combined with $and, $or and $nor, and those holding some"
+            " words. A string matches whole and case-sensitively, and a time is"
+            " in seconds since the Unix epoch; the last event's time, passed as"
+            " before, reads the events older than it. A selection by run, author,"
+            " kind or time reads an index."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
+                "run_id": {
+                    **RUN_ID,
+                    "description": (
+                        "Only the events that concern this run: its id, 24"
+                        " lowercase hexadecimal digits"
+                    ),
+                },
+                "username": {
+                    "type": "string",
+                    "description": (
+                        "Only the events of this author, matched whole and"
+                        " case-sensitively"
+                    ),
+                },
+                "action": {
+                    "enum": list(ACTION_NAMES),
+                    "description": "Only the events of this kind",
+                },
+                "before": {
+                    "type": "number",
+                    "description": (
+                        "Only the events older than this time, in seconds since the"
+                        " Unix epoch, such as an event's time"
+                    ),
+                },
                 "filter": {
                     "$ref": "#/$defs/filter",
-                    "description": "The events to return; {} matches every event",
+                    "description": (
+                        "Only the events this filter matches; {}, or no filter,"
+                        " matches every event"
+                    ),
                 },
                 "text": text_search(
                     "the events' kind, author, worker, message, run name, user and net",
@@ -680,11 +712,11 @@ TOOLS: list[dict[str, Any]] = [
                     "minimum": 1,
                     "maximum": ACTIONS_LIMIT_MAX,
                     "description": (
-                        f"The most events to return; {ACTIONS_LIMIT_MAX} when absent"
+                        f"The most events to return; {ACTIONS_LIMIT_DEFAULT} when"
+                        " absent"
                     ),
                 },
             },
-            "required": ["filter"],
             "additionalProperties": False,
             "$defs": FILTER_DEFS,
         },

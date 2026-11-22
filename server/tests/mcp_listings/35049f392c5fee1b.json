@@ -1324,7 +1324,7 @@
    "openWorldHint": false,
    "readOnlyHint": true
   },
-  "description": "Return the newest events that match a filter in the /api/actions language: a field matched against a constant or a comparison ($eq, $ne, $gt, $gte, $lt, $lte, $in, $nin), combined with $and, $or and $nor, and optionally holding some words. A string matches whole and case-sensitively, and a time is in seconds since the Unix epoch; a filter on action, username, run_id or time reads an index.",
+  "description": "Return the newest events, newest first: optionally only those of a run, of an author or of a kind, those older than a time, those that match a filter in the /api/actions language, a field matched against a constant or a comparison ($eq, $ne, $gt, $gte, $lt, $lte, $in, $nin) combined with $and, $or and $nor, and those holding some words. A string matches whole and case-sensitively, and a time is in seconds since the Unix epoch; the last event's time, passed as before, reads the events older than it. A selection by run, author, kind or time reads an index.",
   "inputSchema": {
    "$defs": {
     "comparison": {
@@ -1455,26 +1455,58 @@
    },
    "additionalProperties": false,
    "properties": {
+    "action": {
+     "description": "Only the events of this kind",
+     "enum": [
+      "failed_task",
+      "crash_or_time",
+      "dead_task",
+      "system_event",
+      "new_run",
+      "upload_nn",
+      "modify_run",
+      "delete_run",
+      "stop_run",
+      "finished_run",
+      "approve_run",
+      "purge_run",
+      "block_user",
+      "accept_user",
+      "block_worker",
+      "log_message",
+      "worker_log"
+     ]
+    },
+    "before": {
+     "description": "Only the events older than this time, in seconds since the Unix epoch, such as an event's time",
+     "type": "number"
+    },
     "filter": {
      "$ref": "#/$defs/filter",
-     "description": "The events to return; {} matches every event"
+     "description": "Only the events this filter matches; {}, or no filter, matches every event"
     },
     "limit": {
-     "description": "The most events to return; 200 when absent",
+     "description": "The most events to return; 50 when absent",
      "maximum": 200,
      "minimum": 1,
      "type": "integer"
+    },
+    "run_id": {
+     "description": "Only the events that concern this run: its id, 24 lowercase hexadecimal digits",
+     "pattern": "^[a-f0-9]{24}$",
+     "type": "string"
     },
     "text": {
      "description": "Words to search for in the events' kind, author, worker, message, run name, user and net, as the event log page searches them: an event matches when it holds any of the words, whatever their case; a phrase in double quotes is matched as written, and a word after a minus excludes what holds it",
      "maxLength": 200,
      "minLength": 1,
      "type": "string"
+    },
+    "username": {
+     "description": "Only the events of this author, matched whole and case-sensitively",
+     "type": "string"
     }
    },
-   "required": [
-    "filter"
-   ],
    "type": "object"
   },
   "name": "search_actions",

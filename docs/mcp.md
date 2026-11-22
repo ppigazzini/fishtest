@@ -54,7 +54,7 @@ Every tool reads and changes nothing (`readOnlyHint`, `idempotentHint`,
 | `list_finished_runs` | optionally `page` (from 1, default 1), `username`, `text`, `success_only`, `yellow_only`, `ltc_only`, `since`, `until`, `arch`, `option` | `page`, `total`, `runs`: 50 summaries a page, newest first |
 | `list_active_workers` | optionally `page` (from 1, default 1), `username`, `arch`, `run_id` | `page`, `total`, `cores`, `workers`: 100 workers a page, the most recently updated first |
 | `get_elo` | `run_id` | an SPRT run's bounds, log-likelihood ratio, Elo estimate with its 95% interval, and likelihood of superiority |
-| `search_actions` | `filter`, and optionally `text` and `limit` (1 to 200, default 200) | `actions`: the newest events the filter and the text match |
+| `search_actions` | optionally `run_id`, `username`, `action`, `before`, `filter`, `text` and `limit` (1 to 200, default 50) | `actions`: the newest events every argument selects |
 
 A run summary holds the test the run asks for (`username`, `new_tag`,
 `base_tag`, `tc`, `new_tc`, `threads`, `book`, `num_games`, `info`,
@@ -92,8 +92,16 @@ every worker the filters select, on any page. The rows are read as the
 machines page reads them, so a worker shows a few seconds after it takes a
 task.
 
-The `search_actions` filter is the language of `POST /api/actions`: the
-fields, comparisons, boolean operators and sizes its table lists.
+`search_actions` selects the events of a run (`run_id`), of an author
+(`username`), of a kind (`action`) and older than a time (`before`, in seconds
+since the Unix epoch), each read from an index, and those its `filter` matches.
+Every argument given selects, so `run_id` alone reads a run's events, newest
+first, and the last event's `time` passed as `before` reads the ones older
+than it; an event that shares that exact time is left out. The filter is the
+language of `POST /api/actions`: the fields, comparisons, boolean operators and
+sizes its table lists, stated once under the input schema's `$defs`. The
+server meets the filter and the other arguments into one query in that
+language.
 
 Each event holds its `_id`, `action`, `username` and `time`, and, where its
 kind sets them, the `worker`, `run_id`, `run`, `task_id`, `message`, `nn` and

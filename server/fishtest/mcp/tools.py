@@ -25,7 +25,7 @@ from fishtest.api import ACTIONS_QUERY_TIME_MAX_MS
 from fishtest.constants import supported_arches
 from fishtest.mcp.contracts import (
     ACTION_FIELDS,
-    ACTIONS_LIMIT_MAX,
+    ACTIONS_LIMIT_DEFAULT,
     FINISHED_RUNS_PAGE_SIZE,
     TEXT_MAX,
     WORKERS_PAGE_SIZE,
@@ -111,6 +111,10 @@ def _commit(value: Any) -> str | None:
 def _set(value: Any) -> str | None:
     # A worker restriction stored empty restricts nothing.
     return value if isinstance(value, str) and value else None
+
+
+# The arguments of `search_actions` that select events by one indexed field.
+EVENT_FIELDS = ("run_id", "username", "action")
 
 
 # How a stored field is read where runs written over the years differ.
@@ -399,15 +403,32 @@ def _action(action: dict[str, Any]) -> dict[str, Any]:
     return event
 
 
+def event_query(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Return the MongoDB filter of the events a `search_actions` call selects.
+
+    The meet of the call's filter and of a clause for each selecting argument:
+    `run_id`, `username` and `action` each match their field, and `before`
+    holds the events older than it. It is a filter `action_query_schema`
+    admits, so the database is handed only what `/api/actions` would hand it.
+    """
+    clauses = [arguments["filter"]] if arguments.get("filter") else []
+    clauses += [{key: arguments[key]} for key in EVENT_FIELDS if key in arguments]
+    if "before" in arguments:
+        clauses.append({"time": {"$lt": arguments["before"]}})
+    if len(clauses) > 1:
+        return {"$and": clauses}
+    return clauses[0] if clauses else {}
+
+
 def search_actions(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
     # The filter the contract admits is one `action_query_schema` accepts: the
     # two are proven equal, so the database is handed only what `/api/actions`
     # would hand it, and a text search as the event log page hands it.
-    query = arguments["filter"]
+    query = event_query(arguments)
     if "text" in arguments:
         text = sanitize_quotation_marks(arguments["text"])
         query = {**query, "$text": {"$search": text}}
-    limit = int(arguments.get("limit", ACTIONS_LIMIT_MAX))
+    limit = int(arguments.get("limit", ACTIONS_LIMIT_DEFAULT))
     actions = (
         rundb.db["actions"]
         .find(query, max_time_ms=ACTIONS_QUERY_TIME_MAX_MS)

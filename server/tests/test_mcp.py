@@ -588,6 +588,21 @@ return events
         checked = self._critique(source, {}, _output("search_actions"))
         self.assertTrue(checked.accepted, feedback(checked))
 
+    def test_a_runs_events_and_the_events_before_each_are_proven(self):
+        # A run's events need no filter record, which a program cannot build
+        # from a value it holds, and an event's time pages back from it.
+        source = """
+run = get_run(run_id=run_id)
+events = search_actions(run_id=run.run_id, limit=10)
+for event in events.actions:
+    older = search_actions(run_id=run.run_id, before=event.time)
+return events
+"""
+        checked = self._critique(
+            source, {"run_id": mcp_contracts.RUN_ID}, _output("search_actions")
+        )
+        self.assertTrue(checked.accepted, feedback(checked))
+
     def test_the_runs_a_word_names_are_read_with_the_workers_they_admit(self):
         # Which runs targeted an arch: the runs whose info names it, each read
         # with its arch filter, in one call a page.
@@ -1479,6 +1494,81 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.is_error)
         messages = [a["message"] for a in result.structured_content["actions"]]
         self.assertEqual(messages, [marker])
+
+    async def test_search_actions_selects_a_run_an_author_a_kind_and_a_time(self):
+        # Each selecting argument matches one field, met with the others and
+        # the filter, so a run's events need no filter record; an event's time
+        # passed as before reads the events older than it.
+        run = {"_id": ObjectId(), "args": {"new_tag": "mcp-events"}}
+        run_id = str(run["_id"])
+        self.rundb.actiondb.new_run(username="TestMcpAuthor", run=run, message="a")
+        self.rundb.actiondb.approve_run(
+            username="TestMcpApprover", run=run, message="approved"
+        )
+        self.rundb.actiondb.modify_run(username="TestMcpAuthor", run=run, message="c")
+
+        async def kinds(arguments):
+            result = await self._call("search_actions", arguments)
+            self.assertFalse(result.is_error, arguments)
+            return [
+                (e["action"], e["run_id"]) for e in result.structured_content["actions"]
+            ]
+
+        newest_first = ["modify_run", "approve_run", "new_run"]
+        self.assertEqual(
+            await kinds({"run_id": run_id}), [(k, run_id) for k in newest_first]
+        )
+        self.assertEqual(
+            await kinds({"run_id": run_id, "username": "TestMcpAuthor"}),
+            [("modify_run", run_id), ("new_run", run_id)],
+        )
+        self.assertEqual(
+            await kinds({"run_id": run_id, "action": "approve_run"}),
+            [("approve_run", run_id)],
+        )
+        self.assertEqual(
+            await kinds({"run_id": run_id, "filter": {"message": {"$ne": "approved"}}}),
+            [("modify_run", run_id), ("new_run", run_id)],
+        )
+        first = await self._call("search_actions", {"run_id": run_id, "limit": 1})
+        (latest,) = first.structured_content["actions"]
+        self.assertEqual(
+            await kinds({"run_id": run_id, "before": latest["time"]}),
+            [(k, run_id) for k in newest_first[1:]],
+        )
+
+    async def test_search_actions_returns_50_events_when_no_limit_is_set(self):
+        for n in range(mcp_contracts.ACTIONS_LIMIT_DEFAULT + 1):
+            self.rundb.actiondb.log_message(username="TestMcpMany", message=str(n))
+        result = await self._call("search_actions", {"username": "TestMcpMany"})
+        self.assertEqual(
+            len(result.structured_content["actions"]),
+            mcp_contracts.ACTIONS_LIMIT_DEFAULT,
+        )
+
+    def test_the_selecting_arguments_hand_the_database_a_filter_api_actions_takes(
+        self,
+    ):
+        # The query is the meet of the filter and a clause per argument, in
+        # the language /api/actions reads, at any filter the contract admits.
+        run_id = "a" * 24
+        for arguments in (
+            {},
+            {"filter": {}},
+            {"run_id": run_id},
+            {"filter": {"$or": [{"action": "new_run"}, {"time": {"$gt": 1}}]}},
+            {"run_id": run_id, "username": "u", "action": "new_run", "before": 1.5},
+            {
+                "filter": {"$and": [{"message": "m"}] * ACTION_QUERY_CLAUSE_MAX},
+                "run_id": run_id,
+                "username": "u",
+                "action": "new_run",
+                "before": 2,
+            },
+        ):
+            self.assertIn(arguments, CONTRACTS["search_actions"].accepts)
+            query = mcp_tools.event_query(arguments)
+            self.assertIn(query, action_query_schema, arguments)
 
     async def test_search_actions_stops_a_filter_past_its_time_bound(self):
         from pymongo.errors import ExecutionTimeout
