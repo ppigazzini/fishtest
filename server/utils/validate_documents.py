@@ -151,6 +151,16 @@ def audit(db, limit, *, mcp=False):
 PROGRESS_EVERY = 10_000
 
 
+def _played(run):
+    # Whether a run's results count a game: a malformed count is read as one,
+    # so the estimate is asked of it, and fails where a client would.
+    results = run.get("results", {})
+    counts = results.get("pentanomial") or [
+        results.get(key, 0) for key in ("wins", "losses", "draws")
+    ]
+    return any(counts)
+
+
 def audit_mcp(db, limit, tally):
     summary, estimate = CONTRACTS["get_run"].returns, CONTRACTS["get_elo"].returns
     total = limit or db["runs"].estimated_document_count()
@@ -171,9 +181,17 @@ def audit_mcp(db, limit, tally):
             lambda run=run: plain(run_summary(run)),
             summary,
         )
-        if "sprt" in run.get("args", {}):
+        # get_elo estimates an SPRT test, and a fixed-games test that has
+        # played a game; it refuses an SPSA tune and a test with no game.
+        args = run.get("args", {})
+        group = None
+        if "sprt" in args:
+            group = f"mcp get_elo v{version}"
+        elif "spsa" not in args and _played(run):
+            group = f"mcp get_elo fixed v{version}"
+        if group is not None:
             tally.check_call(
-                f"mcp get_elo v{version}",
+                group,
                 run["_id"],
                 lambda run=run: plain(elo_estimate(run)),
                 estimate,

@@ -109,7 +109,18 @@ class AuditTest(unittest.TestCase):
 
         run = copy.deepcopy(RUN)
         old = {"_id": ObjectId(), "version": 1, "args": {"sprt": {"elo0": 0.0}}}
-        self.db["runs"].insert_many([run, old])
+        # Fixed-games tests: one that played and one that did not, which get_elo
+        # refuses by design, and an SPSA tune, which it refuses too.
+        fixed = copy.deepcopy(RUN)
+        del fixed["args"]["sprt"]
+        fixed |= {"_id": ObjectId(), "version": 2}
+        fixed["results"] |= {"wins": 3, "losses": 2, "draws": 5}
+        fixed["results"]["pentanomial"] = [0, 1, 2, 1, 1]
+        unplayed = copy.deepcopy(fixed) | {"_id": ObjectId(), "version": 3}
+        unplayed["results"] = copy.deepcopy(RUN["results"])
+        tune = copy.deepcopy(fixed) | {"_id": ObjectId(), "version": 4}
+        tune["args"]["spsa"] = {"iter": 0, "num_iter": 10, "params": []}
+        self.db["runs"].insert_many([run, old, fixed, unplayed, tune])
         self.assertNotIn("mcp get_run v1", audit(self.db, 0).checked)
 
         import utils.validate_documents as validate_documents
@@ -121,12 +132,17 @@ class AuditTest(unittest.TestCase):
         ):
             tally = audit(self.db, 0, mcp=True)
         # A full database takes minutes, so the audit says how far it is.
-        self.assertIn("mcp: reading 2 runs", progress.getvalue())
-        self.assertIn("mcp: 2 of 2 runs", progress.getvalue())
+        self.assertIn("mcp: reading 5 runs", progress.getvalue())
+        self.assertIn("mcp: 5 of 5 runs", progress.getvalue())
         version = run.get("version", "?")
         self.assertEqual(tally.checked[f"mcp get_run v{version}"], 1)
         self.assertEqual(tally.failing[f"mcp get_run v{version}"], 0)
         self.assertEqual(tally.failing[f"mcp get_elo v{version}"], 0)
+        self.assertEqual(tally.checked["mcp get_elo fixed v2"], 1)
+        self.assertEqual(tally.failing["mcp get_elo fixed v2"], 0)
+        for version in (3, 4):
+            self.assertNotIn(f"mcp get_elo fixed v{version}", tally.checked)
+            self.assertNotIn(f"mcp get_elo v{version}", tally.checked)
         # A run missing what the reader expects is counted, not raised.
         self.assertEqual(tally.failing["mcp get_run v1"], 1)
         self.assertEqual(tally.failing["mcp get_elo v1"], 1)
