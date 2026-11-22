@@ -419,6 +419,34 @@ class TestMcpEndpoint(unittest.TestCase):
             self.assertNotIn("result", response.json(), era)
             self.assertEqual(response.json()["error"]["code"], -32602, era)
 
+    def test_a_failure_in_a_tool_is_an_internal_error_with_no_text_of_its_own(self):
+        # What pymongo raises for a skip past its integers: the client reads
+        # JSON-RPC's internal error in either era, and nothing of the failure.
+        from test_schemas import RUN_ID
+
+        from fishtest.mcp import tools as mcp_tools
+
+        def failing(_rundb, _arguments):
+            msg = "MongoDB can only handle up to 8-byte ints"
+            raise OverflowError(msg)
+
+        with (
+            mock.patch.dict(mcp_tools.TOOL_FUNCTIONS, {"get_run": failing}),
+            self.assertLogs("fishtest.mcp.server", "ERROR") as logged,
+        ):
+            for era in ("2026-07-28", "2025-11-25"):
+                response = self._post(
+                    "/mcp",
+                    "tools/call",
+                    {"name": "get_run", "arguments": {"run_id": RUN_ID}},
+                    era=era,
+                )
+                error = response.json()["error"]
+                self.assertEqual(error["code"], -32603, era)
+                self.assertEqual(error["message"], "Internal server error", era)
+                self.assertNotIn("MongoDB", response.text, era)
+        self.assertIn("OverflowError: MongoDB", logged.output[0])
+
     def test_a_body_past_the_api_actions_cap_is_refused(self):
         from fishtest.api import ACTIONS_BODY_MAX
 

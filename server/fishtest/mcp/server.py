@@ -8,7 +8,8 @@ against the contract, and the result goes back as structured content beside
 its JSON text. A refusal at either check, or a call that names a run the
 database does not hold, is a tool error the client can read, so nothing a
 contract refuses reaches the database or the client. A call naming a tool the
-server does not list is a JSON-RPC error, `-32602`. `fishtest.mcp.refusals`
+server does not list is a JSON-RPC error, `-32602`, and a failure in a tool's
+read is `-32603` with no text of its own. `fishtest.mcp.refusals`
 words a refusal, and `fishtest.mcp.transport` serves the server over HTTP.
 """
 
@@ -64,6 +65,7 @@ def _tool_error(message: str) -> types.CallToolResult:
 
 
 BUSY = "fishtest is answering as many tool calls as it takes at once; retry in a moment"
+INTERNAL = "Internal server error"
 
 
 def build_server(
@@ -105,6 +107,12 @@ def build_server(
             result = await run_in_threadpool(TOOL_FUNCTIONS[name], rundb(), arguments)
         except ToolRefusal as e:
             return _tool_error(str(e))
+        except Exception:
+            # A failure in the server. The log keeps it; the client gets
+            # JSON-RPC's internal error in every protocol era, and none of its
+            # text, which may name the database or the code.
+            logger.exception("MCP %s failed for %.120r", name, arguments)
+            raise MCPError(code=types.INTERNAL_ERROR, message=INTERNAL) from None
         finally:
             reading -= 1
         result = plain(result)

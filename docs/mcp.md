@@ -159,7 +159,7 @@ as written, and a word after a minus excludes what holds it.
 | Arguments outside the input schema | a tool error naming where they fail, what the input schema admits there in its own terms (an unexpected key names the keys the tool takes), and the code |
 | A run the database does not hold, or `get_elo` on a run that is no SPRT test or whose bounds the estimator cannot read | a tool error |
 | A result outside the output schema | a tool error, "TOOL could not answer within its contract" |
-| A failure in the server | JSON-RPC error `-32603` |
+| A failure in the server | JSON-RPC error `-32603`, "Internal server error", in either protocol era; the server logs the failure |
 
 A tool error is a result with `isError: true` and the reason as text, which a
 client hands back to its model.
