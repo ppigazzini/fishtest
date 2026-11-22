@@ -153,7 +153,7 @@ def build_server(
             # A JSON number reads as an infinity, so the contract admits one,
             # and JSON writes neither an infinity nor NaN.
             try:
-                text = json.dumps(result, allow_nan=False)
+                text = json.dumps(result, allow_nan=False, separators=(",", ":"))
             except ValueError:
                 refused = "with a number JSON cannot write"
         if refused is not None:

@@ -1051,6 +1051,16 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("compiler", summary)
         self.assertNotIn("tasks", summary)
 
+    async def test_a_results_text_is_its_structured_content_written_compactly(self):
+        # The text a client without structured content reads is the same
+        # JSON, written with no space after a separator: 7% of a page.
+        result = await self._call("list_active_runs", {"limit": 3})
+        text = result.content[0].text
+        self.assertEqual(json.loads(text), result.structured_content)
+        self.assertEqual(
+            text, json.dumps(result.structured_content, separators=(",", ":"))
+        )
+
     async def test_get_elo_estimates_an_sprt_run(self):
         result = await self._call("get_elo", {"run_id": self.run_id})
         self.assertFalse(result.is_error)
