@@ -85,6 +85,20 @@ def text_search(where: str, page: str, matched: str) -> dict[str, Any]:
 
 COUNT = {"type": "integer", "minimum": 0}
 
+
+def page_size(most: int, what: str) -> dict[str, Any]:
+    """Return the schema of the size of a page a listing takes, from 1 to `most`."""
+    return {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": most,
+        "description": (
+            f"The {what} a page holds, from 1 to {most}, and {most} when absent;"
+            " page counts pages of this size"
+        ),
+    }
+
+
 # An architecture a worker builds Stockfish for, as the scheduler names it.
 ARCH = {"enum": list(supported_arches)}
 
@@ -462,8 +476,8 @@ TOOLS: list[dict[str, Any]] = [
         "title": "List the active runs",
         "description": (
             f"Return one page of the runs that have not finished, approved or"
-            f" not, the newest first, {ACTIVE_RUNS_PAGE_SIZE} to a page, with how"
-            f" many there are: optionally one user's."
+            f" not, the newest first, up to {ACTIVE_RUNS_PAGE_SIZE} to a page,"
+            f" with how many there are: optionally one user's."
         ),
         "inputSchema": {
             "type": "object",
@@ -476,6 +490,7 @@ TOOLS: list[dict[str, Any]] = [
                         " holds no run"
                     ),
                 },
+                "limit": page_size(ACTIVE_RUNS_PAGE_SIZE, "runs"),
                 "username": {
                     "type": "string",
                     "description": (
@@ -501,7 +516,7 @@ TOOLS: list[dict[str, Any]] = [
         "name": "list_finished_runs",
         "title": "List finished runs",
         "description": (
-            f"Return one page of finished runs, newest first,"
+            f"Return one page of finished runs, newest first, up to"
             f" {FINISHED_RUNS_PAGE_SIZE} to a page, optionally one user's, only"
             f" those whose info holds some words, only the passed ones, only the"
             f" yellow ones, only long time controls, only those last updated"
@@ -519,6 +534,7 @@ TOOLS: list[dict[str, Any]] = [
                         " holds no run"
                     ),
                 },
+                "limit": page_size(FINISHED_RUNS_PAGE_SIZE, "runs"),
                 "username": {
                     "type": "string",
                     "description": "The author's username, matched whole and case-sensitively",

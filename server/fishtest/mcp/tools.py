@@ -218,11 +218,12 @@ def list_active_runs(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
     if "username" in arguments:
         query["args.username"] = arguments["username"]
     page = int(arguments.get("page", 1))
+    size = int(arguments.get("limit", ACTIVE_RUNS_PAGE_SIZE))
     runs = (
         rundb.runs.find(query, RUN_PROJECTION)
         .sort("_id", DESCENDING)
-        .skip(min((page - 1) * ACTIVE_RUNS_PAGE_SIZE, SKIP_MAX))
-        .limit(ACTIVE_RUNS_PAGE_SIZE)
+        .skip(min((page - 1) * size, SKIP_MAX))
+        .limit(size)
     )
     return {
         "page": page,
@@ -246,6 +247,7 @@ def _moment(arguments: dict[str, Any], key: str) -> datetime | None:
 
 def list_finished_runs(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
     page = int(arguments.get("page", 1))
+    size = int(arguments.get("limit", FINISHED_RUNS_PAGE_SIZE))
     filters = {
         "username": arguments.get("username", ""),
         # Read as the finished-runs page reads its search box.
@@ -274,8 +276,8 @@ def list_finished_runs(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
             if not arch_filters:
                 return {"page": page, "total": 0, "runs": []}
         runs, total = rundb.get_finished_runs(
-            skip=min((page - 1) * FINISHED_RUNS_PAGE_SIZE, SKIP_MAX),
-            limit=FINISHED_RUNS_PAGE_SIZE,
+            skip=min((page - 1) * size, SKIP_MAX),
+            limit=size,
             arch_filters=arch_filters,
             **filters,
             **bound,

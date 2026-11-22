@@ -50,8 +50,8 @@ Every tool reads and changes nothing (`readOnlyHint`, `idempotentHint`,
 | Tool | Arguments | Returns |
 |------|-----------|---------|
 | `get_run` | `run_id` (24 hex digits) | the run's summary |
-| `list_active_runs` | optionally `page` (from 1, default 1), `username` | `page`, `total`, `runs`: 50 summaries of unfinished runs a page, newest first |
-| `list_finished_runs` | optionally `page` (from 1, default 1), `username`, `text`, `success_only`, `yellow_only`, `ltc_only`, `since`, `until`, `arch`, `option` | `page`, `total`, `runs`: 50 summaries a page, newest first |
+| `list_active_runs` | optionally `page` (from 1, default 1), `limit` (1 to 50, default 50), `username` | `page`, `total`, `runs`: `limit` summaries of unfinished runs a page, newest first |
+| `list_finished_runs` | optionally `page` (from 1, default 1), `limit` (1 to 50, default 50), `username`, `text`, `success_only`, `yellow_only`, `ltc_only`, `since`, `until`, `arch`, `option` | `page`, `total`, `runs`: `limit` summaries a page, newest first |
 | `list_active_workers` | optionally `page` (from 1, default 1), `username`, `arch`, `run_id` | `page`, `total`, `cores`, `workers`: 100 workers a page, the most recently updated first |
 | `get_elo` | `run_id` | a test run's Elo estimate with its 95% interval and likelihood of superiority, as its page shows them; an SPRT test's also with its bounds and log-likelihood ratio |
 | `search_actions` | optionally `run_id`, `username`, `action`, `before`, `filter`, `text` and `limit` (1 to 200, default 50) | `actions`: the newest events every argument selects |

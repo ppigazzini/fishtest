@@ -1090,7 +1090,7 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             (
                 "list_active_runs",
                 {"x": 1},
-                "at x: expected no key but page and username [extra_forbidden]",
+                "at x: expected no key but page, limit and username [extra_forbidden]",
             ),
         ):
             result = await self._call(name, arguments)
@@ -1412,6 +1412,29 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result.structured_content["runs"], [], page)
             self.assertEqual(result.structured_content["total"], total, page)
             self.assertEqual(result.structured_content["page"], int(page), page)
+
+    async def test_a_run_list_takes_the_size_of_its_pages(self):
+        # A model asking for the last few runs reads a few summaries, and page
+        # counts pages of that size, so two pages of 2 are the first page of 4.
+        for tool, arguments in (
+            ("list_finished_runs", {}),
+            ("list_active_runs", {"username": "TestMcpUser"}),
+        ):
+            four = await self._call(tool, {**arguments, "limit": 4})
+            first = await self._call(tool, {**arguments, "limit": 2})
+            second = await self._call(tool, {**arguments, "limit": 2, "page": 2})
+            runs = four.structured_content["runs"]
+            self.assertEqual(len(runs), min(4, four.structured_content["total"]), tool)
+            self.assertEqual(
+                first.structured_content["runs"] + second.structured_content["runs"],
+                runs,
+                tool,
+            )
+            self.assertEqual(
+                first.structured_content["total"], four.structured_content["total"]
+            )
+            refused = await self._call(tool, {**arguments, "limit": 51})
+            self.assertTrue(refused.is_error, tool)
 
     async def test_list_finished_runs_reads_a_missing_page_as_the_first(self):
         first = await self._call("list_finished_runs", {"page": 1})
