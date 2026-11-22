@@ -26,6 +26,7 @@ from fishtest.constants import supported_arches
 from fishtest.mcp.contracts import (
     ACTION_FIELDS,
     ACTIONS_LIMIT_DEFAULT,
+    ACTIVE_RUNS_PAGE_SIZE,
     FINISHED_RUNS_PAGE_SIZE,
     TEXT_MAX,
     WORKERS_PAGE_SIZE,
@@ -211,8 +212,23 @@ def get_run(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 def list_active_runs(rundb: Any, arguments: dict[str, Any]) -> dict[str, Any]:
-    runs = rundb.runs.find({"finished": False}, RUN_PROJECTION)
-    return {"runs": [run_summary(run) for run in runs]}
+    # Newest first by id, an order no update moves, so a page holds the runs
+    # it held a moment before, less those that finished.
+    query: dict[str, Any] = {"finished": False}
+    if "username" in arguments:
+        query["args.username"] = arguments["username"]
+    page = int(arguments.get("page", 1))
+    runs = (
+        rundb.runs.find(query, RUN_PROJECTION)
+        .sort("_id", DESCENDING)
+        .skip(min((page - 1) * ACTIVE_RUNS_PAGE_SIZE, SKIP_MAX))
+        .limit(ACTIVE_RUNS_PAGE_SIZE)
+    )
+    return {
+        "page": page,
+        "total": rundb.runs.count_documents(query),
+        "runs": [run_summary(run) for run in runs],
+    }
 
 
 def _moment(arguments: dict[str, Any], key: str) -> datetime | None:

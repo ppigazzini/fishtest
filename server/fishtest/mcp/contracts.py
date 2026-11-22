@@ -32,6 +32,7 @@ from fishtest.schemas import (
     OPTION_CHAR,
 )
 
+ACTIVE_RUNS_PAGE_SIZE = 50
 FINISHED_RUNS_PAGE_SIZE = 50
 WORKERS_PAGE_SIZE = 100
 ACTIONS_LIMIT_MAX = 200
@@ -248,7 +249,16 @@ RUN_SUMMARY = {
     "additionalProperties": False,
 }
 
-RUN_LIST = {"type": "array", "items": RUN_SUMMARY}
+
+def run_list(finished: bool) -> dict[str, Any]:
+    """Return the schema of a list of the summaries of runs `finished` or not.
+
+    Each list pins the state its query selects, so the active and the finished
+    runs are two types, and a planner reaches each by its own tool.
+    """
+    properties = {**RUN_SUMMARY["properties"], "finished": {"const": finished}}
+    return {"type": "array", "items": {**RUN_SUMMARY, "properties": properties}}
+
 
 # A version as a list of three numbers joined by dots, such as 3.13.5.
 VERSION = {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}
@@ -450,16 +460,39 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "list_active_runs",
         "title": "List the active runs",
-        "description": "Return every run that has not finished, approved or not.",
+        "description": (
+            f"Return one page of the runs that have not finished, approved or"
+            f" not, the newest first, {ACTIVE_RUNS_PAGE_SIZE} to a page, with how"
+            f" many there are: optionally one user's."
+        ),
         "inputSchema": {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "page": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": (
+                        "The page, from 1, and 1 when absent; a page past the last"
+                        " holds no run"
+                    ),
+                },
+                "username": {
+                    "type": "string",
+                    "description": (
+                        "The author's username, matched whole and case-sensitively"
+                    ),
+                },
+            },
             "additionalProperties": False,
         },
         "outputSchema": {
             "type": "object",
-            "properties": {"runs": RUN_LIST},
-            "required": ["runs"],
+            "properties": {
+                "page": COUNT,
+                "total": {**COUNT, "description": "The active runs the filters select"},
+                "runs": run_list(finished=False),
+            },
+            "required": ["page", "total", "runs"],
             "additionalProperties": False,
         },
         "annotations": READ_ONLY,
@@ -544,7 +577,11 @@ TOOLS: list[dict[str, Any]] = [
         },
         "outputSchema": {
             "type": "object",
-            "properties": {"page": COUNT, "total": COUNT, "runs": RUN_LIST},
+            "properties": {
+                "page": COUNT,
+                "total": COUNT,
+                "runs": run_list(finished=True),
+            },
             "required": ["page", "total", "runs"],
             "additionalProperties": False,
         },

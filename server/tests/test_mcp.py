@@ -1067,7 +1067,11 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
                 "at filter.$or.0.time: expected a string, a number, a boolean,"
                 " null or an object [union_error]",
             ),
-            ("list_active_runs", {"x": 1}, "at x: expected no key [extra_forbidden]"),
+            (
+                "list_active_runs",
+                {"x": 1},
+                "at x: expected no key but page and username [extra_forbidden]",
+            ),
         ):
             result = await self._call(name, arguments)
             self.assertTrue(result.is_error, repr(arguments))
@@ -1146,7 +1150,7 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         def held(_rundb, _arguments):
             entered.set()
             release.wait(10)
-            return {"runs": []}
+            return {"page": 1, "total": 0, "runs": []}
 
         server = build_server(lambda: self.rundb, calls_max=1)
         tools = {"list_active_runs": held}
@@ -1287,6 +1291,27 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.is_error)
         run_ids = [run["run_id"] for run in result.structured_content["runs"]]
         self.assertIn(self.run_id, run_ids)
+
+    async def test_list_active_runs_pages_one_users_runs_newest_first(self):
+        mine = await self._call("list_active_runs", {"username": "TestMcpUser"})
+        self.assertFalse(mine.is_error)
+        found = mine.structured_content
+        stored = self.rundb.runs.count_documents(
+            {"finished": False, "args.username": "TestMcpUser"}
+        )
+        self.assertEqual((found["page"], found["total"]), (1, stored))
+        run_ids = [run["run_id"] for run in found["runs"]]
+        self.assertEqual(run_ids, sorted(run_ids, reverse=True))
+        self.assertLessEqual(len(run_ids), mcp_contracts.ACTIVE_RUNS_PAGE_SIZE)
+        self.assertEqual({run["username"] for run in found["runs"]}, {"TestMcpUser"})
+        self.assertIn(self.run_id, run_ids)
+        past = await self._call(
+            "list_active_runs", {"username": "TestMcpUser", "page": 10**6}
+        )
+        self.assertEqual(past.structured_content["runs"], [])
+        self.assertEqual(past.structured_content["total"], stored)
+        nobody = await self._call("list_active_runs", {"username": "testmcpuser"})
+        self.assertEqual(nobody.structured_content["total"], 0)
 
     async def test_the_active_runs_tell_a_held_back_nodestime_run_apart(self):
         # Its options name nodestime, which no other field shows, and its
