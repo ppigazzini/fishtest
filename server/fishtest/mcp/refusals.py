@@ -2,7 +2,8 @@
 
 A call outside its contract is answered with the first failure's path, what
 the input schema admits there in JSON Schema's terms, which the client holds,
-and the failure's code. The words are read from the schema through
+and the failure's code. A key the input schema does not declare is written
+`*`: it is text the caller chose, as valgebra-planning writes it. The words are read from the schema through
 valgebra-jsonschema's readers, `Compiler.resolve`, `branches`, `constants`,
 `interval` and `ANNOTATIONS`, at the argument's slot in valgebra-planning's
 contract; a subschema they do not word keeps valgebra's expectation. A result
@@ -27,7 +28,7 @@ from valgebra_jsonschema import (
 )
 from valgebra_planning.contracts import Contract
 
-from fishtest.mcp.contracts import CONTRACTS
+from fishtest.mcp.contracts import CONTRACTS, TOOLS
 
 
 def _followed(compiler: Compiler, node: Any) -> Any:
@@ -198,13 +199,37 @@ def _expected(contract: Contract, error: ValidationError) -> str:
     return error.expected
 
 
+def _names(node: Any) -> set[str]:
+    # Every property name a schema declares, at any depth, under `$defs` too.
+    names: set[str] = set()
+    if isinstance(node, dict):
+        properties = node.get("properties")
+        if isinstance(properties, dict):
+            names |= set(properties)
+        for value in node.values():
+            names |= _names(value)
+    elif isinstance(node, list):
+        for item in node:
+            names |= _names(item)
+    return names
+
+
+# The keys a refusal writes back, each tool's input schema's own.
+DECLARED = {tool["name"]: frozenset(_names(tool["inputSchema"])) for tool in TOOLS}
+
 # The steps of a path a refusal names in full: a longer one, such as a filter
 # nested to the depth the server reads, is cut in its middle.
 PATH_STEPS_SHOWN = 12
 
 
-def _where(path: tuple[str | int, ...], whole: str) -> str:
-    steps = [str(step) for step in path]
+def _where(
+    path: tuple[str | int, ...], whole: str, names: frozenset[str] | None = None
+) -> str:
+    # With `names`, a key outside them is written `*`.
+    steps = [
+        str(step) if names is None or isinstance(step, int) or step in names else "*"
+        for step in path
+    ]
     if len(steps) > PATH_STEPS_SHOWN:
         half = PATH_STEPS_SHOWN // 2
         cut = len(steps) - 2 * half
@@ -222,7 +247,7 @@ def refusal(name: str, arguments: dict[str, Any]) -> str:
     try:
         CONTRACTS[name].accepts.validate(arguments, fail_fast=True)
     except ValidationError as e:
-        where = _where(e.path, "the arguments")
+        where = _where(e.path, "the arguments", DECLARED[name])
         expected = _expected(CONTRACTS[name], e)
         return (
             f"{name} refuses its arguments: at {where}: expected {expected} [{e.code}]"

@@ -1206,21 +1206,25 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
 
     async def test_an_argument_outside_the_contract_is_a_tool_error(self):
         # The refusal names where the arguments fail and what is expected
-        # there, and never the value sent.
+        # there, and never the value sent, a key the tool does not declare
+        # among it: that key is written `*`.
         for arguments, where in (
             (
                 {"run_id": "a-sent-value"},
                 "at run_id: expected a string matching ^[a-f0-9]{24}$"
                 " [string_pattern_mismatch]",
             ),
-            ({"run_id": self.run_id, "x": 1}, "at x: expected no key but run_id"),
+            (
+                {"run_id": self.run_id, "a-sent-key": 1},
+                "at *: expected no key but run_id [extra_forbidden]",
+            ),
             ({}, "at run_id: expected required key 'run_id' [missing_key]"),
         ):
             result = await self._call("get_run", arguments)
             self.assertTrue(result.is_error, repr(arguments))
             text = result.content[0].text
-            self.assertTrue(text.startswith(f"get_run refuses its arguments: {where}"))
-            self.assertNotIn("a-sent-value", text)
+            self.assertEqual(text, f"get_run refuses its arguments: {where}")
+            self.assertNotIn("a-sent", text)
 
     async def test_a_refusal_words_what_the_input_schema_admits(self):
         # In JSON Schema's terms, which the client holds, and never in those
@@ -1256,7 +1260,7 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             (
                 "search_actions",
                 {"filter": {"message": {"$regex": "a+"}}},
-                "at filter.message.$regex: expected no key but $eq, $ne, $gt,"
+                "at filter.message.*: expected no key but $eq, $ne, $gt,"
                 " $gte, $lt, $lte, $in and $nin [extra_forbidden]",
             ),
             (
@@ -1273,7 +1277,7 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             (
                 "list_active_runs",
                 {"x": 1},
-                "at x: expected no key but page, limit, username, kind, branch and"
+                "at *: expected no key but page, limit, username, kind, branch and"
                 " text [extra_forbidden]",
             ),
         ):
