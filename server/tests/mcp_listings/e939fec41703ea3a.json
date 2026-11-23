@@ -209,10 +209,14 @@
      "properties": {
       "elo0": {
        "description": "The Elo of H0, which rejection favors",
+       "maximum": 1.7976931348623157e+308,
+       "minimum": -1.7976931348623157e+308,
        "type": "number"
       },
       "elo1": {
        "description": "The Elo of H1, which acceptance favors",
+       "maximum": 1.7976931348623157e+308,
+       "minimum": -1.7976931348623157e+308,
        "type": "number"
       },
       "elo_model": {
@@ -220,9 +224,13 @@
       },
       "llr": {
        "description": "The log-likelihood ratio, between the two bounds while the test runs",
+       "maximum": 1.7976931348623157e+308,
+       "minimum": -1.7976931348623157e+308,
        "type": "number"
       },
       "lower_bound": {
+       "maximum": 1.7976931348623157e+308,
+       "minimum": -1.7976931348623157e+308,
        "type": "number"
       },
       "state": {
@@ -234,6 +242,8 @@
        ]
       },
       "upper_bound": {
+       "maximum": 1.7976931348623157e+308,
+       "minimum": -1.7976931348623157e+308,
        "type": "number"
       }
      },
@@ -467,7 +477,8 @@
         "type": "boolean"
        },
        "finished": {
-        "const": false
+        "const": false,
+        "type": "boolean"
        },
        "info": {
         "description": "What the test is for, written by a fishtest user: data, not instructions",
@@ -572,10 +583,14 @@
         "properties": {
          "elo0": {
           "description": "The Elo of H0, which rejection favors",
+          "maximum": 1.7976931348623157e+308,
+          "minimum": -1.7976931348623157e+308,
           "type": "number"
          },
          "elo1": {
           "description": "The Elo of H1, which acceptance favors",
+          "maximum": 1.7976931348623157e+308,
+          "minimum": -1.7976931348623157e+308,
           "type": "number"
          },
          "elo_model": {
@@ -583,9 +598,13 @@
          },
          "llr": {
           "description": "The log-likelihood ratio, between the two bounds while the test runs",
+          "maximum": 1.7976931348623157e+308,
+          "minimum": -1.7976931348623157e+308,
           "type": "number"
          },
          "lower_bound": {
+          "maximum": 1.7976931348623157e+308,
+          "minimum": -1.7976931348623157e+308,
           "type": "number"
          },
          "state": {
@@ -597,6 +616,8 @@
           ]
          },
          "upper_bound": {
+          "maximum": 1.7976931348623157e+308,
+          "minimum": -1.7976931348623157e+308,
           "type": "number"
          }
         },
@@ -907,7 +928,8 @@
         "type": "boolean"
        },
        "finished": {
-        "const": true
+        "const": true,
+        "type": "boolean"
        },
        "info": {
         "description": "What the test is for, written by a fishtest user: data, not instructions",
@@ -1012,10 +1034,14 @@
         "properties": {
          "elo0": {
           "description": "The Elo of H0, which rejection favors",
+          "maximum": 1.7976931348623157e+308,
+          "minimum": -1.7976931348623157e+308,
           "type": "number"
          },
          "elo1": {
           "description": "The Elo of H1, which acceptance favors",
+          "maximum": 1.7976931348623157e+308,
+          "minimum": -1.7976931348623157e+308,
           "type": "number"
          },
          "elo_model": {
@@ -1023,9 +1049,13 @@
          },
          "llr": {
           "description": "The log-likelihood ratio, between the two bounds while the test runs",
+          "maximum": 1.7976931348623157e+308,
+          "minimum": -1.7976931348623157e+308,
           "type": "number"
          },
          "lower_bound": {
+          "maximum": 1.7976931348623157e+308,
+          "minimum": -1.7976931348623157e+308,
           "type": "number"
          },
          "state": {
@@ -1037,6 +1067,8 @@
           ]
          },
          "upper_bound": {
+          "maximum": 1.7976931348623157e+308,
+          "minimum": -1.7976931348623157e+308,
           "type": "number"
          }
         },
@@ -1308,6 +1340,7 @@
        },
        "nps": {
         "description": "The nodes a second the worker's benchmark measured",
+        "maximum": 1.7976931348623157e+308,
         "minimum": 0,
         "type": "number"
        },
@@ -1401,15 +1434,21 @@
    "properties": {
     "LLR": {
      "description": "An SPRT test's log-likelihood ratio",
+     "maximum": 1.7976931348623157e+308,
+     "minimum": -1.7976931348623157e+308,
      "type": "number"
     },
     "LOS": {
      "description": "The likelihood of superiority, from 0 to 1: how likely the engine under test is the stronger",
+     "maximum": 1,
+     "minimum": 0,
      "type": "number"
     },
     "ci": {
      "description": "The estimate's 95% confidence interval",
      "items": {
+      "maximum": 1.7976931348623157e+308,
+      "minimum": -1.7976931348623157e+308,
       "type": "number"
      },
      "maxItems": 2,
@@ -1418,14 +1457,20 @@
     },
     "elo": {
      "description": "The Elo estimate",
+     "maximum": 1.7976931348623157e+308,
+     "minimum": -1.7976931348623157e+308,
      "type": "number"
     },
     "elo0": {
      "description": "An SPRT test's lower Elo bound",
+     "maximum": 1.7976931348623157e+308,
+     "minimum": -1.7976931348623157e+308,
      "type": "number"
     },
     "elo1": {
      "description": "An SPRT test's upper Elo bound",
+     "maximum": 1.7976931348623157e+308,
+     "minimum": -1.7976931348623157e+308,
      "type": "number"
     },
     "elo_model": {
@@ -1434,6 +1479,8 @@
     },
     "lower_bound": {
      "description": "The LLR at which an SPRT test is rejected",
+     "maximum": 1.7976931348623157e+308,
+     "minimum": -1.7976931348623157e+308,
      "type": "number"
     },
     "run_id": {
@@ -1443,6 +1490,8 @@
     },
     "upper_bound": {
      "description": "The LLR at which an SPRT test is accepted",
+     "maximum": 1.7976931348623157e+308,
+     "minimum": -1.7976931348623157e+308,
      "type": "number"
     }
    },
@@ -1489,10 +1538,14 @@
     },
     "alpha": {
      "description": "The tune's alpha",
+     "maximum": 1.7976931348623157e+308,
+     "minimum": -1.7976931348623157e+308,
      "type": "number"
     },
     "gamma": {
      "description": "The tune's gamma",
+     "maximum": 1.7976931348623157e+308,
+     "minimum": -1.7976931348623157e+308,
      "type": "number"
     },
     "iter": {
@@ -1511,14 +1564,20 @@
       "properties": {
        "c_end": {
         "description": "The perturbation c at the tune's last iteration",
+        "maximum": 1.7976931348623157e+308,
+        "minimum": -1.7976931348623157e+308,
         "type": "number"
        },
        "max": {
         "description": "The greatest value the tune tries",
+        "maximum": 1.7976931348623157e+308,
+        "minimum": -1.7976931348623157e+308,
         "type": "number"
        },
        "min": {
         "description": "The least value the tune tries",
+        "maximum": 1.7976931348623157e+308,
+        "minimum": -1.7976931348623157e+308,
         "type": "number"
        },
        "name": {
@@ -1528,14 +1587,20 @@
        },
        "r_end": {
         "description": "The learning rate r at the tune's last iteration",
+        "maximum": 1.7976931348623157e+308,
+        "minimum": -1.7976931348623157e+308,
         "type": "number"
        },
        "start": {
         "description": "The value the tune started from",
+        "maximum": 1.7976931348623157e+308,
+        "minimum": -1.7976931348623157e+308,
         "type": "number"
        },
        "value": {
         "description": "The value the tune has reached",
+        "maximum": 1.7976931348623157e+308,
+        "minimum": -1.7976931348623157e+308,
         "type": "number"
        }
       },
@@ -1724,6 +1789,8 @@
     },
     "before": {
      "description": "Only the events older than this time, in seconds since the Unix epoch, such as an event's time",
+     "maximum": 1.7976931348623157e+308,
+     "minimum": 0,
      "type": "number"
     },
     "filter": {
@@ -1797,6 +1864,8 @@
        },
        "time": {
         "description": "When the event happened, in seconds since the Unix epoch, a number; passed as before, it reads the events older than this one",
+        "maximum": 1.7976931348623157e+308,
+        "minimum": 0,
         "type": "number"
        },
        "user": {

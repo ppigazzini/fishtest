@@ -21,11 +21,12 @@ from mcp.types import INVALID_PARAMS
 from pymongo import DESCENDING, TEXT
 from test_schemas import RUN
 from valgebra import Validator, union
-from valgebra_jsonschema import compile_schema, compile_with_fallbacks
+from valgebra_jsonschema import compile_schema, compile_with_fallbacks, interval
 from valgebra_planning.codemode import feedback, stubs
 from valgebra_planning.contracts import read_contract, read_task
 from valgebra_planning.critic import critique
 from valgebra_planning.library import Library
+from valgebra_planning.meaning import findings
 from valgebra_planning.planner import plan
 from valgebra_planning.program import render
 from valgebra_planning.run import blame
@@ -534,6 +535,50 @@ class TestMcpContracts(unittest.TestCase):
         # A side no value meets lists a tool no call reaches, or one that
         # cannot answer; valgebra-planning reports either as vacuous.
         self.assertEqual(vacuities(Library(CONTRACTS, ())), [])
+
+    def test_every_number_a_contract_publishes_is_finite(self):
+        # JSON writes no infinity, yet a number past the float range, 1e400,
+        # reads as one: every number is bounded on both sides, by the float
+        # range or by its unit, so the check refuses an infinity or NaN at its
+        # path. A filter constant, a string, number, boolean or null, is the one
+        # number left open: /api/actions compares it, and the filter contract
+        # is that endpoint's language.
+        def numbers(node, where):
+            if isinstance(node, dict):
+                if node.get("type") == "number":
+                    yield where, node
+                for key, value in node.items():
+                    yield from numbers(value, f"{where}/{key}")
+            elif isinstance(node, list):
+                for index, item in enumerate(node):
+                    yield from numbers(item, f"{where}/{index}")
+
+        read = 0
+        for tool in mcp_contracts.TOOLS:
+            for side in ("inputSchema", "outputSchema"):
+                for where, node in numbers(tool[side], f"{tool['name']} {side}"):
+                    span = interval(node)
+                    self.assertIsNotNone(span, where)
+                    self.assertIsNotNone(span.low, where)
+                    self.assertIsNotNone(span.high, where)
+                    read += 1
+        self.assertGreater(read, 20)
+        for value in (math.inf, -math.inf, math.nan):
+            self.assertNotIn({"before": value}, CONTRACTS["search_actions"].accepts)
+        # A filter compares a field against any JSON number, an infinity too.
+        self.assertIn({"time": {"$lt": math.inf}}, FILTER)
+        self.assertNotIn({"time": {"$lt": math.nan}}, FILTER)
+
+    def test_a_page_is_the_one_argument_left_open(self):
+        # valgebra-planning notes a contract wider than its keywords suggest. A
+        # page is: it takes any page past the last, which holds no run, so no
+        # bound is meant.
+        noted = [(f.where, f.finding) for f in findings(Library(CONTRACTS, ()))]
+        pages = ("list_active_runs", "list_active_workers", "list_finished_runs")
+        self.assertEqual(
+            noted,
+            [(f"tool {name}", f"{name}.page has no upper bound") for name in pages],
+        )
 
     def test_an_integer_argument_is_a_json_integer(self):
         # JSON Schema counts 1.0 as an integer and true as none.
@@ -1245,7 +1290,7 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(caught.exception.code, INVALID_PARAMS)
         self.assertEqual(caught.exception.message, "Unknown tool: nope")
 
-    async def test_a_result_json_cannot_write_is_refused(self):
+    async def test_a_result_holding_a_number_json_cannot_write_is_refused(self):
         estimate = {
             "run_id": self.run_id,
             "elo_model": "normalized",
@@ -1258,11 +1303,11 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             "ci": [-1.0, 1.0],
             "LOS": 0.5,
         }
-        # NaN is no JSON value and the contract refuses it; an infinity is a
-        # number the contract admits, and JSON cannot write it.
+        # JSON writes neither an infinity nor NaN, and the contract bounds every
+        # number it publishes, so it refuses both where they sit.
         for value, why in (
-            (math.inf, "with a number JSON cannot write"),
-            (-math.inf, "with a number JSON cannot write"),
+            (math.inf, "at LLR [union_error]"),
+            (-math.inf, "at LLR [union_error]"),
             (math.nan, "at LLR [union_error]"),
         ):
             tool = {

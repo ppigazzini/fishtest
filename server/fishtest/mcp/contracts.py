@@ -8,10 +8,10 @@ cannot read fails the import, so the server never lists a contract it does not
 enforce.
 
 The schemas describe JSON values, not the documents MongoDB holds: an
-`integer` is any number with no fractional part, `1.0` included, and a
-`pattern` is a search, so every pattern here is anchored. Every result record
-is closed, so a field nobody published, such as a worker's address, cannot
-leave through it.
+`integer` is any number with no fractional part, `1.0` included, a `number`
+is bounded by the float range, and a `pattern` is a search, so every pattern
+here is anchored. Every result record is closed, so a field nobody published,
+such as a worker's address, cannot leave through it.
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ from fishtest.schemas import (
     ACTION_QUERY_CLAUSE_MAX,
     ACTION_QUERY_FIELDS,
     ACTION_QUERY_LIST_MAX,
+    FLOAT_MAX,
     OPTION_CHAR,
 )
 
@@ -85,6 +86,24 @@ def text_search(where: str, page: str, matched: str) -> dict[str, Any]:
 
 
 COUNT = {"type": "integer", "minimum": 0}
+
+
+def number(
+    description: str | None = None,
+    minimum: float = -FLOAT_MAX,
+    maximum: float = FLOAT_MAX,
+) -> dict[str, Any]:
+    """Return the schema of a finite number, from `minimum` to `maximum`.
+
+    JSON writes no infinity, yet a number past the float range, such as
+    `1e400`, reads as one: the float range as bounds is "a number that is
+    finite", the stored floats' own bounds, and a relation reads it as any
+    other bound. A number's unit narrows it further where it can.
+    """
+    schema: dict[str, Any] = {"type": "number", "minimum": minimum, "maximum": maximum}
+    if description is not None:
+        schema["description"] = description
+    return schema
 
 
 def run_kind(bound: str) -> dict[str, Any]:
@@ -186,25 +205,18 @@ RESULTS = {
 SPRT = {
     "type": "object",
     "properties": {
-        "elo0": {
-            "type": "number",
-            "description": "The Elo of H0, which rejection favors",
-        },
-        "elo1": {
-            "type": "number",
-            "description": "The Elo of H1, which acceptance favors",
-        },
+        "elo0": number("The Elo of H0, which rejection favors"),
+        "elo1": number("The Elo of H1, which acceptance favors"),
         "elo_model": {"type": "string"},
         "state": {
             "enum": ["", "accepted", "rejected"],
             "description": "The verdict, or empty while the test runs",
         },
-        "llr": {
-            "type": "number",
-            "description": "The log-likelihood ratio, between the two bounds while the test runs",
-        },
-        "lower_bound": {"type": "number"},
-        "upper_bound": {"type": "number"},
+        "llr": number(
+            "The log-likelihood ratio, between the two bounds while the test runs"
+        ),
+        "lower_bound": number(),
+        "upper_bound": number(),
     },
     "required": ["elo0", "elo1", "state", "llr", "lower_bound", "upper_bound"],
     "additionalProperties": False,
@@ -355,7 +367,8 @@ def run_list(finished: bool) -> dict[str, Any]:
     Each list pins the state its query selects, so the active and the finished
     runs are two types, and a planner reaches each by its own tool.
     """
-    properties = {**RUN_SUMMARY["properties"], "finished": {"const": finished}}
+    pinned = {"type": "boolean", "const": finished}
+    properties = {**RUN_SUMMARY["properties"], "finished": pinned}
     return {"type": "array", "items": {**RUN_SUMMARY, "properties": properties}}
 
 
@@ -366,18 +379,12 @@ SPSA_PARAM = {
     "type": "object",
     "properties": {
         "name": user_text("The parameter's name, as the tune's author wrote it"),
-        "value": {"type": "number", "description": "The value the tune has reached"},
-        "start": {"type": "number", "description": "The value the tune started from"},
-        "min": {"type": "number", "description": "The least value the tune tries"},
-        "max": {"type": "number", "description": "The greatest value the tune tries"},
-        "c_end": {
-            "type": "number",
-            "description": "The perturbation c at the tune's last iteration",
-        },
-        "r_end": {
-            "type": "number",
-            "description": "The learning rate r at the tune's last iteration",
-        },
+        "value": number("The value the tune has reached"),
+        "start": number("The value the tune started from"),
+        "min": number("The least value the tune tries"),
+        "max": number("The greatest value the tune tries"),
+        "c_end": number("The perturbation c at the tune's last iteration"),
+        "r_end": number("The learning rate r at the tune's last iteration"),
     },
     "required": ["name", "value"],
     "additionalProperties": False,
@@ -414,11 +421,7 @@ WORKER = {
             "minimum": 1,
             "description": "The cores the worker plays on",
         },
-        "nps": {
-            "type": "number",
-            "minimum": 0,
-            "description": "The nodes a second the worker's benchmark measured",
-        },
+        "nps": number("The nodes a second the worker's benchmark measured", 0),
         "max_memory": {**COUNT, "description": "The memory the worker uses, in MiB"},
         "system": user_text("The worker's operating system, as its uname reads"),
         "arch": {
@@ -465,7 +468,9 @@ WORKER = {
 
 # The /api/actions filter language: what `action_query_schema` admits, written
 # as the JSON a client sends. Each part is stated once, under the input
-# schema's `$defs`, and every field's term refers to it.
+# schema's `$defs`, and every field's term refers to it. A constant is any
+# JSON number, an infinity among them, as the filter /api/actions reads: it is
+# compared, not stored.
 FILTER_CONSTANT = {"type": ["string", "number", "boolean", "null"]}
 FILTER_LIST = {
     "type": "array",
@@ -554,13 +559,11 @@ ACTION = {
         "run_id": RUN_ID,
         "run": user_text(FILTER_FIELDS["run"]),
         "task_id": {**COUNT, "description": FILTER_FIELDS["task_id"]},
-        "time": {
-            "type": "number",
-            "description": (
-                f"{FILTER_FIELDS['time']}; passed as before, it reads the events"
-                " older than this one"
-            ),
-        },
+        "time": number(
+            f"{FILTER_FIELDS['time']}; passed as before, it reads the events older"
+            " than this one",
+            0,
+        ),
         "message": user_text(FILTER_FIELDS["message"]),
         "nn": user_text(FILTER_FIELDS["nn"]),
         "user": user_text(FILTER_FIELDS["user"]),
@@ -808,41 +811,25 @@ TOOLS: list[dict[str, Any]] = [
                         " normalized, or logistic for a fixed-games test"
                     ),
                 },
-                "elo0": {
-                    "type": "number",
-                    "description": "An SPRT test's lower Elo bound",
-                },
-                "elo1": {
-                    "type": "number",
-                    "description": "An SPRT test's upper Elo bound",
-                },
-                "LLR": {
-                    "type": "number",
-                    "description": "An SPRT test's log-likelihood ratio",
-                },
-                "lower_bound": {
-                    "type": "number",
-                    "description": "The LLR at which an SPRT test is rejected",
-                },
-                "upper_bound": {
-                    "type": "number",
-                    "description": "The LLR at which an SPRT test is accepted",
-                },
-                "elo": {"type": "number", "description": "The Elo estimate"},
+                "elo0": number("An SPRT test's lower Elo bound"),
+                "elo1": number("An SPRT test's upper Elo bound"),
+                "LLR": number("An SPRT test's log-likelihood ratio"),
+                "lower_bound": number("The LLR at which an SPRT test is rejected"),
+                "upper_bound": number("The LLR at which an SPRT test is accepted"),
+                "elo": number("The Elo estimate"),
                 "ci": {
                     "type": "array",
-                    "items": {"type": "number"},
+                    "items": number(),
                     "minItems": 2,
                     "maxItems": 2,
                     "description": "The estimate's 95% confidence interval",
                 },
-                "LOS": {
-                    "type": "number",
-                    "description": (
-                        "The likelihood of superiority, from 0 to 1: how likely"
-                        " the engine under test is the stronger"
-                    ),
-                },
+                "LOS": number(
+                    "The likelihood of superiority, from 0 to 1: how likely the"
+                    " engine under test is the stronger",
+                    0,
+                    1,
+                ),
             },
             "required": ["run_id", "elo_model", "elo", "ci", "LOS"],
             "additionalProperties": False,
@@ -871,8 +858,8 @@ TOOLS: list[dict[str, Any]] = [
                 "iter": {**COUNT, "description": "The iterations played"},
                 "num_iter": {**COUNT, "description": "The iterations planned"},
                 "A": {**COUNT, "description": "The tune's iteration offset A"},
-                "alpha": {"type": "number", "description": "The tune's alpha"},
-                "gamma": {"type": "number", "description": "The tune's gamma"},
+                "alpha": number("The tune's alpha"),
+                "gamma": number("The tune's gamma"),
                 "params": {"type": "array", "items": SPSA_PARAM},
             },
             "required": ["run_id", "iter", "num_iter", "params"],
@@ -915,13 +902,11 @@ TOOLS: list[dict[str, Any]] = [
                     "enum": list(ACTION_NAMES),
                     "description": "Only the events of this kind",
                 },
-                "before": {
-                    "type": "number",
-                    "description": (
-                        "Only the events older than this time, in seconds since the"
-                        " Unix epoch, such as an event's time"
-                    ),
-                },
+                "before": number(
+                    "Only the events older than this time, in seconds since the"
+                    " Unix epoch, such as an event's time",
+                    0,
+                ),
                 "filter": {
                     "$ref": "#/$defs/filter",
                     "description": (

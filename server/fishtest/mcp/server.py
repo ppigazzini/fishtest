@@ -145,25 +145,21 @@ def build_server(
         except ToolRefusal as e:
             return _tool_error(str(e))
         result = plain(result)
-        refused = None
         returns = CONTRACTS[name].returns
         if returns is not None and not returns.is_valid(result):
-            refused = drift(name, result)
-        else:
-            # A JSON number reads as an infinity, so the contract admits one,
-            # and JSON writes neither an infinity nor NaN.
-            try:
-                text = json.dumps(result, allow_nan=False, separators=(",", ":"))
-            except ValueError:
-                refused = "with a number JSON cannot write"
-        if refused is not None:
             # A result outside its contract is this server's fault. The log
             # names the call and where its result fails; the client gets the
             # tool's name alone.
             logger.error(
-                "MCP %s result refused for %.120r: %s", name, arguments, refused
+                "MCP %s result refused for %.120r: %s",
+                name,
+                arguments,
+                drift(name, result),
             )
             return _tool_error(f"{name} could not answer within its contract")
+        # Every number a contract publishes is finite, so JSON writes every
+        # result the contract admits.
+        text = json.dumps(result, allow_nan=False, separators=(",", ":"))
         content = types.TextContent(type="text", text=text)
         return types.CallToolResult(content=[content], structured_content=result)
 

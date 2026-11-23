@@ -58,6 +58,13 @@ Every tool reads and changes nothing (`readOnlyHint`, `idempotentHint`,
 | `get_spsa` | `run_id` | an SPSA tune's `iter`, `num_iter`, `A`, `alpha`, `gamma`, and `params`: each one's `name`, the `value` reached, `start`, `min`, `max`, `c_end` and `r_end`, as the run page lists them |
 | `search_actions` | optionally `run_id`, `username`, `action`, `before`, `filter`, `text` and `limit` (1 to 200, default 50) | `actions`: the newest events every argument selects |
 
+Every number a tool takes or returns is finite. JSON writes no infinity, yet a
+number past the float range, such as `1e400`, reads as one, so each `number`
+in a schema is bounded by the float range, and narrower where its unit says
+so: `LOS` from 0 to 1, a worker's `nps`, an event's `time` and `before` from 0.
+A filter constant is the one number left open, as `POST /api/actions` reads
+it: a field is compared against it, and nothing stores it.
+
 A run summary holds the test the run asks for (`username`, `new_tag`,
 `base_tag`, `tc`, `new_tc`, `threads`, `book`, `num_games`, `info`,
 `tests_repo`, the resolved commits, and `new_options` and `base_options`, the
@@ -107,7 +114,7 @@ task.
 
 `search_actions` selects the events of a run (`run_id`), of an author
 (`username`), of a kind (`action`) and older than a time (`before`, in seconds
-since the Unix epoch), each read from an index, and those its `filter` matches.
+since the Unix epoch, from 0), each read from an index, and those its `filter` matches.
 Every argument given selects, so `run_id` alone reads a run's events, newest
 first, and the last event's `time` passed as `before` reads the ones older
 than it; an event that shares that exact time is left out. The filter is the
