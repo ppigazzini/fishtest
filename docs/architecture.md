@@ -96,7 +96,7 @@ mcp/
 |-- __init__.py              -- Package init; imports nothing
 |-- contracts.py             -- Tool listing: each tool's schemas, contract and the listing digest
 |-- refusals.py              -- Wording of a refused call, log line of a refused result
-|-- server.py                -- MCP server: gate, call cap, call path
+|-- server.py                -- MCP server: contract checks, call cap, call path
 |-- tools.py                 -- One function per tool over RunDb; result strings cleared
 `-- transport.py             -- Streamable HTTP route, Host and Origin checks, server card
 ```

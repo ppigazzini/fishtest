@@ -1,11 +1,10 @@
-"""The MCP server: fishtest's read-only tools behind valgebra-planning's gate.
+"""The MCP server: fishtest's read-only tools, each call held to its contract.
 
 `build_server` returns a low-level MCP server that lists `TOOLS` and answers a
-`tools/call` in four steps: the gate checks the arguments against the tool's
-contract, the tool reads the run database, the gate checks the result, every
-string cleared of control and invisible format characters, against the
-contract, and the result goes back as structured content beside its JSON
-text. Every step past the arguments runs in the threadpool, so the event loop
+`tools/call` in four steps: the arguments are checked against the tool's
+contract, the tool reads the run database, the result, every string cleared
+of control and invisible format characters, is checked against the contract,
+and the result goes back as structured content beside its JSON text. Every step past the arguments runs in the threadpool, so the event loop
 spends no time on a result. A refusal at either check, or a call that names a run the
 database does not hold, is a tool error the client can read, so nothing a
 contract refuses reaches the database or the client. A call naming a tool the
@@ -26,7 +25,6 @@ from mcp.server import CacheHint
 from mcp.server.lowlevel import Server
 from mcp.shared.exceptions import MCPError
 from starlette.concurrency import run_in_threadpool
-from valgebra_planning.proxy import Gate
 
 from fishtest.http.settings import MCP_CALLS_MAX
 from fishtest.mcp.contracts import CONTRACTS, TOOLS, TOOLS_DIGEST
@@ -99,9 +97,10 @@ def build_server(
     for a token: it is a tool error asking the client to retry, so a burst
     of calls cannot hold the threadpool the instance's other routes share.
     """
-    # No policy and no flow rule: every tool reads public data, so the gate
-    # holds each call to its contract alone.
-    gate = Gate(CONTRACTS, [], [])
+    # Every tool reads public data, so no policy and no flow rule holds a call:
+    # the contract alone does, read by its sets' own checks. valgebra-planning's
+    # gate would hold it to the same sets, and lists a refusal's failures in a
+    # walk of the whole value, on the event loop.
     # Read and written on the event loop alone, so no lock guards it.
     reading = 0
 
@@ -119,7 +118,7 @@ def build_server(
             message = f"Unknown tool: {name:.128}"
             raise MCPError(code=types.INVALID_PARAMS, message=message)
         arguments = dict(params.arguments or {})
-        if gate.before(name, arguments) is not None:
+        if not CONTRACTS[name].accepts.is_valid(arguments):
             return _tool_error(refusal(name, arguments))
         if reading >= calls_max:
             logger.warning("MCP %s refused: %d calls already reading", name, reading)
@@ -147,7 +146,8 @@ def build_server(
             return _tool_error(str(e))
         result = plain(result)
         refused = None
-        if gate.after(name, result) is not None:
+        returns = CONTRACTS[name].returns
+        if returns is not None and not returns.is_valid(result):
             refused = drift(name, result)
         else:
             # A JSON number reads as an infinity, so the contract admits one,

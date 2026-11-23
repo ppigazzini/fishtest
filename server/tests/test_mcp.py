@@ -50,7 +50,7 @@ from fishtest.views import _format_tests_view_string_arg
 
 CONTRACTS = mcp_contracts.CONTRACTS
 
-# The set the gate holds a search_actions filter to: the argument's slot,
+# The set the server holds a search_actions filter to: the argument's slot,
 # compiled inside the input schema that publishes it.
 FILTER = CONTRACTS["search_actions"].argument("filter").values
 
@@ -121,8 +121,8 @@ class TestMcpContracts(unittest.TestCase):
     def test_the_filter_contract_is_the_api_filter_language(self):
         # A proof both ways: the contract admits every filter /api/actions
         # serves, and only those, so search_actions hands the database what the
-        # gate admitted and nothing /api/actions would refuse. The contract is
-        # plain, so the gate admits a call where each argument lies in its slot.
+        # contract admitted and nothing /api/actions would refuse. The contract
+        # is plain, so it admits a call where each argument lies in its slot.
         self.assertTrue(CONTRACTS["search_actions"].plain)
         self.assertEqual(action_query_schema.relation_to(FILTER), "subset")
         self.assertEqual(FILTER.relation_to(action_query_schema), "subset")
@@ -520,6 +520,15 @@ class TestMcpContracts(unittest.TestCase):
                 where = f"{tool['name']} {side}"
                 self.assertEqual(compiler.ignored, set(), where)
                 self.assertEqual(compiler.opaque, set(), where)
+
+    def test_each_tool_reads_as_read_only_and_closed_world(self):
+        # valgebra-planning reads a hint a tool leaves out as MCP defaults it,
+        # destructive and open-world, so a policy keyed on either holds a tool
+        # that sets neither. Every tool here sets both, and reads as neither.
+        for name, contract in CONTRACTS.items():
+            self.assertEqual(
+                sorted(contract.hints), ["idempotentHint", "readOnlyHint"], name
+            )
 
     def test_each_tool_takes_a_call_and_returns_a_result(self):
         # A side no value meets lists a tool no call reaches, or one that
@@ -1889,13 +1898,14 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
                 ended = await run_on_server(
                     checked.program, CONTRACTS, task, {"run_id": run_id}, client
                 )
-                self.assertEqual(ended.broken, (), run_id)
+                self.assertTrue(ended.ok, run_id)
+                self.assertEqual(ended.outcome, "returned", run_id)
                 self.assertIsNone(blame(ended, CONTRACTS, proven=True), run_id)
                 self.assertIn(field, ended.value, run_id)
 
     async def test_a_program_planned_from_the_listing_runs_on_the_server(self):
         # An agent reads the contracts off the wire, which are the sets the
-        # gate holds, and plans an estimate for a run id it holds as any
+        # server holds, and plans an estimate for a run id it holds as any
         # string: the planner tests the string into the argument, and the
         # program stops on one outside it.
         async with Client(self.server, raise_exceptions=True) as client:
@@ -1921,7 +1931,10 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             stopped = await run_on_server(
                 planned.program, listed, task, {"run_id": "latest"}, client
             )
+        self.assertTrue(estimated.ok)
         self.assertEqual(estimated.value["run_id"], self.run_id)
+        # A stop is no return: the run ends on the input outside the argument.
+        self.assertEqual((stopped.outcome, stopped.ok), ("stopped", False))
         self.assertEqual(stopped.stopped, "run_id")
         for ended in (estimated, stopped):
             self.assertIsNone(blame(ended, listed, proven=False))

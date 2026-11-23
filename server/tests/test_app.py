@@ -474,7 +474,8 @@ class TestMcpEndpoint(unittest.TestCase):
 
     def test_a_nan_token_is_refused_before_any_tool_runs(self):
         # The SDK reads the tokens NaN and Infinity, which JSON forbids; the
-        # gate refuses NaN in any argument, and an infinity is a JSON number.
+        # contract refuses NaN in any argument, and an infinity is a JSON
+        # number a filter constant may be.
         from fishtest.mcp import tools as mcp_tools
 
         headers = {
