@@ -569,6 +569,28 @@ class TestMcpContracts(unittest.TestCase):
         self.assertIn({"time": {"$lt": math.inf}}, FILTER)
         self.assertNotIn({"time": {"$lt": math.nan}}, FILTER)
 
+    def test_every_string_a_result_holds_is_bounded(self):
+        # The server cuts every string a result holds at TEXT_MAX, and each
+        # output schema says so, or names the string's pattern or members, so
+        # no text the contract leaves unbounded reaches a model.
+        def strings(node, where):
+            if isinstance(node, dict):
+                if node.get("type") == "string":
+                    yield where, node
+                for key, value in node.items():
+                    yield from strings(value, f"{where}/{key}")
+            elif isinstance(node, list):
+                for index, item in enumerate(node):
+                    yield from strings(item, f"{where}/{index}")
+
+        read = 0
+        for tool in mcp_contracts.TOOLS:
+            for where, node in strings(tool["outputSchema"], tool["name"]):
+                self.assertTrue({"maxLength", "pattern", "enum"} & set(node), where)
+                self.assertLessEqual(node.get("maxLength", 0), mcp_contracts.TEXT_MAX)
+                read += 1
+        self.assertGreater(read, 20)
+
     def test_a_page_is_the_one_argument_left_open(self):
         # valgebra-planning notes a contract wider than its keywords suggest. A
         # page is: it takes any page past the last, which holds no run, so no

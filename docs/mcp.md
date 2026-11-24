@@ -63,7 +63,10 @@ number past the float range, such as `1e400`, reads as one, so each `number`
 in a schema is bounded by the float range, and narrower where its unit says
 so: `LOS` from 0 to 1, a worker's `nps`, an event's `time` and `before` from 0.
 A filter constant is the one number left open, as `POST /api/actions` reads
-it: a field is compared against it, and nothing stores it.
+it: a field is compared against it, and nothing stores it. Every string a
+result holds is at most 5120 characters, the length the server cuts it to,
+and its output schema states that bound where it names no pattern or values
+of its own.
 
 A run summary holds the test the run asks for (`username`, `new_tag`,
 `base_tag`, `tc`, `new_tc`, `threads`, `book`, `num_games`, `info`,

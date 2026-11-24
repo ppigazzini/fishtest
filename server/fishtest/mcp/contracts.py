@@ -56,6 +56,16 @@ RUN_ID = {
 TEXT_MAX = ACTION_MESSAGE_SIZE
 
 
+def text(description: str) -> dict[str, Any]:
+    """Return the schema of a string the server writes from what it stores.
+
+    The server cuts every string a result holds at `TEXT_MAX`, so the bound
+    states what a client reads: no text the contract leaves unbounded reaches
+    a model.
+    """
+    return {"type": "string", "maxLength": TEXT_MAX, "description": description}
+
+
 def user_text(what: str) -> dict[str, Any]:
     """Return the schema of a string a fishtest user wrote, labeled as data."""
     return {
@@ -86,6 +96,9 @@ def text_search(where: str, page: str, matched: str) -> dict[str, Any]:
 
 
 COUNT = {"type": "integer", "minimum": 0}
+
+# The Elo models `SPRT_elo` reads, so the ones an estimate is in.
+ELO_MODELS = ("BayesElo", "logistic", "normalized")
 
 
 def number(
@@ -207,7 +220,7 @@ SPRT = {
     "properties": {
         "elo0": number("The Elo of H0, which rejection favors"),
         "elo1": number("The Elo of H1, which acceptance favors"),
-        "elo_model": {"type": "string"},
+        "elo_model": text("The Elo model the bounds are in, such as normalized"),
         "state": {
             "enum": ["", "accepted", "rejected"],
             "description": "The verdict, or empty while the test runs",
@@ -243,20 +256,13 @@ RUN_SUMMARY = {
         "username": user_text("The username of the run's author"),
         "new_tag": user_text("The branch or commit under test"),
         "base_tag": user_text("The branch or commit it is tested against"),
-        "tc": {
-            "type": "string",
-            "description": (
-                "The time control: seconds per game plus seconds added a move,"
-                " such as 10+0.1, after the moves it covers where it repeats,"
-                " such as 40/20"
-            ),
-        },
-        "new_tc": {
-            "type": "string",
-            "description": "The engine under test's time control, where it differs",
-        },
+        "tc": text(
+            "The time control: seconds per game plus seconds added a move, such as"
+            " 10+0.1, after the moves it covers where it repeats, such as 40/20"
+        ),
+        "new_tc": text("The engine under test's time control, where it differs"),
         "threads": {**COUNT, "description": "The threads each engine searches with"},
-        "book": {"type": "string", "description": "The book of opening positions"},
+        "book": text("The book of opening positions"),
         "new_options": user_text(
             "The UCI options the engine under test starts with, name=value pairs"
             " separated by spaces, such as Hash=16 nodestime=600"
@@ -271,11 +277,8 @@ RUN_SUMMARY = {
         },
         "info": user_text("What the test is for"),
         "tests_repo": user_text("The repository the commits are fetched from"),
-        "resolved_new": {"type": "string", "description": "The commit under test"},
-        "resolved_base": {
-            "type": "string",
-            "description": "The commit it is tested against",
-        },
+        "resolved_new": text("The commit under test"),
+        "resolved_base": text("The commit it is tested against"),
         "arch_filter": user_text(
             "The regular expression searched in a worker's architecture, such as"
             " x86-64-avx2: only the workers it matches play the run"
@@ -544,16 +547,13 @@ ACTION_FIELDS = ("_id", *ACTION_QUERY_FIELDS)
 ACTION = {
     "type": "object",
     "properties": {
-        "_id": {"type": "string", "description": "The event's id"},
+        "_id": text("The event's id"),
         # A string, not an enum: older events hold kinds the server no
         # longer writes, and one such event would refuse its whole listing.
-        "action": {
-            "type": "string",
-            "description": (
-                f"{FILTER_FIELDS['action']}; an older event may hold a kind the"
-                " server no longer writes, such as update_stats"
-            ),
-        },
+        "action": text(
+            f"{FILTER_FIELDS['action']}; an older event may hold a kind the server"
+            " no longer writes, such as update_stats"
+        ),
         "username": user_text(FILTER_FIELDS["username"]),
         "worker": user_text(FILTER_FIELDS["worker"]),
         "run_id": RUN_ID,
@@ -806,6 +806,7 @@ TOOLS: list[dict[str, Any]] = [
                 "run_id": RUN_ID,
                 "elo_model": {
                     "type": "string",
+                    "enum": list(ELO_MODELS),
                     "description": (
                         "The Elo model of the estimate: an SPRT test's own, such as"
                         " normalized, or logistic for a fixed-games test"
