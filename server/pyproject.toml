@@ -37,7 +37,7 @@ dependencies = [
     "uvicorn>=0.54.0",
     "valgebra>=0.0.37,<0.0.38",
     "valgebra-jsonschema>=0.0.6,<0.0.7",
-    "valgebra-planning[mcp]>=0.0.6,<0.0.7",
+    "valgebra-planning[mcp]>=0.0.7,<0.0.8",
     "zxcvbn>=4.5.0",
 ]
 
