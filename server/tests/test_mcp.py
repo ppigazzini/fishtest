@@ -1270,6 +1270,12 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             ),
             (
                 "search_actions",
+                {"before": -1},
+                "at before: expected a number from 0 to 1.7976931348623157e+308"
+                " [union_error]",
+            ),
+            (
+                "search_actions",
                 {"filter": "action"},
                 "at filter: expected an object [dict_type]",
             ),

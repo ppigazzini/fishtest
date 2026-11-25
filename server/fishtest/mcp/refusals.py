@@ -91,7 +91,10 @@ def _listed(words: list[str], last: str) -> str:
 
 
 def _number(value: Fraction) -> str:
-    return str(value.numerator) if value.denominator == 1 else repr(float(value))
+    # An integer a float holds is written in full up to 2**53, and a larger
+    # bound, such as the largest float, as the schema's float.
+    whole = value.denominator == 1 and abs(value) <= 2**53
+    return str(value.numerator) if whole else repr(float(value))
 
 
 def _range(span: Interval) -> str:
