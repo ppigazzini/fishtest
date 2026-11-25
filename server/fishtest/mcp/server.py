@@ -1,16 +1,17 @@
 """The MCP server: fishtest's read-only tools, each call held to its contract.
 
 `build_server` returns a low-level MCP server that lists `TOOLS` and answers a
-`tools/call` in four steps: the arguments are checked against the tool's
-contract, the tool reads the run database, the result, every string cleared
-of control and invisible format characters, is checked against the contract,
-and the result goes back as structured content beside its JSON text. Every step past the arguments runs in the threadpool, so the event loop
-spends no time on a result. A refusal at either check, or a call that names a run the
-database does not hold, is a tool error the client can read, so nothing a
-contract refuses reaches the database or the client. A call naming a tool the
-server does not list is a JSON-RPC error, `-32602`, and a failure in a tool's
-read is `-32603` with no text of its own. `fishtest.mcp.refusals`
-words a refusal, and `fishtest.mcp.transport` serves the server over HTTP.
+`tools/call` in four steps, in the threadpool, so the event loop spends no
+time on a call: the arguments are checked against the tool's contract, the
+tool reads the run database, the result, every string cleared of control and
+invisible format characters, is checked against the contract, and the result
+goes back as structured content beside its JSON text. A refusal at either
+check, or a call that names a run the database does not hold, is a tool error
+the client can read, so nothing a contract refuses reaches the database or the
+client. A call naming a tool the server does not list is a JSON-RPC error,
+`-32602`, and a failure in a tool's read is `-32603` with no text of its own.
+`fishtest.mcp.refusals` words a refusal, and `fishtest.mcp.transport` serves
+the server over HTTP.
 """
 
 from __future__ import annotations
@@ -117,8 +118,6 @@ def build_server(
             message = f"Unknown tool: {name:.128}"
             raise MCPError(code=types.INVALID_PARAMS, message=message)
         arguments = dict(params.arguments or {})
-        if not CONTRACTS[name].accepts.is_valid(arguments):
-            return _tool_error(refusal(name, arguments))
         if reading >= calls_max:
             logger.warning("MCP %s refused: %d calls already reading", name, reading)
             return _tool_error(BUSY)
@@ -135,10 +134,12 @@ def build_server(
             reading -= 1
 
     def answer(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
-        # The call's work past its arguments, in the threadpool: the read, and
-        # the result's strings cleared, checked and written as JSON, which for
-        # a page of runs takes milliseconds the event loop serves other
-        # requests in.
+        # The call's work, in the threadpool: its arguments checked, the read,
+        # and the result's strings cleared, checked and written as JSON. A page
+        # of runs, or the wording of a filter refused deep inside, takes
+        # milliseconds the event loop serves other requests in.
+        if not CONTRACTS[name].accepts.is_valid(arguments):
+            return _tool_error(refusal(name, arguments))
         try:
             result = TOOL_FUNCTIONS[name](rundb(), arguments)
         except ToolRefusal as e:

@@ -1,23 +1,24 @@
 """How the MCP server words a refused call and logs a refused result.
 
-A call outside its contract is answered with the first failure's path, what
-the input schema admits there in JSON Schema's terms, which the client holds,
-and the failure's code. A key the input schema does not declare is written
-`*`: it is text the caller chose, as valgebra-planning writes it. The words are read from the schema through
-valgebra-jsonschema's readers, `Compiler.resolve`, `branches`, `constants`,
-`interval` and `ANNOTATIONS`, at the argument's slot in valgebra-planning's
-contract; a subschema they do not word keeps valgebra's expectation. A result
-outside its contract is logged by its first failure's path and code. Neither
-names the value.
+A call outside its contract is answered with its first failures: each one's
+path, what the input schema admits there in JSON Schema's terms, which the
+client holds, and the keyword that refuses it. valgebra-jsonschema names the
+keyword and where it stands (`Compiler.located`); the words are read there
+through its readers, `branches`, `constants`, `interval`, `length` and
+`ANNOTATIONS`, and a subschema they do not word keeps valgebra's expectation. A
+key the contract does not declare is written `*`: it is text the caller chose.
+A result outside its contract is logged by its first failures' paths and
+keywords. Neither names the value.
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from fractions import Fraction
 from typing import Any
 
-from valgebra import ValidationError
+from valgebra import ValidationError, Validator
 from valgebra_jsonschema import (
     ANNOTATIONS,
     Compiler,
@@ -25,10 +26,16 @@ from valgebra_jsonschema import (
     branches,
     constants,
     interval,
+    length,
 )
-from valgebra_planning.contracts import Contract
+from valgebra_planning.contracts import contract_names
 
 from fishtest.mcp.contracts import CONTRACTS, TOOLS
+
+SCHEMAS = {tool["name"]: tool for tool in TOOLS}
+
+# The failures a refusal lists: the full report's first ones.
+FAILURES_SHOWN = 3
 
 
 def _followed(compiler: Compiler, node: Any) -> Any:
@@ -38,38 +45,17 @@ def _followed(compiler: Compiler, node: Any) -> Any:
     return node
 
 
-def _step(compiler: Compiler, node: Any, part: str | int) -> Any:
-    # The subschema one step of a failure's path enters: an array's item, or a
-    # property of the union branch that declares it; None for neither.
-    for branch in branches(node) or [node]:
-        branch = _followed(compiler, branch)
-        if not isinstance(branch, dict):
-            continue
-        if isinstance(part, int) and isinstance(branch.get("items"), dict):
-            return _followed(compiler, branch["items"])
-        if isinstance(part, str) and part in branch.get("properties", {}):
-            return _followed(compiler, branch["properties"][part])
-    return None
-
-
-def _schema_at(
-    contract: Contract, path: tuple[str | int, ...]
-) -> tuple[Compiler, Any] | None:
-    # The subschema a failure's path names, as the input schema writes it: the
-    # argument's slot, then each step below it; None where the path leaves it.
-    if not path:
-        return None
-    try:
-        slot = contract.argument(str(path[0]))
-    except KeyError:
-        return None
-    compiler = Compiler(slot.root)
-    node = _followed(compiler, slot.schema)
-    for part in path[1:]:
-        node = _step(compiler, node, part)
-        if node is None:
-            return None
-    return compiler, node
+def _schema_at(compiler: Compiler, location: str) -> Any:
+    # The schema object holding the keyword at `location`, an evaluation path:
+    # a JSON pointer from the root that enters the schema a `$ref` names.
+    node = compiler.root
+    for part in location.removeprefix("#/").split("/")[:-1]:
+        if part == "$ref":
+            node = compiler.resolve(node["$ref"])
+        else:
+            key = part.replace("~1", "/").replace("~0", "~")
+            node = node[int(key)] if isinstance(node, list) else node[key]
+    return node
 
 
 # Each JSON type as a reader of JSON Schema names it.
@@ -113,17 +99,22 @@ def _range(span: Interval) -> str:
     return words if span.step is None else f"{words}, a multiple of {span.step}"
 
 
-def _size(low: int | None, high: int | None, unit: str) -> str:
-    if low is None and high is None:
-        return ""
-    if low == high:
-        text, count = f"{low}", low
-    elif high is None:
+def _size(node: dict[str, Any], unit: str) -> str | None:
+    # The length a sized schema bounds, its pattern and its items aside; None
+    # for one that asserts more.
+    rest = {key: node[key] for key in node if key not in ("pattern", "items")}
+    span = length(rest)
+    if span is None:
+        return None
+    low, high = span.least, span.most
+    if high is None:
+        if not low:
+            return ""
         text, count = f"at least {low}", low
-    elif low is None:
-        text, count = f"at most {high}", high
+    elif low == high:
+        text, count = f"{low}", low
     else:
-        text, count = f"{low} to {high}", high
+        text, count = f"{low} to {high}" if low else f"at most {high}", high
     return f" of {text} {unit}{'' if count == 1 else 's'}"
 
 
@@ -151,74 +142,37 @@ def _admitted(compiler: Compiler, node: Any) -> list[str] | None:
     if kind in ("integer", "number"):
         span = interval(node)
         return None if span is None else [_JSON_TYPES[kind] + _range(span)]
-    if kind == "string" and rest <= {"minLength", "maxLength", "pattern"}:
-        size = _size(node.get("minLength"), node.get("maxLength"), "character")
+    if kind in ("string", "array"):
+        size = _size(node, "character" if kind == "string" else "item")
+        if size is None:
+            return None
         pattern = f" matching {node['pattern']}" if "pattern" in node else ""
         return [_JSON_TYPES[kind] + size + pattern]
-    if kind == "array" and rest <= {"items", "minItems", "maxItems"}:
-        return [
-            _JSON_TYPES[kind]
-            + _size(node.get("minItems"), node.get("maxItems"), "item")
-        ]
     if kind == "object" or not rest:
         # A record's keys are worded where one of them fails.
         return [_JSON_TYPES[kind]]
     return None
 
 
-def _keys(contract: Contract, path: tuple[str | int, ...]) -> list[str] | None:
-    # The keys the record at `path` declares: the tool's arguments at the top.
-    if not path:
-        return [slot.path[0] for slot in contract.arguments]
-    located = _schema_at(contract, path)
-    if located is None:
-        return None
-    compiler, node = located
-    for branch in branches(node) or [node]:
-        branch = _followed(compiler, branch)
-        if isinstance(branch, dict) and isinstance(branch.get("properties"), dict):
-            return list(branch["properties"])
-    return None
-
-
-def _expected(contract: Contract, error: ValidationError) -> str:
+def _expected(compiler: Compiler, error: dict[str, Any]) -> str:
     # The expectation in the terms of the schema the client holds, not of the
     # Python values valgebra-jsonschema compiles it into: an unexpected key
-    # names the keys its record takes, any other failure what its subschema
-    # admits. A failure these words do not cover keeps valgebra's expectation.
-    if error.code == "recursion_limit":
+    # names the keys its record takes, any other failure what the schema at
+    # its keyword admits. A failure these words do not cover keeps valgebra's.
+    if error["code"] == "recursion_limit":
         # The value nests past what the server reads; valgebra's expectation
         # counts the levels of its own walk, which no client can count.
         return "a value that nests fewer levels"
-    if error.code == "extra_forbidden":
-        keys = _keys(contract, error.path[:-1])
-        if keys is not None:
+    if "keyword" in error and error["keyword"] != "required":
+        node = _schema_at(compiler, error["keywordLocation"])
+        if error["keyword"] == "additionalProperties":
+            keys = list(node.get("properties", ()))
             return f"no key but {_listed(keys, 'and')}" if keys else "no key"
-    elif error.code != "missing_key":
-        located = _schema_at(contract, error.path)
-        words = None if located is None else _admitted(*located)
+        words = _admitted(compiler, node)
         if words is not None:
             return _listed(words, "or")
-    return error.expected
+    return error["expected"]
 
-
-def _names(node: Any) -> set[str]:
-    # Every property name a schema declares, at any depth, under `$defs` too.
-    names: set[str] = set()
-    if isinstance(node, dict):
-        properties = node.get("properties")
-        if isinstance(properties, dict):
-            names |= set(properties)
-        for value in node.values():
-            names |= _names(value)
-    elif isinstance(node, list):
-        for item in node:
-            names |= _names(item)
-    return names
-
-
-# The keys a refusal writes back, each tool's input schema's own.
-DECLARED = {tool["name"]: frozenset(_names(tool["inputSchema"])) for tool in TOOLS}
 
 # The steps of a path a refusal names in full: a longer one, such as a filter
 # nested to the depth the server reads, is cut in its middle.
@@ -240,35 +194,58 @@ def _where(
     return ".".join(steps) or whole
 
 
+def _failures(
+    values: Validator[Any], compiler: Compiler, value: Any
+) -> Iterator[dict[str, Any]]:
+    # The first failures, each with the keyword that makes it. A compiler keeps
+    # state as it reads, so a call reads its failures through one of its own.
+    try:
+        values.validate(value, limit=FAILURES_SHOWN)
+    except ValidationError as e:
+        for error in e.errors:
+            if error["code"] == "recursion_limit":
+                # Found past the depth the walk reads, so by no keyword.
+                yield dict(error)
+            else:
+                yield compiler.located(error, value)
+
+
+def _once(lines: Iterator[str]) -> str:
+    # Two keywords refusing one value in the same words are one line.
+    return "; ".join(dict.fromkeys(lines))
+
+
 def refusal(name: str, arguments: dict[str, Any]) -> str:
     """Return why the tool `name` refuses `arguments`, as the client reads it.
 
-    The contract's first failure, by path and expectation: what a client
-    changes to be served, without the value it sent, and read no further than
-    the first failure, as /api/actions reads a refused filter.
+    The contract's first failures, by path, expectation and keyword: what a
+    client changes to be served, without the value it sent, and read no
+    further than those.
     """
-    try:
-        CONTRACTS[name].accepts.validate(arguments, fail_fast=True)
-    except ValidationError as e:
-        where = _where(e.path, "the arguments", DECLARED[name])
-        expected = _expected(CONTRACTS[name], e)
-        return (
-            f"{name} refuses its arguments: at {where}: expected {expected} [{e.code}]"
-        )
-    return f"{name} refuses its arguments"
+    contract = CONTRACTS[name]
+    compiler = Compiler(SCHEMAS[name]["inputSchema"])
+    names = contract_names(contract)
+    why = _once(
+        f"at {_where(error['path'], 'the arguments', names)}:"
+        f" expected {_expected(compiler, error)}"
+        f" [{error.get('keyword', error['code'])}]"
+        for error in _failures(contract.accepts, compiler, arguments)
+    )
+    return f"{name} refuses its arguments: {why}"
 
 
 def drift(name: str, result: Any) -> str:
     """Return where the result of the tool `name` leaves its contract.
 
-    The first failure's path and code, as valgebra logs a response that
-    drifted. The path names the field a fix reads, the code is stable enough
-    to count, and neither renders the value.
+    The first failures' paths and keywords. A path names the field a fix reads,
+    and a keyword is stable enough to count; neither renders the value.
     """
     returns = CONTRACTS[name].returns
-    try:
-        if returns is not None:
-            returns.validate(result, fail_fast=True)
-    except ValidationError as e:
-        return f"at {_where(e.path, 'the result')} [{e.code}]"
-    return "outside its contract"
+    if returns is None:
+        return "outside its contract"
+    compiler = Compiler(SCHEMAS[name]["outputSchema"])
+    return _once(
+        f"at {_where(error['path'], 'the result')}"
+        f" [{error.get('keyword', error['code'])}]"
+        for error in _failures(returns, compiler, result)
+    )

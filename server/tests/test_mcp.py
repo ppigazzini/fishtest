@@ -1292,14 +1292,13 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         for arguments, where in (
             (
                 {"run_id": "a-sent-value"},
-                "at run_id: expected a string matching ^[a-f0-9]{24}$"
-                " [string_pattern_mismatch]",
+                "at run_id: expected a string matching ^[a-f0-9]{24}$ [pattern]",
             ),
             (
                 {"run_id": self.run_id, "a-sent-key": 1},
-                "at *: expected no key but run_id [extra_forbidden]",
+                "at *: expected no key but run_id [additionalProperties]",
             ),
-            ({}, "at run_id: expected required key 'run_id' [missing_key]"),
+            ({}, "at run_id: expected required key 'run_id' [required]"),
         ):
             result = await self._call("get_run", arguments)
             self.assertTrue(result.is_error, repr(arguments))
@@ -1315,57 +1314,71 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             (
                 "list_finished_runs",
                 {"page": "2"},
-                "at page: expected an integer of at least 1 [union_error]",
+                "at page: expected an integer of at least 1 [type]",
             ),
             (
                 "list_finished_runs",
                 {"page": 1, "success_only": "yes"},
-                "at success_only: expected a boolean [bool_type]",
+                "at success_only: expected a boolean [type]",
             ),
             (
                 "search_actions",
                 {"filter": {}, "limit": 201},
-                "at limit: expected an integer from 1 to 200 [union_error]",
+                "at limit: expected an integer from 1 to 200 [maximum]",
             ),
             (
                 "search_actions",
                 {"before": -1},
                 "at before: expected a number from 0 to 1.7976931348623157e+308"
-                " [union_error]",
+                " [minimum]",
             ),
             (
                 "search_actions",
                 {"filter": "action"},
-                "at filter: expected an object [dict_type]",
+                "at filter: expected an object [type]",
             ),
             (
                 "search_actions",
                 {"filter": {"username": {"$eq": {"a": 1}}}},
                 "at filter.username.$eq: expected a string, a number, a boolean"
-                " or null [union_error]",
+                " or null [type]",
             ),
             (
                 "search_actions",
                 {"filter": {"message": {"$regex": "a+"}}},
                 "at filter.message.*: expected no key but $eq, $ne, $gt,"
-                " $gte, $lt, $lte, $in and $nin [extra_forbidden]",
+                " $gte, $lt, $lte, $in and $nin [additionalProperties]",
             ),
             (
                 "search_actions",
                 {"filter": {"$and": []}},
-                "at filter.$and: expected an array of 1 to 16 items [too_short]",
+                "at filter.$and: expected an array of 1 to 16 items [minItems]",
             ),
             (
                 "search_actions",
                 {"filter": {"$or": [{"time": [1]}]}},
                 "at filter.$or.0.time: expected a string, a number, a boolean,"
-                " null or an object [union_error]",
+                " null or an object [anyOf]",
             ),
             (
                 "list_active_runs",
                 {"x": 1},
                 "at *: expected no key but page, limit, username, kind, branch and"
-                " text [extra_forbidden]",
+                " text [additionalProperties]",
+            ),
+            (
+                # Each failure up to three, in the report's order.
+                "list_finished_runs",
+                {"page": 0, "limit": 51, "ltc_only": 1, "kind": "x"},
+                'at kind: expected "sprt", "spsa" or "fixed" [enum];'
+                " at limit: expected an integer from 1 to 50 [maximum];"
+                " at ltc_only: expected a boolean [type]",
+            ),
+            (
+                # One line for the keys a call sent that read alike.
+                "get_run",
+                {"run_id": "a" * 24, "x": 1, "y": 2},
+                "at *: expected no key but run_id [additionalProperties]",
             ),
         ):
             result = await self._call(name, arguments)
@@ -1397,9 +1410,9 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         # JSON writes neither an infinity nor NaN, and the contract bounds every
         # number it publishes, so it refuses both where they sit.
         for value, why in (
-            (math.inf, "at LLR [union_error]"),
-            (-math.inf, "at LLR [union_error]"),
-            (math.nan, "at LLR [union_error]"),
+            (math.inf, "at LLR [maximum]"),
+            (-math.inf, "at LLR [minimum]"),
+            (math.nan, "at LLR [type]"),
         ):
             tool = {
                 "get_elo": lambda _rundb, _arguments, v=value: {**estimate, "LLR": v}
@@ -1416,14 +1429,14 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(logged.output[0].endswith(why), logged.output)
 
     async def test_a_result_outside_its_contract_is_logged_where_it_fails(self):
-        # The log names the call and the first failure's path and code, which a
+        # The log names the call and the first failure's path and keyword, which a
         # fix reads, and not the value, which the path locates.
         summary = mcp_tools.run_summary(self.rundb.get_run(self.run_id))
         results = {**summary["results"], "wins": -1}
         for drifted, where in (
-            ({**summary, "results": results}, "results.wins [union_error]"),
-            ({**summary, "tasks": []}, "tasks [extra_forbidden]"),
-            ({**summary, "run_id": "r" * 24}, "run_id [string_pattern_mismatch]"),
+            ({**summary, "results": results}, "results.wins [minimum]"),
+            ({**summary, "tasks": []}, "tasks [additionalProperties]"),
+            ({**summary, "run_id": "r" * 24}, "run_id [pattern]"),
         ):
             tool = {"get_run": lambda _rundb, _arguments, d=drifted: d}
             with (
@@ -2111,6 +2124,16 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
                     )
                     self.assertEqual((ended.outcome, ended.ok), ("error", False))
                     self.assertEqual(ended.error, text)
+
+    async def test_a_refused_call_is_worded_off_the_event_loop(self):
+        # A filter refused deep inside takes milliseconds to word.
+        with mock.patch(
+            "fishtest.mcp.server.refusal",
+            side_effect=lambda *_: threading.current_thread().name,
+        ):
+            result = await self._call("get_run", {})
+        self.assertTrue(result.is_error)
+        self.assertNotEqual(result.content[0].text, threading.current_thread().name)
 
     async def test_search_actions_refuses_code_on_the_database(self):
         result = await self._call("search_actions", {"filter": {"$where": "1"}})
