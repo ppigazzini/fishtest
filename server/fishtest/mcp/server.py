@@ -99,8 +99,7 @@ def build_server(
     """
     # Every tool reads public data, so no policy and no flow rule holds a call:
     # the contract alone does, read by its sets' own checks. valgebra-planning's
-    # gate would hold it to the same sets, and lists a refusal's failures in a
-    # walk of the whole value, on the event loop.
+    # gate would hold it to the same sets and keep a session's state beside them.
     # Read and written on the event loop alone, so no lock guards it.
     reading = 0
 

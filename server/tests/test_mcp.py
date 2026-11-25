@@ -964,8 +964,67 @@ return run
             render(planned.program), "c1 = list_finished_runs()\nreturn c1"
         )
 
+    def test_the_planner_reads_the_run_whose_events_a_task_asks_for(self):
+        # Every run's events meet the goal, so the task names the input its
+        # answer is read from.
+        task = read_task(
+            "the events of a run",
+            {"run_id": mcp_contracts.RUN_ID},
+            _output("search_actions"),
+            reads=["run_id"],
+        )
+        planned = plan(CONTRACTS, task)
+        self.assertTrue(planned.strong)
+        self.assertEqual(
+            render(planned.program),
+            "c1 = search_actions(run_id=run_id)\nreturn c1",
+        )
+
+    def test_the_planner_writes_the_kind_of_event_a_task_fixes(self):
+        task = read_task(
+            "the submitted runs",
+            {},
+            _output("search_actions"),
+            constants={"search_actions.action": "new_run"},
+        )
+        planned = plan(CONTRACTS, task)
+        self.assertTrue(planned.strong)
+        self.assertEqual(
+            render(planned.program),
+            "c1 = search_actions(action='new_run')\nreturn c1",
+        )
+        # A program leaving the argument out reads every event.
+        unfixed = critique("e = search_actions()\nreturn e\n", CONTRACTS, task)
+        self.assertFalse(unfixed.accepted)
+
+    def test_the_planner_tests_an_elo_model_into_the_goal(self):
+        # The contract lists the models beside their description, and the
+        # planner tests the estimate's own.
+        task = read_task(
+            "a normalized estimate",
+            {"run_id": mcp_contracts.RUN_ID},
+            {"enum": ["normalized"]},
+        )
+        planned = plan(CONTRACTS, task)
+        self.assertEqual(
+            render(planned.program).splitlines()[:2],
+            ["c1 = get_elo(run_id=run_id)", "if c1.elo_model in ('normalized',):"],
+        )
+
+    def test_a_refutation_shows_the_least_value_outside_an_argument(self):
+        source = """
+run = get_run(run_id=run_id)
+found = list_finished_runs(text=run.new_tag)
+return found
+"""
+        refuted = self._critique(
+            source, {"run_id": mcp_contracts.RUN_ID}, _output("list_finished_runs")
+        )
+        self.assertIn("'' lies outside", feedback(refuted))
+
     def test_each_tool_has_a_typed_stub(self):
         written = stubs(CONTRACTS)
+        self.assertIn("kind: Literal['sprt', 'spsa', 'fixed']", written)
         for name in CONTRACTS:
             self.assertIn(f"def {name}(", written)
         self.assertIn("def get_run(*, run_id: str) -> dict[str, Any]:", written)
@@ -2015,6 +2074,43 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stopped.stopped, "run_id")
         for ended in (estimated, stopped):
             self.assertIsNone(blame(ended, listed, proven=False))
+
+    async def test_a_run_of_a_program_says_why_a_tool_refused(self):
+        # A run keeps a tool error's text where it lies in the set its caller
+        # names for the tool, and drops any other.
+        task = read_task(
+            "a tune's parameters",
+            {"run_id": mcp_contracts.RUN_ID},
+            _output("get_spsa"),
+        )
+        checked = critique(
+            "tune = get_spsa(run_id=run_id)\nreturn tune\n", CONTRACTS, task
+        )
+        texts = {
+            "get_spsa": {
+                "type": "string",
+                "pattern": "^The run [a-f0-9]{24} (is no SPSA tune|does not exist)$",
+            }
+        }
+        async with Client(self.server, raise_exceptions=True) as client:
+            for run_id, why in (
+                (self.run_id, "is no SPSA tune"),
+                ("f" * 24, "does not exist"),
+            ):
+                for error_texts, text in (
+                    (texts, f"The run {run_id} {why}"),
+                    ({}, None),
+                ):
+                    ended = await run_on_server(
+                        checked.program,
+                        CONTRACTS,
+                        task,
+                        {"run_id": run_id},
+                        client,
+                        error_texts=error_texts,
+                    )
+                    self.assertEqual((ended.outcome, ended.ok), ("error", False))
+                    self.assertEqual(ended.error, text)
 
     async def test_search_actions_refuses_code_on_the_database(self):
         result = await self._call("search_actions", {"filter": {"$where": "1"}})
