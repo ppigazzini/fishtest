@@ -16,12 +16,14 @@ from fishtest.run_cache import Prio
 from fishtest.schemas import REPORT_LIMIT
 
 try:
-    from fishtest.api import WORKER_VERSION
-    from fishtest.schemas import ACTION_MESSAGE_SIZE
+    from fishtest.api import ACTIONS_BODY_MAX, WORKER_VERSION
+    from fishtest.schemas import ACTION_MESSAGE_SIZE, ACTION_QUERY_LIST_MAX
     from fishtest.util import worker_name
 except ModuleNotFoundError:  # pragma: no cover
+    ACTIONS_BODY_MAX = None  # type: ignore[assignment]
     WORKER_VERSION = None  # type: ignore[assignment]
     ACTION_MESSAGE_SIZE = None  # type: ignore[assignment]
+    ACTION_QUERY_LIST_MAX = None  # type: ignore[assignment]
     worker_name = None  # type: ignore[assignment]
 
 
@@ -268,7 +270,8 @@ class TestHttpApi(unittest.TestCase):
         self.assertTrue(isinstance(body.get("duration"), (int, float)))
 
     def test_a_body_that_is_not_standard_json_is_refused(self):
-        # The tokens the API reference lists as not JSON, at the worker boundary.
+        # The tokens the API reference lists as not JSON, at the worker boundary
+        # and at the anonymous one.
         bodies = {
             "NaN": b'{"n": NaN}',
             "Infinity": b'{"n": Infinity}',
@@ -277,7 +280,7 @@ class TestHttpApi(unittest.TestCase):
             "byte order mark": b"\xef\xbb\xbf{}",
             "nesting past the depth limit": b"[" * 250 + b"]" * 250,
         }
-        for path in ("/api/request_version",):
+        for path in ("/api/request_version", "/api/actions"):
             for name, body in bodies.items():
                 with self.subTest(path=path, body=name):
                     response = self.client.post(
@@ -984,6 +987,140 @@ class TestHttpApi(unittest.TestCase):
             "content-type",
         )
         self.assertTrue(isinstance(response.json(), list))
+
+    def test_actions_accepts_the_queries_the_client_sends(self):
+        # The three shapes static/js/notifications.js posts. Narrowing this
+        # endpoint may not narrow it past its own caller.
+        run_id = self._create_run()
+        for query in (
+            {
+                "action": {"$in": ["finished_run", "stop_run", "delete_run"]},
+                "run_id": run_id,
+                "time": {"$gte": 0},
+            },
+            {
+                "action": {"$in": ["finished_run", "stop_run", "delete_run"]},
+                "run_id": {"$in": [run_id]},
+            },
+            {"action": "new_run", "run_id": run_id},
+        ):
+            response = self.client.post("/api/actions", json=query)
+            self.assertEqual(response.status_code, 200, repr(query))
+            self.assertTrue(isinstance(response.json(), list))
+
+    def test_actions_finds_what_the_query_names(self):
+        # The schema narrows what may be asked; it must not narrow what comes
+        # back for a query the endpoint still accepts.
+        marker = f"actions query probe {datetime.now(UTC).isoformat()}"
+        self.rundb.actiondb.log_message(username=self.username, message=marker)
+        response = self.client.post(
+            "/api/actions",
+            json={"action": "log_message", "username": self.username},
+        )
+        self.assertEqual(response.status_code, 200)
+        found = response.json()
+        self.assertIn(marker, [action["message"] for action in found])
+
+    def test_actions_returns_the_newest_first(self):
+        stamp = datetime.now(UTC).isoformat()
+        for order in ("older", "newer"):
+            self.rundb.actiondb.log_message(
+                username=self.username, message=f"actions order probe {stamp} {order}"
+            )
+        response = self.client.post(
+            "/api/actions",
+            json={"action": "log_message", "username": self.username},
+        )
+        self.assertEqual(response.status_code, 200)
+        found = response.json()
+        times = [action["time"] for action in found]
+        self.assertEqual(times, sorted(times, reverse=True))
+        probes = [action["message"] for action in found if stamp in action["message"]]
+        self.assertEqual(probes[0], f"actions order probe {stamp} newer")
+
+    def test_actions_refuses_a_query_that_runs_code_or_scans(self):
+        # Every one of these is handed straight to MongoDB by an endpoint with
+        # no schema: the first four run the caller's own code or pattern on the
+        # database server, and the rest ask it for unbounded work.
+        for query in (
+            {"$where": "function () { return true; }"},
+            {"$expr": {"$gt": ["$time", 0]}},
+            {"action": {"$function": {"body": "function () {}", "args": []}}},
+            {"run_id": {"$regex": "(a+)+$"}},
+            {"$text": {"$search": "anything"}},
+            {"action": {"$in": ["new_run"] * 1001}},
+            {"$or": [{"action": "new_run"}] * 17},
+            {"$or": []},
+            {"not_an_action_field": 1},
+            {"action": {"$gt": {"nested": "document"}}},
+            [],
+        ):
+            response = self.client.post("/api/actions", json=query)
+            self.assertEqual(response.status_code, 400, repr(query))
+            self.assertIn("error", response.json())
+
+    def test_actions_rejects_a_body_that_is_not_json(self):
+        response = self.client.post(
+            "/api/actions",
+            content=b"{",
+            headers={"content-type": "application/json"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("request is not json encoded", response.json()["error"])
+
+    def test_actions_refuses_a_body_past_the_size_limit(self):
+        query = {"run_id": {"$in": ["0" * 24] * ACTION_QUERY_LIST_MAX}}
+        padding = {"message": "x" * ACTIONS_BODY_MAX}
+        response = self.client.post("/api/actions", json=query | padding)
+        self.assertEqual(response.status_code, 413)
+        self.assertIn("error", response.json())
+
+    def test_actions_answers_the_largest_client_query(self):
+        # The widest filter static/js/notifications.js builds: every run id the
+        # client's LRU holds, which the list cap bounds.
+        query = {
+            "action": {"$in": ["finished_run", "stop_run", "delete_run"]},
+            "run_id": {"$in": ["0" * 24] * ACTION_QUERY_LIST_MAX},
+        }
+        response = self.client.post("/api/actions", json=query)
+        self.assertEqual(response.status_code, 200)
+
+    def test_actions_refuses_a_filter_without_explaining_it(self):
+        # An anonymous caller gets a fixed answer rather than a report, and the
+        # check stops at the first failure: a report that reads every failure
+        # costs time linear in the body.
+        from unittest import mock
+
+        import fishtest.api as api_module
+
+        query = {"username": {"$in": [{"x": 1}] * 6000}}
+        with mock.patch.object(
+            api_module,
+            "action_query_schema",
+            wraps=api_module.action_query_schema,
+        ) as schema:
+            response = self.client.post("/api/actions", json=query)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()["error"],
+            "/api/actions: request is not a filter this endpoint accepts",
+        )
+        schema.load.assert_called_once_with(mock.ANY, fail_fast=True)
+
+    def test_actions_reads_a_filter_once(self):
+        from unittest import mock
+
+        import fishtest.api as api_module
+
+        with mock.patch.object(
+            api_module,
+            "action_query_schema",
+            wraps=api_module.action_query_schema,
+        ) as schema:
+            response = self.client.post("/api/actions", json={"action": "new_run"})
+        self.assertEqual(response.status_code, 200)
+        schema.load.assert_called_once()
+        schema.is_valid_json.assert_not_called()
 
     def test_actions_options_is_not_allowed(self):
         response = self.client.options(

@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException
+from pymongo import DESCENDING
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, StreamingResponse
@@ -17,6 +18,7 @@ from fishtest.http.boundary import ApiRequestShim, get_request_shim
 from fishtest.schemas import (
     ACTION_MESSAGE_SIZE,
     REPORT_LIMIT,
+    action_query_schema,
     api_access_schema,
     api_schema,
     gzip_data,
@@ -26,6 +28,10 @@ from fishtest.stats.stat_util import SPRT_elo, get_elo
 from fishtest.util import strip_run, worker_name
 
 WORKER_VERSION = 333
+
+# The largest filter the notifications client sends, an `$in` over the run ids
+# its LRU holds, is about 30 KB at the schema's list cap.
+ACTIONS_BODY_MAX = 64 * 1024
 
 WORKER_API_PATHS = {
     "/api/request_version",
@@ -402,11 +408,31 @@ class UserApi(GenericApi):
         return finished
 
     def actions(self):
+        # The body is a MongoDB filter rather than a document, so it is checked
+        # against what a filter may say before the database is handed it: an
+        # operator this does not name would otherwise be one the caller gets to
+        # run. The caller is anonymous, so a refused filter gets a fixed answer
+        # rather than a report, and the check stops at the first failure: a
+        # report that reads every failure costs time linear in the body. The
+        # size limit bounds the parse.
+        raw_body = self.request.raw_body
+        if len(raw_body) > ACTIONS_BODY_MAX:
+            self.handle_error(
+                f"request body exceeds {ACTIONS_BODY_MAX} bytes", status_code=413
+            )
         try:
-            query = self.request.json_body
-            actions = self.request.rundb.db["actions"].find(query).limit(200)
-        except Exception:
-            actions = []
+            query = action_query_schema.load(raw_body, fail_fast=True)
+        except ValidationError as e:
+            if e.code == "json_invalid":
+                self.handle_error("request is not json encoded")
+            self.handle_error("request is not a filter this endpoint accepts")
+        # Newest first, the order the `actions_time_id` index keeps.
+        actions = (
+            self.request.rundb.db["actions"]
+            .find(query)
+            .sort([("time", DESCENDING), ("_id", DESCENDING)])
+            .limit(200)
+        )
         ret = []
         for action in actions:
             action["_id"] = str(action["_id"])

@@ -189,6 +189,10 @@ Core rules:
 - Validate a JSON boundary with `load`, which parses and checks in one pass on
     the Rust path and returns the document. Nothing else may parse the same
     bytes in Python: a `json.loads` beside a schema reads the document twice.
+- Answer an anonymous caller's refused body without a report. Cap the body and
+    `load` it with `fail_fast=True`: a report that reads every failure costs
+    time linear in the value. The error's `code` is `json_invalid` for a body
+    that is not JSON.
 - A shape check written as a chain of `isinstance` probes is a second validation
     layer for the same contract. State it as a schema and check it once. An open
     record (`open_record`, or `.open()`) is "at least these fields", which is

@@ -18,6 +18,7 @@ web UI and external tools, which need no account.
   - 401: a wrong username or password, a blocked or pending account, and every
     refused `stop_run`.
   - 404: a run, task, network or PGN a read-only endpoint cannot find.
+  - 413: an `/api/actions` body over its size limit.
 - An outcome the run database decides returns HTTP 200 with a status flag:
   `"task_waiting": false` from `request_task`, `"task_alive": false` from
   `update_task`, `beat`, `request_spsa` and `failed_task`. An `info` or
@@ -310,9 +311,27 @@ Returns 50 finished runs per page, keyed by run ID.
 
 ### POST /api/actions
 
-Returns up to 200 event-log entries matching the MongoDB filter in the JSON
-body, in the collection's natural order. A body that is not a valid filter
-returns `[]`. The response allows any origin.
+Returns up to 200 event-log entries matching the JSON query body, newest
+first. The body is a MongoDB filter, validated against `action_query_schema`
+before the database is handed it. A body over the size limit is a `413`. A
+body that is not JSON, or a filter outside the table below, is a `400` with a
+fixed error that does not name the part that failed. The response allows any
+origin.
+
+What a filter may say:
+
+| Part | Accepted |
+|------|----------|
+| Fields | `action`, `username`, `worker`, `run_id`, `run`, `task_id`, `time`, `message`, `nn`, `user` |
+| Match | a JSON constant (equality), or a document of comparisons |
+| Comparisons | `$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`, `$in`, `$nin` |
+| Boolean | `$and`, `$or`, `$nor`, over filters of the same shape |
+| Sizes | a body of at most 64 KiB, at most 1000 terms in an `$in`/`$nin`, at most 16 clauses in a boolean |
+
+Anything else is refused, which is the point of listing rather than excluding:
+`$where`, `$expr`, `$function` and `$accumulator` each run a caller's code on
+the database server, and `$regex` backtracks. An empty body `{}` matches every
+action, so it returns the 200 most recent.
 
 ### GET /api/get_run/{id}
 
@@ -368,6 +387,8 @@ Returns the server's GitHub API rate limit.
 
 Request bodies are validated against the valgebra schemas in `schemas.py`:
 
+- `action_query_schema`: the MongoDB filter `POST /api/actions` takes, which
+  states what a filter may ask rather than what a document is.
 - `api_access_schema`: the credentials, `password` and
   `worker_info.username`; other keys are allowed.
 - `api_schema`: the whole body of every worker endpoint except
@@ -377,13 +398,13 @@ Request bodies are validated against the valgebra schemas in `schemas.py`:
 A failed validation returns HTTP 400. The error of a worker request outside
 `api_schema` lists the first five failures.
 
-A worker request body is standard JSON (RFC 8259) in UTF-8. `NaN`, `Infinity`
-and `-Infinity`, an unpaired surrogate escape, a leading byte order mark, and
+A request body is standard JSON (RFC 8259) in UTF-8. `NaN`, `Infinity` and
+`-Infinity`, an unpaired surrogate escape, a leading byte order mark, and
 nesting past the parser's depth limit are not, and a body with any of them is
 a `400` with the error `request is not json encoded`. A number past the float
 range, such as `1e400`, is JSON but reads as an infinity: every worker endpoint
 but `/api/request_version`, which checks the access fields alone, refuses it in
-a float field.
+a float field, and an `/api/actions` filter may compare a field against it.
 
 ## Adding a new API endpoint
 
