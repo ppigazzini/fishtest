@@ -267,6 +267,46 @@ class TestHttpApi(unittest.TestCase):
         self.assertIn("request is not json encoded", body["error"])
         self.assertTrue(isinstance(body.get("duration"), (int, float)))
 
+    def test_a_body_that_is_not_standard_json_is_refused(self):
+        # The tokens the API reference lists as not JSON, at the worker boundary.
+        bodies = {
+            "NaN": b'{"n": NaN}',
+            "Infinity": b'{"n": Infinity}',
+            "-Infinity": b'{"n": -Infinity}',
+            "unpaired surrogate escape": b'{"s": "\\ud800"}',
+            "byte order mark": b"\xef\xbb\xbf{}",
+            "nesting past the depth limit": b"[" * 250 + b"]" * 250,
+        }
+        for path in ("/api/request_version",):
+            for name, body in bodies.items():
+                with self.subTest(path=path, body=name):
+                    response = self.client.post(
+                        path,
+                        content=body,
+                        headers={"content-type": "application/json"},
+                    )
+                    self.assertEqual(response.status_code, 400)
+                    self.assertEqual(
+                        response.json()["error"],
+                        f"{path}: request is not json encoded",
+                    )
+
+    def test_a_worker_request_is_parsed_once(self):
+        # The worker boundary validates the body with a schema, which parses and
+        # checks in one pass on the Rust path. Nothing may parse it in Python
+        # beside that, or the document is read twice on the busiest route.
+        from unittest import mock
+
+        with mock.patch(
+            "json.loads",
+            side_effect=AssertionError("the body was parsed in Python"),
+        ):
+            response = self.client.post(
+                "/api/request_version",
+                json=self._payload(password=self.password),
+            )
+        self.assertEqual(response.status_code, 200)
+
     def test_worker_endpoints_wrong_password(self):
         endpoints = [
             "/api/request_version",
@@ -570,6 +610,25 @@ class TestHttpApi(unittest.TestCase):
                 status_code=400,
                 path=path,
                 contains="Invalid task_id",
+            )
+
+    def test_task_endpoints_refuse_a_task_id_that_is_no_index(self):
+        # The request schema states a task_id is a non-negative integer, and a
+        # bool is not one, so the schema refuses both, naming the field, before
+        # the run's task list is read.
+        run_id, _task_id = self._create_run_with_task()
+        for task_id in (-1, True):
+            payload = {
+                **self._payload(password=self.password),
+                "run_id": run_id,
+                "task_id": task_id,
+            }
+            response = self.client.post("/api/beat", json=payload)
+            self._assert_worker_error_response(
+                response,
+                status_code=400,
+                path="/api/beat",
+                contains="at task_id:",
             )
 
     def test_task_endpoints_mismatched_worker_info_is_error(self):

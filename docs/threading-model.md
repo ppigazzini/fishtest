@@ -127,7 +127,7 @@ in the threadpool. They are acceptable because they process small payloads:
 
 | Hotspot | Location | Payload size |
 |---------|----------|-------------|
-| JSON decode | `await request.json()` in API routes | Typically < 10 KB; a `/api/upload_pgn` body carries the base64 games of a task |
+| JSON decode | `api_access_schema.load` in `WorkerApi.__init__`, worker API routes | Typically < 10 KB; a `/api/upload_pgn` body carries the base64 games of a task |
 | Form parse | `await request.form()` in `_dispatch_view` | Typically < 200 MB max (PGN uploads are API, not UI) |
 | Cookie decode | `itsdangerous.unsign()` in session middleware | < 4 KB (cookie size limit enforced) |
 

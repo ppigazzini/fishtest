@@ -377,9 +377,13 @@ Request bodies are validated against the valgebra schemas in `schemas.py`:
 A failed validation returns HTTP 400. The error of a worker request outside
 `api_schema` lists the first five failures.
 
-A number past the float range, such as `1e400`, reads as an infinity: every
-worker endpoint but `/api/request_version`, which checks the access fields
-alone, refuses it in a float field.
+A worker request body is standard JSON (RFC 8259) in UTF-8. `NaN`, `Infinity`
+and `-Infinity`, an unpaired surrogate escape, a leading byte order mark, and
+nesting past the parser's depth limit are not, and a body with any of them is
+a `400` with the error `request is not json encoded`. A number past the float
+range, such as `1e400`, is JSON but reads as an infinity: every worker endpoint
+but `/api/request_version`, which checks the access fields alone, refuses it in
+a float field.
 
 ## Adding a new API endpoint
 

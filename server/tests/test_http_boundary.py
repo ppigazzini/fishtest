@@ -11,7 +11,7 @@ from typing import Callable, cast
 from unittest.mock import patch
 
 import test_support
-from fastapi import Depends, Request
+from fastapi import Request
 from starlette.responses import Response
 
 from fishtest.http.settings import (
@@ -216,30 +216,6 @@ class TestHttpBoundary(unittest.TestCase):
         self.assertEqual(data["api"]["host_url"], data["ui"]["host_url"])
         self.assertEqual(data["api"]["remote_addr"], data["ui"]["remote_addr"])
         self.assertTrue(data["api"]["remote_addr"])
-
-    def test_json_parsing_errors(self):
-        from fishtest.http.boundary import JsonBodyResult, get_json_body
-
-        app = self._build_app()
-
-        @app.post("/json")
-        async def _json_probe(result: JsonBodyResult = Depends(get_json_body)):
-            return {"error": result.error, "body": result.body}
-
-        client = self.TestClient(app)
-        response = client.post("/json", json={"ok": True})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"error": False, "body": {"ok": True}})
-
-        response = client.post(
-            "/json",
-            content=b"{",
-            headers={"content-type": "application/json"},
-        )
-        self.assertEqual(response.status_code, 200)
-        body = response.json()
-        self.assertTrue(body["error"])
-        self.assertIsNone(body["body"])
 
     def test_dispatch_view_204_has_no_body(self):
         from fishtest.views import _dispatch_view
