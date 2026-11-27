@@ -366,7 +366,7 @@ Returns the server's GitHub API rate limit.
 
 ## Validation
 
-Request bodies are validated against vtjson schemas in `schemas.py`:
+Request bodies are validated against the valgebra schemas in `schemas.py`:
 
 - `api_access_schema`: the credentials, `password` and
   `worker_info.username`; other keys are allowed.
@@ -374,7 +374,12 @@ Request bodies are validated against vtjson schemas in `schemas.py`:
   `request_version`.
 - `gzip_data`: the decoded PGN upload starts with the gzip signature.
 
-A failed validation returns HTTP 400.
+A failed validation returns HTTP 400. The error of a worker request outside
+`api_schema` lists the first five failures.
+
+A number past the float range, such as `1e400`, reads as an infinity: every
+worker endpoint but `/api/request_version`, which checks the access fields
+alone, refuses it in a float field.
 
 ## Adding a new API endpoint
 
@@ -386,8 +391,7 @@ A failed validation returns HTTP 400.
 3. Return a dict with `"duration"` (`GenericApi.add_time()`).
 4. Refuse a request with `GenericApi.handle_error()`, which raises
    `HTTPException` with the error dict as its detail.
-5. Add a vtjson schema in `schemas.py` if the endpoint accepts structured
-   input.
+5. Add a schema in `schemas.py` if the endpoint accepts structured input.
 6. Add a contract test in `tests/test_api.py`.
 7. If the endpoint requires worker authentication, add its path to
    `WORKER_API_PATHS` in `api.py`.

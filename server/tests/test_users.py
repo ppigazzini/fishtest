@@ -6,7 +6,7 @@ from urllib.parse import urlencode
 
 import test_support
 from ui_user_test_case import UiUserTestCase
-from vtjson import ValidationError
+from valgebra import ValidationError
 
 from fishtest.http.settings import (
     SESSION_REMEMBER_ME_MAX_AGE_SECONDS,

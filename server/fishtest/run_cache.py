@@ -4,10 +4,9 @@ from enum import IntEnum
 
 from bson.errors import InvalidId
 from bson.objectid import ObjectId
-from vtjson import validate
 
 from fishtest.lru_cache import lru_cache
-from fishtest.schemas import cache_schema
+from fishtest.schemas import REPORT_LIMIT, cache_schema
 from fishtest.schemas import run_id as run_id_schema
 
 
@@ -32,7 +31,7 @@ class RunCache:
     @lru_cache(expiration=10000)
     def __active_run_lock(self, run_id):
         # assertion!
-        validate(run_id_schema, run_id)
+        run_id_schema.validate(run_id)
         return threading.RLock()
 
     def buffer(self, run, *, priority=Prio.NORMAL, create=False):
@@ -158,9 +157,4 @@ class RunCache:
 
     def validate(self):
         with self.run_cache_lock:
-            validate(
-                cache_schema,
-                self.run_cache,
-                name="run_cache",
-                subs={"runs_schema": dict},
-            )
+            cache_schema.validate(self.run_cache, limit=REPORT_LIMIT)

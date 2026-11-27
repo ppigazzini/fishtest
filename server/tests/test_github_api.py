@@ -1,5 +1,7 @@
 """Test GitHub API helpers and compatibility exports."""
 
+import contextlib
+import io
 import json
 import os
 import re
@@ -8,11 +10,19 @@ from unittest import mock
 
 import requests
 import test_support
-from vtjson import ValidationError, validate
+from valgebra import ValidationError
 
 import fishtest.github_api as gh
-from fishtest.schemas import books_schema, github_repo, github_repo_input
+from fishtest.schemas import (
+    REPORT_LIMIT,
+    books_schema,
+    github_repo,
+    github_repo_input,
+)
 from fishtest.views import get_master_info, get_sha
+
+# A stored cache that is absent, told apart from one that is present and wrong.
+_MISSING = object()
 
 
 class CreateGitHubApiTest(unittest.TestCase):
@@ -69,11 +79,7 @@ class CreateGitHubApiTest(unittest.TestCase):
             ).decode()
         )
         # test passes if no exception is raised
-        validate(
-            books_schema,
-            books,
-            name="books",
-        )
+        books_schema.validate(books)
         books1 = json.loads(
             gh.download_from_github(
                 "books.json",
@@ -146,19 +152,11 @@ class CreateGitHubApiTest(unittest.TestCase):
 
 class RepoSchemaValidationTests(unittest.TestCase):
     def test_github_repo_input_accepts_trailing_slash(self):
-        validate(
-            github_repo_input,
-            "https://github.com/official-stockfish/Stockfish/",
-            name="tests_repo",
-        )
+        github_repo_input.validate("https://github.com/official-stockfish/Stockfish/")
 
     def test_github_repo_rejects_trailing_slash(self):
         with self.assertRaises(ValidationError):
-            validate(
-                github_repo,
-                "https://github.com/official-stockfish/Stockfish/",
-                name="tests_repo",
-            )
+            github_repo.validate("https://github.com/official-stockfish/Stockfish/")
 
 
 class MasterInfoRobustnessTests(unittest.TestCase):
@@ -302,6 +300,70 @@ class RepoCanonicalizationTests(unittest.TestCase):
             {},
         )
         self.assertEqual(key_with_slash, key_without_slash)
+
+
+class ApiCacheRestoreTests(unittest.TestCase):
+    """The stored cache is restored through its schema, not a chain of probes."""
+
+    def _restore(self, stored):
+        kvstore = {"github_api_cache": stored} if stored is not _MISSING else {}
+        old_kvstore, old_initialized = gh._kvstore, gh._api_initialized
+        try:
+            gh.clear_api_cache()
+            gh.init(kvstore, None, refresh_master_sha=False)
+            return dict(gh._lru_cache.items())
+        finally:
+            gh.clear_api_cache()
+            gh._kvstore, gh._api_initialized = old_kvstore, old_initialized
+
+    def test_a_well_formed_cache_is_restored(self):
+        stored = {
+            "version": gh.GITHUB_API_VERSION,
+            "lru_cache": [[["normalize_repo", "https://github.com/a/b"], "value"]],
+        }
+        self.assertEqual(
+            self._restore(stored),
+            {("normalize_repo", "https://github.com/a/b"): "value"},
+        )
+
+    def test_a_cache_the_schema_refuses_leaves_an_empty_cache(self):
+        version = gh.GITHUB_API_VERSION
+        for stored in (
+            _MISSING,
+            "not a document",
+            {"version": version},
+            {"version": version, "lru_cache": "not a list"},
+            {"version": version, "lru_cache": [["only-one-element"]]},
+            {"version": version, "lru_cache": [["not-a-key-sequence", "v"]]},
+            {"version": version + 1, "lru_cache": []},  # a different version
+        ):
+            self.assertEqual(self._restore(stored), {}, repr(stored))
+
+    def test_a_refused_cache_reports_its_first_failures(self):
+        # The cache holds any number of entries, so the printed report lists
+        # the full report's first failures, not one line per broken entry.
+        stored = {
+            "version": gh.GITHUB_API_VERSION,
+            "lru_cache": [["not-a-key-sequence", "v"]] * 1000,
+        }
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            self.assertEqual(self._restore(stored), {})
+        self.assertIn(f"{REPORT_LIMIT} validation errors:", printed.getvalue())
+
+    def test_the_restored_cache_survives_a_save_round_trip(self):
+        kvstore = {}
+        old_kvstore, old_initialized = gh._kvstore, gh._api_initialized
+        try:
+            gh._kvstore, gh._api_initialized = kvstore, True
+            gh.clear_api_cache()
+            gh._lru_cache[("normalize_repo", "https://github.com/a/b")] = "value"
+            gh.save()
+        finally:
+            gh._kvstore, gh._api_initialized = old_kvstore, old_initialized
+        self.assertEqual(
+            self._restore(kvstore["github_api_cache"]),
+            {("normalize_repo", "https://github.com/a/b"): "value"},
+        )
 
 
 class GitHubApiRetryTests(unittest.TestCase):

@@ -15,7 +15,7 @@ system is shaped, and reference tables to look a fact up in.
 
 | Section | Document | Audience | Description |
 |---|---|---|---|
-| Guides | [Development](development.md) | All developers | Dev setup, validation workflows, vtjson rules, OpenAPI, this site |
+| Guides | [Development](development.md) | All developers | Dev setup, validation workflows, valgebra rules, OpenAPI, this site |
 | Guides | [Deployment](deployment.md) | Operators | systemd, nginx, kernel tuning, capacity audit |
 | Explanation | [Architecture](architecture.md) | All contributors | Server structure, module map, request flow, startup/shutdown |
 | Explanation | [Threading model](threading-model.md) | Backend contributors | Async/sync boundaries, threadpool usage, rules for new code |
@@ -40,7 +40,7 @@ their full text, for tools that read documentation.
 (cd server && FISHTEST_INSECURE_DEV=1 uv run uvicorn fishtest.app:app --reload --port 8000)
 ```
 
-For OpenAPI docs, worker setup, local validation workflows, and vtjson
+For OpenAPI docs, worker setup, local validation workflows, and valgebra
 validation rules, see
 [Development](development.md).
 
@@ -54,7 +54,7 @@ validation rules, see
 | Client interactivity | htmx 4.0.1 (CDN, fragment polling/swaps, OOB updates) |
 | Session management | itsdangerous `TimestampSigner` cookie sessions |
 | Database | MongoDB (pymongo) |
-| Validation | vtjson (schema-first validation; no Pydantic) |
+| Validation | valgebra (schema-first validation; no Pydantic) |
 | Statistics | scipy, numpy (SPRT, ELO calculations) |
 | Python (server) | >= 3.15 |
 | Python (worker) | >= 3.8 |
@@ -124,6 +124,11 @@ uv lock
 
 After any dependency change, commit both the modified `pyproject.toml` and
 the updated `uv.lock`.
+
+`server/pyproject.toml` holds valgebra below its next minor release. A 0.0.x
+minor of valgebra can change which schemas build, so
+`uv lock --upgrade-package valgebra` stays within the current minor, and taking
+the next one raises both bounds and runs the server tests on it.
 
 ### Pre-commit hooks
 

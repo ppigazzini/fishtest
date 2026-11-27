@@ -13,7 +13,6 @@ import gzip
 import hashlib
 import logging
 import os
-import re
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -29,7 +28,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import Request  # noqa: TC002
 from starlette.responses import HTMLResponse, RedirectResponse, Response
-from vtjson import ValidationError, union, validate
+from valgebra import ValidationError
 
 import fishtest.github_api as gh
 import fishtest.stats.stat_util
@@ -109,11 +108,14 @@ from fishtest.http.ui_cookies import (
 from fishtest.http.ui_pipeline import apply_http_cache
 from fishtest.run_cache import Prio
 from fishtest.schemas import (
+    REPORT_LIMIT,
     RUN_VERSION,
-    github_repo_input,
     is_undecided,
+    net_name,
     runs_schema,
-    short_worker_name,
+    tests_repo_input,
+    valid_username,
+    worker_name_or_show,
 )
 from fishtest.spsa_workflow import build_spsa_form_values, format_spsa_value
 from fishtest.util import (
@@ -745,11 +747,11 @@ def signup(request: _ViewContext) -> dict[str, Any] | RedirectResponse:  # noqa:
         errors.append("Error! Invalid email: " + validated_email)
     if len(signup_username) == 0:
         errors.append("Error! Username required")
-    if not signup_username.isalnum():
-        errors.append("Error! Alphanumeric username required")
+    elif not valid_username.is_valid(signup_username):
+        errors.append("Error! Alphanumeric username of 2 characters or more required")
 
     try:
-        validate(union(github_repo_input, ""), tests_repo, "tests_repo")
+        tests_repo_input.validate(tests_repo)
     except ValidationError as e:
         errors.append(f"Error! Invalid tests repo {tests_repo}: {e!s}")
 
@@ -1065,7 +1067,7 @@ def workers(request: _ViewContext) -> dict[str, Any] | Response:  # noqa: C901, 
     admin_context = {}
 
     try:
-        validate(union(short_worker_name, "show"), worker_name, name="worker_name")
+        worker_name_or_show.validate(worker_name)
     except ValidationError as e:
         request.session.flash(str(e), "error")
     else:
@@ -1233,7 +1235,7 @@ def upload(request: _ViewContext) -> dict[str, Any] | RedirectResponse:  # noqa:
     errors = []
     if len(network) >= _MAX_NETWORK_SIZE_BYTES:
         errors.append("Network must be < 200MB")
-    if not re.match(r"^nn-[0-9a-f]{12}\.nnue$", filename):
+    if not net_name.is_valid(filename):
         errors.append('Name must match "nn-[SHA256 first 12 digits].nnue"')
     net_hash = hashlib.sha256(network).hexdigest()
     if net_hash[:12] != filename[3:15]:
@@ -1728,7 +1730,7 @@ def user(request: _ViewContext) -> dict[str, Any] | RedirectResponse:  # noqa: C
                     return home(request)
 
             try:
-                validate(union(github_repo_input, ""), tests_repo, "tests_repo")
+                tests_repo_input.validate(tests_repo)
             except ValidationError as e:
                 request.session.flash(
                     f"Error! Invalid test repo {tests_repo}: {e!s}",
@@ -2662,7 +2664,7 @@ def tests_delete(request: _ViewContext) -> RedirectResponse | dict[str, Any]:
         request.rundb.set_inactive_run(run)
         run["deleted"] = True
         try:
-            validate(runs_schema, run, "run")
+            runs_schema.validate(run, limit=REPORT_LIMIT)
         except ValidationError as e:
             message = (
                 f"The run object {request.POST['run-id']} does not validate: {e!s}"

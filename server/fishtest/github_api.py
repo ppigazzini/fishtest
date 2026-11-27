@@ -5,9 +5,10 @@ from typing import Protocol, TypedDict
 from urllib.parse import urlparse
 
 import requests
-from vtjson import validate
+from valgebra import intersection
 
 from fishtest.lru_cache import LRUCache, lru_cache
+from fishtest.schemas import REPORT_LIMIT, github_api_cache_schema, open_record
 from fishtest.schemas import sha as sha_schema
 
 
@@ -51,6 +52,12 @@ _github_rate_limit: _GitHubRateLimit = {
     "_uninitialized": True,
 }
 _lru_cache = LRUCache(LRU_CACHE_SIZE)
+# The stored cache met with the version this build writes: a document from an
+# older version fails the same single check its shape does, so restoring it is
+# one membership question rather than a chain of probes.
+_stored_api_cache_schema = intersection(
+    github_api_cache_schema, open_record({"version": GITHUB_API_VERSION})
+)
 _kvstore: _KeyValueStore | None = None
 
 _dummy_sha = 40 * "f"
@@ -69,38 +76,16 @@ def init(kvstore, actiondb, *, refresh_master_sha=True):
     _ = actiondb
     try:
         kvstore_handle = _require_kvstore()
-        if "github_api_cache" in kvstore_handle:
-            raw_github_api_cache = kvstore_handle["github_api_cache"]
-        else:
+        if "github_api_cache" not in kvstore_handle:
             raise Exception("No previously saved github_api_cache")
-        if not isinstance(raw_github_api_cache, dict):
-            raise Exception("Stored github_api_cache has invalid type")
-
-        cache_version = next(
-            (value for key, value in raw_github_api_cache.items() if key == "version"),
-            None,
+        # `ensure` is the value-returning check: what comes back is the document
+        # that went in, now known to have the shape the loop below reads. The
+        # cache holds any number of entries, so the report lists the first.
+        stored = _stored_api_cache_schema.ensure(
+            kvstore_handle["github_api_cache"], limit=REPORT_LIMIT
         )
-        if cache_version != GITHUB_API_VERSION:
-            raise Exception("Stored github_api_cache has different version")
-
-        cache_entries = next(
-            (
-                value
-                for key, value in raw_github_api_cache.items()
-                if key == "lru_cache"
-            ),
-            None,
-        )
-        if not isinstance(cache_entries, list):
-            raise Exception("Stored github_api_cache has invalid lru_cache")
-
-        for entry in cache_entries:
-            if not isinstance(entry, (list, tuple)) or len(entry) != 2:
-                raise Exception("Stored github_api_cache entry has invalid shape")
-            k, v = entry
-            if not isinstance(k, (list, tuple)):
-                raise Exception("Stored github_api_cache key has invalid shape")
-            _lru_cache[tuple(k)] = v
+        for key, value in stored["lru_cache"]:
+            _lru_cache[tuple(key)] = value
     except Exception as e:
         print(f"Unable to restore github_api_cache from kvstore: {str(e)}", flush=True)
 
@@ -305,8 +290,8 @@ def compare_sha(
     # This sadly prevents us from using negative caching.
 
     # Non sha arguments cannot be safely cached
-    validate(sha_schema, sha1)
-    validate(sha_schema, sha2)
+    sha_schema.validate(sha1)
+    sha_schema.validate(sha2)
 
     if user2 is None:
         user2 = user1

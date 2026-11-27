@@ -1,18 +1,23 @@
 """Test RunDb persistence and run lifecycle behavior."""
 
 import gzip
+import json
 import random
 import sys
 import unittest
 from datetime import UTC, datetime, timedelta
+from unittest import mock
 
 import test_support
 from bson.objectid import ObjectId
 from pymongo import DESCENDING
 
+import fishtest.github_api as gh
 from fishtest.api import WORKER_VERSION
 from fishtest.run_cache import Prio
+from fishtest.schemas import REPORT_LIMIT, books_schema, runs_schema
 from fishtest.spsa_handler import _pack_flips, _unpack_flips
+from fishtest.stats import stat_util
 
 
 class CreateRunDBTest(unittest.TestCase):
@@ -91,6 +96,7 @@ class CreateRunDBTest(unittest.TestCase):
         finished: bool = False,
         tests_repo: str = "https://github.com/15408be06cfa0ff6/Stockfish",
         master_repo: str | None = None,
+        sprt: dict | None = None,
     ) -> str:
         num_tasks = 4
         num_games = num_tasks * self.chunk_size
@@ -121,6 +127,7 @@ class CreateRunDBTest(unittest.TestCase):
             auto_purge=False,
             username="TestRunDbUser",
             start_time=datetime.now(UTC),
+            sprt=sprt,
         )
 
         run = self.rundb.get_run(run_id)
@@ -298,6 +305,49 @@ class CreateRunDBTest(unittest.TestCase):
             "https://github.com/official-stockfish/Stockfish",
         )
 
+    def test_16_new_run_refuses_an_sprt_bound_that_is_not_finite(self):
+        # The run form reads the bounds with `float()`, which takes "inf".
+        def sprt(elo0):
+            return stat_util.SPRT(
+                alpha=0.05,
+                beta=0.05,
+                elo0=elo0,
+                elo1=2.0,
+                elo_model="normalized",
+                batch_size=8,
+            )
+
+        self._create_test_run(sprt=sprt(0.0))
+        with self.assertRaisesRegex(Exception, "does not validate"):
+            self._create_test_run(sprt=sprt(float("inf")))
+
+    def test_17_a_refused_run_names_each_bad_field(self):
+        sprt = stat_util.SPRT(
+            alpha=0.05,
+            beta=0.05,
+            elo0=float("nan"),
+            elo1=float("inf"),
+            elo_model="normalized",
+            batch_size=8,
+        )
+        with self.assertRaises(Exception) as caught:
+            self._create_test_run(sprt=sprt)
+        self.assertIn("args.sprt.elo0", str(caught.exception))
+        self.assertIn("args.sprt.elo1", str(caught.exception))
+
+    def test_18_the_log_of_a_broken_cache_lists_its_first_entries(self):
+        # The report stops at its first failures, in the cache's own order.
+        broken = {f"host{i:03}-4cores-abcd{i:04}": None for i in range(100)}
+        with (
+            mock.patch.object(self.rundb, "wtt_map", broken),
+            mock.patch.object(self.rundb.run_cache, "validate"),
+            mock.patch.object(self.rundb.actiondb, "log_message") as log,
+        ):
+            self.rundb.validate_data_structures()
+        message = log.call_args.kwargs["message"]
+        listed = [name for name in broken if name in message]
+        self.assertEqual(listed, list(broken)[:REPORT_LIMIT])
+
     def test_20_update_task(self):
         run_id = self._create_test_run()
         run = self.rundb.get_run(run_id)
@@ -370,6 +420,28 @@ class CreateRunDBTest(unittest.TestCase):
             {},
         )
         self.assertEqual(run, {"task_alive": False})
+
+    def test_21_the_run_writers_store_the_types_the_schema_states(self):
+        # A field states the type it stores, so the writers that fill a live
+        # run must store that type: the throughput and rate updates, the
+        # scheduler's itp, and the finishing write, whose zeros are float
+        # literals the finished-run rule pins. The helper's task is a stub no
+        # worker was given, so the run is checked as new_run wrote it.
+        run_id = self._create_test_run()
+        run = self.rundb.get_run(run_id)
+        run["tasks"] = []
+        self.rundb.buffer(run, priority=Prio.SAVE_NOW)
+        runs_schema.validate(run, fail_fast=True)
+
+        # The two updates walk every unfinished run, and the other tests leave
+        # runs with stub tasks behind, so they are pointed at this one.
+        with mock.patch.object(self.rundb, "unfinished_runs", {run_id}):
+            self.rundb.update_nps_gpm()
+            self.rundb.update_itp()
+        runs_schema.validate(self.rundb.get_run(run_id), fail_fast=True)
+
+        self.rundb.set_inactive_run(self.rundb.get_run(run_id))
+        runs_schema.validate(self.rundb.get_run(run_id), fail_fast=True)
 
     def test_30_finish(self):
         run_id = self._create_test_run()
@@ -815,6 +887,49 @@ class CreateRunDBTest(unittest.TestCase):
             self.assertTrue(isinstance(b, bytes))
             c = _unpack_flips(b, length=L)
             self.assertEqual(a, c)
+
+
+class UpdateBooksTest(unittest.TestCase):
+    BOOK = {
+        "total": 10,
+        "white": 4,
+        "black": 6,
+        "min_depth": None,
+        "max_depth": 8,
+        "sri": "sha384-" + "A" * 64,
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rundb = test_support.get_rundb()
+
+    def setUp(self):
+        stored = self.rundb.kvstore.get("books")
+        loaded = self.rundb.books
+        self.addCleanup(setattr, self.rundb, "books", loaded)
+        if stored is None:
+            self.addCleanup(self.rundb.kvstore.pop, "books", None)
+        else:
+            self.addCleanup(self.rundb.kvstore.__setitem__, "books", stored)
+
+    def _update_books_from(self, books):
+        download = mock.patch.object(
+            gh, "download_from_github", return_value=json.dumps(books).encode()
+        )
+        with download:
+            self.rundb.update_books()
+
+    def test_a_book_gaining_a_field_is_stored_with_the_declared_fields(self):
+        self._update_books_from({"UHO.epd": {**self.BOOK, "description": "x"}})
+        self.assertEqual(self.rundb.books, {"UHO.epd": self.BOOK})
+        self.assertEqual(self.rundb.kvstore["books"], {"UHO.epd": self.BOOK})
+        self.assertIn(self.rundb.books, books_schema)
+
+    def test_a_book_missing_a_field_keeps_the_stored_books(self):
+        self._update_books_from({"UHO.epd": self.BOOK})
+        self._update_books_from({"UHO2.epd": {"total": 10}})
+        self.assertEqual(self.rundb.books, {"UHO.epd": self.BOOK})
+        self.assertEqual(self.rundb.kvstore["books"], {"UHO.epd": self.BOOK})
 
 
 if __name__ == "__main__":

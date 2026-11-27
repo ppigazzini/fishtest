@@ -10,11 +10,17 @@ from fastapi import APIRouter, HTTPException
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, StreamingResponse
-from vtjson import ValidationError, validate
+from valgebra import ValidationError
 
 import fishtest.github_api as gh
 from fishtest.http.boundary import ApiRequestShim, get_request_shim
-from fishtest.schemas import api_access_schema, api_schema, gzip_data
+from fishtest.schemas import (
+    REPORT_LIMIT,
+    api_access_schema,
+    api_schema,
+    gzip_data,
+    unix_timestamp_param,
+)
 from fishtest.stats.stat_util import SPRT_elo, get_elo
 from fishtest.util import strip_run, worker_name
 
@@ -89,7 +95,7 @@ class WorkerApi(GenericApi):
     def validate_username_password(self):
         # Is the request syntactically correct?
         try:
-            validate(api_access_schema, self.request_body, "request")
+            api_access_schema.validate(self.request_body)
         except ValidationError as e:
             self.handle_error(str(e))
 
@@ -116,7 +122,7 @@ class WorkerApi(GenericApi):
 
         # Is the request syntactically correct?
         try:
-            validate(api_schema, self.request_body, "request")
+            api_schema.validate(self.request_body, limit=REPORT_LIMIT)
         except ValidationError as e:
             self.handle_error(str(e))
 
@@ -275,7 +281,7 @@ class WorkerApi(GenericApi):
         self.validate_request()
         try:
             pgn_zip = base64.b64decode(self.pgn())
-            validate(gzip_data, pgn_zip, "pgn")
+            gzip_data.validate(pgn_zip)
         except Exception as e:
             self.handle_error(str(e))
         result = self.request.rundb.upload_pgn(
@@ -370,7 +376,7 @@ class UserApi(GenericApi):
         page_size = 50
 
         last_updated = None
-        if timestamp != "" and re.match(r"^\d{10}(\.\d+)?$", timestamp):
+        if timestamp != "" and unix_timestamp_param.is_valid(timestamp):
             last_updated = datetime.fromtimestamp(float(timestamp))
         elif timestamp != "":
             self.handle_error("Please provide a valid UNIX timestamp.")

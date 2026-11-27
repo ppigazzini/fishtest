@@ -5,6 +5,7 @@ import base64
 import copy
 import gzip
 import io
+import json
 import sys
 import unittest
 from datetime import UTC, datetime
@@ -12,6 +13,7 @@ from datetime import UTC, datetime
 import test_support
 
 from fishtest.run_cache import Prio
+from fishtest.schemas import REPORT_LIMIT
 
 try:
     from fishtest.api import WORKER_VERSION
@@ -358,6 +360,37 @@ class TestHttpApi(unittest.TestCase):
             self.assertTrue(body["error"].startswith(f"{path}:"))
             self.assertIn("request is not json encoded", body["error"])
             self.assertTrue(isinstance(body.get("duration"), (int, float)))
+
+    def test_a_number_past_the_float_range_is_refused(self):
+        # `1e400` is JSON, and the parser reads it as an infinity, which no
+        # float field takes.
+        body = json.dumps(self._payload(password=self.password))
+        self.assertIn('"nps": 0.0', body)
+        response = self.client.post(
+            "/api/request_task",
+            content=body.replace('"nps": 0.0', '"nps": 1e400').encode(),
+            headers={"content-type": "application/json"},
+        )
+        self._assert_worker_error_response(
+            response,
+            status_code=400,
+            path="/api/request_task",
+            contains="worker_info.nps",
+        )
+
+    def test_a_refused_request_lists_its_first_failures(self):
+        # The body is bounded by the proxy alone, so the report is not one line
+        # per undeclared key.
+        payload = self._payload(password=self.password)
+        payload |= {f"undeclared{i:04}": 1 for i in range(1000)}
+        response = self.client.post("/api/request_task", json=payload)
+        body = self._assert_worker_error_response(
+            response,
+            status_code=400,
+            path="/api/request_task",
+            contains="5 validation errors",
+        )
+        self.assertEqual(body["error"].count("extra_forbidden"), REPORT_LIMIT)
 
     def test_invalid_arch(self):
         worker_info = copy.deepcopy(self.worker_info)

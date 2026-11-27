@@ -108,16 +108,101 @@ For a focused server-only loop when MongoDB is already running:
 
 See [Home](index.md) for pre-commit hooks and CI workflows.
 
-## vtjson rules
+## valgebra rules
 
-Use vtjson for all server-side validation.
+Use [valgebra](https://ppigazzini.github.io/valgebra/) for all server-side
+validation. A schema denotes a set of Python values, and validation is
+membership: the document is checked as it stands, never copied or coerced.
 
 Core rules:
 
 - Define persisted document schemas in `server/fishtest/schemas.py`.
-- Treat persisted vtjson schemas as both documentation and the final server-side
+- Treat the persisted schemas as both documentation and the final server-side
     gate for stored data.
-- Keep vtjson as the only server-side data validation layer. Do not introduce
+- Write a schema as a typing annotation where typing can spell the set, and use
+    `Annotated[T, ...]` with the annotated-types markers for a refinement. Reach
+    for `union`, `intersection` and `complement` when the set is a combination,
+    and for a predicate only when no marker expresses the check.
+- Where an element is a compiled validator, write the native form: `[v]` for
+    `list[v]` and `{str: v}` for `dict[str, v]`. A type checker refuses a
+    variable inside a typing subscript. Where no native form exists (a set, a
+    tuple, a list under `Annotated`), write the element as
+    `Annotated[object, v]`, which is `v`. A constant set held in a sequence is
+    `union(*values)`, not `Literal[*values]`.
+- Compile each schema once, at import, into a module-level `Validator`; call
+    `.validate(document)` at the boundary.
+- State the type a field actually stores. `int` and `float` are disjoint sets
+    and a literal admits only values of its constant's type, so a field
+    declared `float` rejects `0` and a field declared `0.0` rejects `0`. Where a writer disagrees with
+    the schema, fix the writer: the schema is the statement of intent.
+- `bool` subclasses `int`, so a bare `int` admits `True` and `False`. Declare an
+    integer field with `integer`, `uint`, `suint` or `game_count`, which meet
+    `int` with `complement(bool)`.
+- A `float` holds `inf`, `-inf` and NaN: `load` reads a number past the float
+    range, such as `1e400`, as an infinity, and `float()` reads `"inf"` and
+    `"nan"`. Declare a float field with `finite_float`, `ufloat` or `sfloat`,
+    which bound it on both sides, so a relation reads "finite" like any other
+    bound; `at.IsFinite` is a predicate no relation reads. Leave a field a bare
+    `float` only where it stores an infinity, as a bad task's `residual` does.
+- Name a rule the algebra can state (`implies`, `has`, `one_of`) and intersect
+    it with the record. A document then belongs to the record and to every
+    rule, and a relation between schemas reads each rule.
+- Give a predicate the base it reads. `Annotated[base, at.Predicate(rule)]`
+    checks the base first and runs the rule only on its members, so a
+    cross-field rule refines the record whose fields it reads: a malformed
+    document reports its fields, never a `predicate_error` from a rule that
+    could not read them. A rule over a mapping's keys reads any `dict`, so
+    `keys_in` stands beside the mapping.
+- Write a predicate as a named function. A refusal names the rule by its
+    qualified name, `expected a passing is_legacy_username`, where a lambda
+    reads `<lambda>`. A rule that can say what is wrong raises with that
+    account, and the refusal carries the text whole: `total_games_must_match`
+    names both totals, and `keys_in` names the key outside its set.
+- Pass `limit=REPORT_LIMIT` to `validate`, `ensure` or `load` where the
+    structure is unbounded (a run document, the caches, a worker's request):
+    the report lists the full report's first failures and the walk stops there,
+    so neither grows with the rest. Its "5 validation errors" counts the
+    failures listed. Pass `fail_fast=True` where one failure is all the reader
+    uses, and let the small documents aggregate every failure. A reader that
+    acts on each failure takes the full report: the legacy usernames' loader
+    drops every entry the report names.
+- A mapping clause's key is a type, a `Literal`, or a `str` narrowed by a
+    pattern or a length. Key a mapping of run ids by the pattern itself,
+    `{run_id: V}`, and a relation reads its keys. A key narrowed any other way,
+    such as an address a predicate checks, is refused where it is written:
+    write `{str: V}` and check the key shape beside the mapping with the
+    `keys_in` recipe, where only the key constraint is opaque to a relation.
+- Opening a keyed mapping frees every key its clauses leave. Where a tolerant
+    reader must keep the keys, open the values instead: `{book: V.open()}`.
+- `Regex` matches the whole string on the Rust engine, whose dialect is close
+    to `re`'s but not equal to it. `\d`, `\w` and `\s` are Unicode-aware, so
+    write `[0-9]` where the value is parsed as a number afterwards, and check a
+    ported pattern against the [refinements
+    page](https://ppigazzini.github.io/valgebra/guides/refinements/) rather
+    than against "it compiled".
+- A `False` from `is_subtype_of`, `is_equivalent` or `is_empty` is "no, or not
+    proven", never a proof of the negative. Ask `relation_to` when a test needs
+    the refutation: `"not_subset"` is a statement about a value, `"undecided"`
+    is the conservative answer, and only membership is exact in both directions.
+    `relation_to(nothing)` is the same three answers about emptiness, so
+    `"not_subset"` there is a *proof that a schema admits a value*.
+- Validate a JSON boundary with `load`, which parses and checks in one pass on
+    the Rust path and returns the document. Nothing else may parse the same
+    bytes in Python: a `json.loads` beside a schema reads the document twice.
+- A shape check written as a chain of `isinstance` probes is a second validation
+    layer for the same contract. State it as a schema and check it once. An open
+    record (`open_record`, or `.open()`) is "at least these fields", which is
+    what a reader tolerant of what it does not touch means — and it is what
+    keeps a third-party payload gaining a key from failing.
+- Where a reader is deliberately tolerant, give each read its own schema rather
+    than one schema for the whole payload; a partly corrupt document then still
+    yields the fields that are intact. State the relation between those schemas
+    as a meet when one is the other plus a field, so it stays a proof rather
+    than two shapes kept in step by hand.
+- `value in schema` is the operator form of `schema.is_valid(value)`. Prefer it
+    where the surrounding code reads as set membership, and the method where the
+    validator's name does not read as a set.
+- Keep valgebra as the only server-side data validation layer. Do not introduce
     Pydantic models or a second schema system for the same contracts.
 - Use different schemas when raw input and persisted data intentionally allow
     different values.

@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 from pymongo import ASCENDING
-from vtjson import ValidationError, validate
+from valgebra import ValidationError
 
 import fishtest.github_api as gh
 from fishtest.lru_cache import lru_cache
@@ -12,7 +12,7 @@ DEFAULT_MACHINE_LIMIT = 16
 
 def validate_user(user):
     try:
-        validate(user_schema, user, "user")
+        user_schema.validate(user)
     except ValidationError as e:
         message = f"The user object does not validate: {str(e)}"
         print(message, flush=True)
