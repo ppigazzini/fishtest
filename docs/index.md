@@ -16,7 +16,7 @@ system is shaped, and reference tables to look a fact up in.
 | Section | Document | Audience | Description |
 |---|---|---|---|
 | Guides | [Development](development.md) | All developers | Dev setup, validation workflows, valgebra rules, OpenAPI, this site |
-| Guides | [Deployment](deployment.md) | Operators | systemd, nginx, kernel tuning, capacity audit |
+| Guides | [Deployment](deployment.md) | Operators | systemd, nginx, kernel tuning, capacity audit, stored document audit, run float conversion |
 | Explanation | [Architecture](architecture.md) | All contributors | Server structure, module map, request flow, startup/shutdown |
 | Explanation | [Threading model](threading-model.md) | Backend contributors | Async/sync boundaries, threadpool usage, rules for new code |
 | Explanation | [Worker](worker.md) | Worker contributors | Worker architecture, task lifecycle, API usage |

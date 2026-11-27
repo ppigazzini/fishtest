@@ -113,7 +113,7 @@ plugins:
           - index.md: What fishtest is, the technology stack, the project layout, and the map of these pages.
         Guides:
           - development.md: Set up a development server, run the checks and tests, and follow the validation rules.
-          - deployment.md: Run the production server with systemd and nginx, tune the host, and audit its capacity.
+          - deployment.md: Run the production server with systemd and nginx, tune the host, audit its capacity, and audit the stored documents.
         Explanation:
           - architecture.md: The server's modules, request flow, startup and shutdown, and the htmx UI model.
           - threading-model.md: The async and sync boundaries, the threadpool, and the rules for new code.
