@@ -1268,9 +1268,9 @@ class TestErrorModel(unittest.TestCase):
         self.assertEqual(
             [error["expected"] for error in caught.exception.errors],
             [
-                "a total_games_must_match that does not raise (raised Exception:"
-                " Total games mismatch. Total games from tasks: 100. Total games"
-                " from run: 999)"
+                "a passing total_games_must_match (raised Exception: Total games"
+                " mismatch. Total games from tasks: 100. Total games from run:"
+                " 999)"
             ],
         )
 
@@ -1284,8 +1284,28 @@ class TestErrorModel(unittest.TestCase):
             s.connections_counter_schema.validate({"1.2.3.4": 1, "not-an-ip": 1})
         self.assertEqual(
             caught.exception.errors[0]["expected"],
-            "a undeclared_keys_belong that does not raise (raised ValueError:"
-            " The undeclared key 'not-an-ip' is outside the key set)",
+            "a passing undeclared_keys_belong (raised ValueError: The undeclared"
+            " key 'not-an-ip' is outside the key set)",
+        )
+
+    def test_a_refused_union_names_its_rule_branch(self):
+        # A name neither branch admits is refused by the union, which names
+        # each branch as the branch names itself alone.
+        with self.assertRaises(ValidationError) as caught:
+            s.username.validate("!!")
+        error = caught.exception.errors[0]
+        self.assertEqual(error["code"], "union_error")
+        self.assertIn("str and a passing is_legacy_username", error["expected"])
+
+    def test_a_key_rule_reads_only_a_mapping_its_shape_admits(self):
+        # A meet asks its predicate only of a value its other members admit, so
+        # a counter refused for a value reports the value, and nothing from the
+        # key rule beside it.
+        with self.assertRaises(ValidationError) as caught:
+            s.connections_counter_schema.validate({"1.2.3.4": 0, "not-an-ip": 1})
+        self.assertEqual(
+            [(e["code"], e["path"]) for e in caught.exception.errors],
+            [("greater_than", ("1.2.3.4",))],
         )
 
     def test_a_cross_field_rule_reads_only_a_record_it_refines(self):
