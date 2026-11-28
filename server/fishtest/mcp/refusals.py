@@ -45,19 +45,6 @@ def _followed(compiler: Compiler, node: Any) -> Any:
     return node
 
 
-def _schema_at(compiler: Compiler, location: str) -> Any:
-    # The schema object holding the keyword at `location`, an evaluation path:
-    # a JSON pointer from the root that enters the schema a `$ref` names.
-    node = compiler.root
-    for part in location.removeprefix("#/").split("/")[:-1]:
-        if part == "$ref":
-            node = compiler.resolve(node["$ref"])
-        else:
-            key = part.replace("~1", "/").replace("~0", "~")
-            node = node[int(key)] if isinstance(node, list) else node[key]
-    return node
-
-
 # Each JSON type as a reader of JSON Schema names it.
 _JSON_TYPES = {
     "string": "a string",
@@ -164,7 +151,10 @@ def _expected(compiler: Compiler, error: dict[str, Any]) -> str:
         # counts the levels of its own walk, which no client can count.
         return "a value that nests fewer levels"
     if "keyword" in error and error["keyword"] != "required":
-        node = _schema_at(compiler, error["keywordLocation"])
+        # The object the failing keyword sits in is the subschema at the
+        # location's parent: at the location itself, a keyword whose value is a
+        # schema, as `additionalProperties: false`, names that subschema.
+        node = compiler.at(error["keywordLocation"].rpartition("/")[0])
         if error["keyword"] == "additionalProperties":
             keys = list(node.get("properties", ()))
             return f"no key but {_listed(keys, 'and')}" if keys else "no key"

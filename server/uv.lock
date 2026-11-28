@@ -323,8 +323,8 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.18.1" },
     { name = "uvicorn", specifier = ">=0.54.0" },
     { name = "valgebra", specifier = ">=0.0.37,<0.0.38" },
-    { name = "valgebra-jsonschema", specifier = ">=0.0.8,<0.0.9" },
-    { name = "valgebra-planning", extras = ["mcp"], specifier = ">=0.0.10,<0.0.11" },
+    { name = "valgebra-jsonschema", specifier = ">=0.0.9,<0.0.10" },
+    { name = "valgebra-planning", extras = ["mcp"], specifier = ">=0.0.11,<0.0.12" },
     { name = "zxcvbn", specifier = ">=4.5.0" },
 ]
 
@@ -983,29 +983,29 @@ wheels = [
 
 [[package]]
 name = "valgebra-jsonschema"
-version = "0.0.8"
+version = "0.0.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "annotated-types" },
     { name = "typing-extensions" },
     { name = "valgebra" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/de/d2/6ce25a48f9ecc83e4c4a1304f3f87076f1fc0d68bf684175ef08a7c203ee/valgebra_jsonschema-0.0.8.tar.gz", hash = "sha256:0cbeea1d1ecb0ea4c1a910e9713248570afc413935ae9d5b1e503a41b21a27e0", size = 278881, upload-time = "2026-11-27T08:07:02.99Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2f/12/4711262f87ae9c97a0771831c8445ab1b631480cf6ee46cecb8b1ccb69f7/valgebra_jsonschema-0.0.9.tar.gz", hash = "sha256:623d0991a05acef462158c567a0567a4a9383bcd986d8750c60952326f83ef58", size = 290290, upload-time = "2026-11-28T09:12:58.787Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a3/e6/0dc659ab9c4be10ab16d24e144389e474d2064aa89eda55a87ef6344446a/valgebra_jsonschema-0.0.8-py3-none-any.whl", hash = "sha256:d4425f79c8509910d6e0c0e5d85e8361dfc5c57cd88ffafa13b63cafb65e07d6", size = 72162, upload-time = "2026-11-27T08:07:01.663Z" },
+    { url = "https://files.pythonhosted.org/packages/e1/74/570e17695b88532a3631b77cd5c9423e9d27db86b4f09bc4aa36db98c774/valgebra_jsonschema-0.0.9-py3-none-any.whl", hash = "sha256:5a1a102d83480b9cd51571857d3a0780e10db0d516d86a6edea5b4eae519ffa8", size = 76350, upload-time = "2026-11-28T09:12:57.499Z" },
 ]
 
 [[package]]
 name = "valgebra-planning"
-version = "0.0.10"
+version = "0.0.11"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "valgebra" },
     { name = "valgebra-jsonschema" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2a/43/102ffee73056219deee688a57e4f681eee5a8ef41bb70ac193dba817671d/valgebra_planning-0.0.10.tar.gz", hash = "sha256:48f074504f216f5793b5cb0e5ad3123c26d73ce5b2be8fa84259b24d2ae16430", size = 437736, upload-time = "2026-11-27T09:13:07.655Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f8/11/47c5be0eaee4483252df7a4e9b4289a2de0517e83155130ef49dc3b4e69a/valgebra_planning-0.0.11.tar.gz", hash = "sha256:34e301a2337f540d874d49f14ec26c9b208e2e1b9514a2f82c0f856fff18e0cb", size = 481490, upload-time = "2026-11-28T11:04:55.398Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/98/e0/776f72e0fa796f935be244e70f6863ab10d645951bfdd1d3c6d82593342b/valgebra_planning-0.0.10-py3-none-any.whl", hash = "sha256:3a6536f348b24d8795604f54ea24cfda28e4495862cdcaa9057fed9bef621674", size = 164327, upload-time = "2026-11-27T09:13:06.147Z" },
+    { url = "https://files.pythonhosted.org/packages/a8/20/abee4368cdb0986de2ecaf73992ac8a711bb1710f1491b6f6ae8427febab/valgebra_planning-0.0.11-py3-none-any.whl", hash = "sha256:ac28b9a208f0c81c54e2c0b81f025f7db9e3ebaa7ef28f4a7709125682ac67ac", size = 179701, upload-time = "2026-11-28T11:04:54.267Z" },
 ]
 
 [package.optional-dependencies]
