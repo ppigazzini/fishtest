@@ -147,12 +147,15 @@ Core rules:
 - Name a rule the algebra can state (`implies`, `has`, `one_of`) and intersect
     it with the record. A document then belongs to the record and to every
     rule, and a relation between schemas reads each rule.
-- Give a predicate the base it reads. `Annotated[base, at.Predicate(rule)]`
-    checks the base first and runs the rule only on its members, so a
-    cross-field rule refines the record whose fields it reads: a malformed
-    document reports its fields, never a `predicate_error` from a rule that
-    could not read them. A rule over a mapping's keys reads any `dict`, so
-    `keys_in` stands beside the mapping.
+- Write a predicate beside the record it reads. A meet asks a predicate only
+    of a value its other members admit, so
+    `Annotated[dict, Validator(record), at.Predicate(rule)]` runs a cross-field
+    rule on the records `record` admits alone: a malformed document reports
+    its fields, never a `predicate_error` from a rule that could not read
+    them. The base is a type holding every member of the record, since a type
+    checker refuses a validator or a call there. The record is a `Validator`:
+    a bare dict in the metadata is no constraint and is ignored. `keys_in`
+    stands beside the mapping whose keys it reads the same way.
 - Write a predicate as a named function. A refusal names the rule by its
     qualified name, `expected a passing is_legacy_username`, where a lambda
     reads `<lambda>`. A rule that can say what is wrong raises with that

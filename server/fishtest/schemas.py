@@ -28,16 +28,17 @@
 # a record's cross-field arithmetic, an address and the keys of a mapping keyed
 # by one, a mailbox, a signature.
 #
-# A predicate refines the base it reads: `Annotated[base, at.Predicate(rule)]`
-# checks the base first and runs the rule only on its members. So a rule over a
-# record's fields refines that record, and reads them without guarding them: a
-# malformed document reports its fields, not a rule that could not read them. A
-# rule the algebra can state -- `implies`, `has`, `one_of` -- stays a conjunct,
-# where a relation can still read it. A record under `Annotated` is written
-# `Validator({...})`, because Ruff reads the first argument of `Annotated` as a
-# type expression and a bare record's keys as forward references. It stays the
-# base: a validator in the metadata meets the base beside the rule, so the rule
-# would run on a record that failed.
+# A meet asks a predicate only of a value its other members admit, so a rule
+# over a record's fields stands beside that record and reads them without
+# guarding them: `Annotated[dict, record, at.Predicate(rule)]` runs the rule on
+# the dicts the record admits alone, and a malformed document reports its
+# fields, not a rule that could not read them. The base is `dict`, a type
+# holding every member of the record, because a type checker reads the first
+# argument of `Annotated` as a type expression and refuses a validator or a
+# call there. The record in the metadata is written `Validator({...})`: a bare
+# dict there is metadata valgebra does not recognize, and is ignored. A rule
+# the algebra can state -- `implies`, `has`, `one_of` -- stays a conjunct,
+# where a relation can still read it.
 #
 # Some of those predicates *raise* rather than return False, which valgebra
 # reports as `predicate_error` instead of an ordinary non-membership. That is
@@ -355,6 +356,7 @@ def size_is_length(pgn_doc):
 
 pgns_schema = Validator(
     Annotated[
+        dict,
         Validator(
             {
                 "_id?": ObjectId,
@@ -439,6 +441,7 @@ net_test = Validator({"date": datetime_utc, "id": run_id})
 
 nn_schema = Validator(
     Annotated[
+        dict,
         intersection(
             {
                 "_id?": ObjectId,
@@ -775,6 +778,7 @@ def valid_results(stats):
 
 results_schema = Validator(
     Annotated[
+        dict,
         Validator(
             {
                 "wins": uint,
@@ -798,6 +802,7 @@ def valid_spsa_results(stats):
 
 spsa_results_schema = Validator(
     Annotated[
+        dict,
         Validator(
             {
                 "wins": uint,
@@ -1196,6 +1201,7 @@ bad_task_schema = Validator(
 
 runs_schema = Validator(
     Annotated[
+        dict,
         intersection(
             {
                 "_id": ObjectId,
@@ -1313,6 +1319,7 @@ book_fields = {
 
 book_schema = Validator(
     Annotated[
+        dict,
         Validator(book_fields),
         # Every position in the book opens with one side or the other.
         at.Predicate(total_is_white_plus_black),

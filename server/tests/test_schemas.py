@@ -1308,9 +1308,24 @@ class TestErrorModel(unittest.TestCase):
             [("greater_than", ("1.2.3.4",))],
         )
 
-    def test_a_cross_field_rule_reads_only_a_record_it_refines(self):
+    def test_a_cross_field_rule_reads_only_a_member_of_its_record(self):
         # The rule runs on the record's members, so a document missing a field
         # the rule reads reports the field, and nothing from the rule.
+        for schema in (
+            s.pgns_schema,
+            s.nn_schema,
+            s.results_schema,
+            s.spsa_results_schema,
+            s.runs_schema,
+            s.book_schema,
+        ):
+            with self.assertRaises(ValidationError) as caught:
+                schema.validate({})
+            self.assertEqual(
+                {e["code"] for e in caught.exception.errors},
+                {"missing_key"},
+                repr(schema),
+            )
         stats = {k: v for k, v in ZERO_RESULTS.items() if k != "pentanomial"}
         request = {
             "password": "secret",
